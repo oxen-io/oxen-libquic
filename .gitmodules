@@ -1,0 +1,9 @@
+[submodule "external/ngtcp2"]
+	path = external/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git
+[submodule "external/libuv"]
+	path = external/libuv
+	url = https://github.com/libuv/libuv.git
+[submodule "external/uvw"]
+	path = external/uvw
+	url = https://github.com/jagerman/uvw.git
