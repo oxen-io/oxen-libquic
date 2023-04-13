@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <cstring>
 #include <gnutls/gnutls.h>
+#include <arpa/inet.h>
+#include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 
@@ -70,8 +72,20 @@ namespace oxen::quic
         private:
             sockaddr_in6 _sock_addr{};
             ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
+
         public:
             Address() = default;
+            Address(std::string addr, uint16_t port) 
+            {
+                memset(&_sock_addr, 0, sizeof(_sock_addr));
+                _sock_addr.sin6_family = AF_INET6;
+                _sock_addr.sin6_port = port;
+
+                if (auto rv = inet_pton(AF_INET6, addr.c_str(), &_sock_addr.sin6_addr); rv != 1)
+                {
+                    throw std::runtime_error("Erorr: could not parse IPv6 address from string");
+                }
+            }
             Address(const sockaddr_in6& addr) : _sock_addr{addr} {}
             Address(const sockaddr_in6& addr, uint16_t port) : _sock_addr{addr} 
             { _sock_addr.sin6_port = port; }

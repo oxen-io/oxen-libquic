@@ -6,6 +6,7 @@
 
 
 #include <fcntl.h>
+#include <memory>
 #include <netinet/in.h>
 #include <stdexcept>
 #include <stdlib.h>
@@ -184,8 +185,30 @@ namespace oxen::quic
         }
 
         auto bound = tcp_tunnel->sock();
+        source_addr = Address{bound.ip, static_cast<uint16_t>(bound.port)};
 
-        // TOFIX: finish this
+        // assign the next available client tunnel pseudo-port value
+        if (next_pseudo_port)
+        {
+            pseudo_port = next_pseudo_port;
+            next_pseudo_port += 1;
+        }
+        else
+        {
+            auto last_key = --client_tunnels.end();
+            pseudo_port = last_key->first + 1;
+            next_pseudo_port = pseudo_port + 1;
+        }
+
+        // emplace new connection into client tunnels
+        assert(client_tunnels.count(pseudo_port) == 0);
+        auto& ct = client_tunnels[pseudo_port];
+        ct.open_cb = std::move(on_open);
+        ct.close_cb = std::move(on_close);
+        ct.tcp_socket = std::move(tcp_tunnel);
+        ct.tcp_socket->data(std::make_shared<uint16_t>(pseudo_port));
+        
+        return result;
     }
 
 

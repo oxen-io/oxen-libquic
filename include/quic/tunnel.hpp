@@ -53,6 +53,7 @@ namespace oxen::quic
 			int tun_fd;
 			struct sockaddr remote_addr;
 			unsigned char *read_buffer;
+			uint16_t next_pseudo_port;
 
 			std::shared_ptr<uvw::Loop>
     		get_loop();
@@ -80,7 +81,10 @@ namespace oxen::quic
             
             std::shared_ptr<uvw::Loop> ev_loop;
 
-		private:	
+		private:
+			// 	Client tunnels are stored mapped to their local pseudo-port. No two tunnels
+			//	have the same psuedo-port key; when emplacing a new client tunnel, we take
+			//	the last element and increment to find the next unused pseudo-port key
 			std::map<uint16_t, ClientTunnel> client_tunnels;
 
 			std::unique_ptr<Server> server_ptr;
