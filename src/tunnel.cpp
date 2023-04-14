@@ -1,10 +1,16 @@
 #include "tunnel.hpp"
+#include "context.hpp"
 #include "server.hpp"
 #include "client.hpp"
 #include "endpoint.hpp"
 #include "connection.hpp"
+#include "utils.hpp"
 
+#include <uvw/emitter.h>
+#include <uvw/stream.h>
+#include <uvw/tcp.h>
 
+#include <cstdio>
 #include <fcntl.h>
 #include <memory>
 #include <netinet/in.h>
@@ -33,34 +39,52 @@ namespace oxen::quic
         for (auto& conn: conns)
             conn->close();
         conns.clear();
-
-        while (not pending.empty())
-        {
-            if (auto tcp = pending.front().lock())
-            {
-                tcp->clear();
-                tcp->close();
-            }
-            pending.pop();
-        }
     }
 
+
+    Tunnel::Tunnel(Context& ctx)
+    {
+        ev_loop = std::make_shared<uvw::Loop>(ctx.ev_loop);
+    }
+
+
+    Tunnel::~Tunnel()
+    {
+        ev_loop->clear();
+        ev_loop->stop();
+    }
+
+
     std::shared_ptr<uvw::Loop>
-    Tunnel::get_loop()
+    Tunnel::loop()
     {
         return (ev_loop) ? ev_loop : nullptr;
     }
 
-    void
-    Tunnel::flush_pending_incoming(ClientTunnel& ct)
-    {
-        if (!ct.client)
-            return;
-        auto& conn = *ct.client->get_conn();
-        if (not conn)
-            return;
 
+    io_result
+    Tunnel::send_packet(const Address& destination, bstring data, uint8_t ecn, std::byte type)
+    {
+        struct iovec iov = {reinterpret_cast<char*>(data.data()), data.length()};
+        struct msghdr msg = {0};
+        ssize_t nwrite;
+
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+
+        do {
+            nwrite = sendmsg(tun_fd, &msg, 0);
+        } while (nwrite == -1 && errno == EINTR);
+
+        if (nwrite == -1)
+        {
+            fprintf(stderr, "Error: call to sendmsg failed [code: %s]\n", strerror(errno));
+            return io_result{-1};
+        }
+
+        return io_result{0};
     }
+
 
     void
 	Tunnel::receive_packet(Address remote, const bstring& buf)
@@ -73,14 +97,15 @@ namespace oxen::quic
 
         std::byte type = buf[0];
         auto ecn = static_cast<uint8_t>(buf[3]);
-        uint16_t pseudo_port, remote_port;
-        std::memcpy(&pseudo_port, &buf[1], 2);
+        uint16_t remote_port_n, remote_port;
+        std::memcpy(&remote_port_n, &buf[1], 2);
+        remote_port = ntohs(remote_port_n);
         Endpoint* ep = nullptr;
         
 
         if (type == CLIENT_TO_SERVER)
         {
-            fprintf(stderr, "Packet is client->server from client port %hu", pseudo_port);
+            fprintf(stderr, "Packet is client->server\n");
             if (!server_ptr)
             {
                 fprintf(stderr, "Error: no listeners for incoming client -> server QUIC packet; dropping packet\n");
@@ -90,10 +115,8 @@ namespace oxen::quic
         }
         else if (type == SERVER_TO_CLIENT)
         {
-            fprintf(stderr, "Packet is server->client to client port %hu", pseudo_port);
-            // search client tunnels to find header port
-            if (auto itr = client_tunnels.find(pseudo_port); itr != client_tunnels.end())
-                ep = itr->second.client.get();
+            fprintf(stderr, "Packet is server->client\n");
+            ep = client_tunnel->client.get();
 
             if (!ep)
             {
@@ -101,10 +124,10 @@ namespace oxen::quic
                 return;
             }
             
-            if (auto conn = static_cast<Client&>(*ep).get_conn())
+            if (auto conn = ep->get_conn())
             {
-                remote_port = conn->path.remote.port();
-                fprintf(stderr, "Remote port is %hu", remote_port);
+                assert(remote_port == conn->path.remote.port());
+                fprintf(stderr, "Remote port is %hu\n", remote_port);
             }
             else
             {
@@ -121,7 +144,8 @@ namespace oxen::quic
         auto remote_addr = Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), remote_port};
 
         Packet pkt{
-            Path{Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), remote_port}, remote_addr},
+            Path{Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), remote_port}, 
+                std::move(remote_addr)},
             buf,
             ngtcp2_pkt_info{.ecn=ecn}
         };
@@ -129,51 +153,84 @@ namespace oxen::quic
         ep->handle_packet(pkt);
     };
 
+
     void
-    Tunnel::close(uint16_t cid)
+    Tunnel::close()
     {
-        if (auto it = client_tunnels.find(cid); it != client_tunnels.end())
-        {
-            auto ts = it->second.tcp_socket;
-            ts->close();
-            ts->data(nullptr);
-            ts.reset();
-        }
+        auto tcp_sock = client_tunnel->tcp_socket;
+        tcp_sock->close();
+        tcp_sock->data(nullptr);
+        tcp_sock.reset();
     }
 
 
-    std::pair<Address, uint16_t>
-    Tunnel::open(std::string remote_address, uint16_t port, open_callback on_open, close_callback on_close, Address bind_addr)
+    void
+    Tunnel::listen()
     {
-        std::string remote_addr = str_tolower(remote_address);
+        if (!server_cb)
+            server_cb = [](std::string addr, uint16_t port) { return Address{"127.0.0.1", port}; };
+        if (!server_ptr)
+            make_server();
+    }
 
-        std::pair<Address, uint16_t> result;
-        auto& [source_addr, pseudo_port] = result;
 
-        auto tcp_tunnel = get_loop()->resource<uvw::TCPHandle>();
+
+    int
+    Tunnel::open(std::string remote_address, uint16_t remote_port, open_callback on_open, close_callback on_close, Address bind_addr)
+    {
+        std::string _remote_address = str_tolower(remote_address);
+        Address ra{};
+
+        auto tcp_tunnel = loop()->resource<uvw::TCPHandle>();
         const char* failed = nullptr;
 
         auto err_handler = tcp_tunnel->once<uvw::ErrorEvent>([&failed](auto& event, auto&) {
             failed = event.what(); });
         tcp_tunnel->bind(*bind_addr.operator const sockaddr*());
         tcp_tunnel->on<uvw::ListenEvent>([this](const uvw::ListenEvent&, uvw::TCPHandle& tcp_tunnel) {
-            auto client = tcp_tunnel.loop().resource<uvw::TCPHandle>();
-            tcp_tunnel.accept(*client);
-            // Freeze the connection (after accepting) because we may need to stall it until a stream
-            // becomes available; flush_pending_incoming will unfreeze it
-            client->stop();
-            auto pport = tcp_tunnel.data<uint16_t>();
-            if (pport)
-            {
-                if (auto it = client_tunnels.find(*pport); it != client_tunnels.end())
+            auto client_handle = tcp_tunnel.loop().resource<uvw::TCPHandle>();
+            tcp_tunnel.accept(*client_handle);
+            client_handle->stop();
+            auto client_conn = client_tunnel->client->get_conn();
+            client_conn->open_stream(
+                [client_handle](Stream& s, bstring data)
                 {
-                    it->second.pending.emplace(std::move(client));
-                    flush_pending_incoming(it->second);
-                    return;
+                    if (data.empty())
+                        return;
+                    if (auto b0 = data[0]; b0 == CONNECT_INIT)
+                    {
+                        client_handle->read();
+                        if (data.size() > 1)
+                        {
+                            data.erase(0, 1);
+                            s.data_callback(s, data);
+                        }
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Error: remote connection returned invalid initial byte; dropping\n");
+                        s.close(ERROR_BAD_INIT);
+                        client_handle->close();
+                    }
+                }, 
+                [client_handle](Stream& s, uint64_t code)
+                {
+                    if (code && code == ERROR_CONNECT)
+                        fprintf(stderr, "Error: remote TCP connection failed; closing local connection\n");
+                    else
+                        fprintf(stderr, "Stream connection closed [code: %s]; closing local connection\n", (code) ? 
+                            strerror(code) : 
+                            "NONE");
+                    
+                    auto peer = client_handle->peer();
+                    fprintf(stderr, "Closing connection to TPC peer [%s:%i]\n", peer.ip.c_str(), peer.port);
+                    client_handle->clear();
+                    client_handle->close();
+                    
                 }
-                tcp_tunnel.data(nullptr);
-            }
-            client->close();
+            );
+            client_conn->io_ready();
+            client_handle->close();
         });
         tcp_tunnel->listen();
         tcp_tunnel->erase(err_handler);
@@ -185,66 +242,268 @@ namespace oxen::quic
         }
 
         auto bound = tcp_tunnel->sock();
-        source_addr = Address{bound.ip, static_cast<uint16_t>(bound.port)};
+        auto source_addr = Address{bound.ip, static_cast<uint16_t>(bound.port)};
+        auto remote_addr = Address{_remote_address, remote_port};
 
-        // assign the next available client tunnel pseudo-port value
-        if (next_pseudo_port)
-        {
-            pseudo_port = next_pseudo_port;
-            next_pseudo_port += 1;
-        }
-        else
-        {
-            auto last_key = --client_tunnels.end();
-            pseudo_port = last_key->first + 1;
-            next_pseudo_port = pseudo_port + 1;
-        }
+        // emplace new connection into client tunnel
+        client_tunnel->open_cb = std::move(on_open);
+        client_tunnel->close_cb = std::move(on_close);
+        client_tunnel->tcp_socket = std::move(tcp_tunnel);
+        //client_tunnel->tcp_socket->data(std::make_shared<uint16_t>(pseudo_port));
 
-        // emplace new connection into client tunnels
-        assert(client_tunnels.count(pseudo_port) == 0);
-        auto& ct = client_tunnels[pseudo_port];
-        ct.open_cb = std::move(on_open);
-        ct.close_cb = std::move(on_close);
-        ct.tcp_socket = std::move(tcp_tunnel);
-        ct.tcp_socket->data(std::make_shared<uint16_t>(pseudo_port));
+        make_client(remote_port, remote_addr);
         
-        return result;
-    }
-
-
-    int 
-    Tunnel::make_client(
-        const uint16_t port, Address& remote, std::pair<const uint16_t, ClientTunnel>& row)
-    {
-
-
         return 0;
     }
 
 
-    int 
+    void
+    Tunnel::reset_tcp_handles(uvw::TCPHandle& tcp, Stream& stream)
+    {
+        
+        
+    }
+
+
+    void 
+    Tunnel::make_client(
+        const uint16_t remote_port, Address& remote)
+    {
+        assert(remote.port() > 0);
+        assert(not client_tunnel->client);
+        client_tunnel->client = std::make_unique<Client>(*this, remote.port(), std::move(remote));
+        auto client_conn = client_tunnel->client->get_conn();
+
+        client_conn->on_stream_available = [this](Connection&) 
+        {
+            fprintf(stderr, "QUIC connection established; streams now available\n");
+
+            auto client_handle = client_tunnel->tcp_socket;
+            auto client_conn = client_tunnel->client->get_conn();
+
+            client_conn->open_stream(
+                [client_handle](Stream& s, bstring data)
+                {
+                    if (data.empty())
+                        return;
+                    if (auto b0 = data[0]; b0 == CONNECT_INIT)
+                    {
+                        client_handle->read();
+                        if (data.size() > 1)
+                        {
+                            data.erase(0, 1);
+                            s.data_callback(s, data);
+                        }
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Error: remote connection returned invalid initial byte; dropping\n");
+                        s.close(ERROR_BAD_INIT);
+                        client_handle->close();
+                    }
+                }, 
+                [client_handle](Stream& s, uint64_t code)
+                {
+                    if (code && code == ERROR_CONNECT)
+                        fprintf(stderr, "Error: remote TCP connection failed; closing local connection\n");
+                    else
+                        fprintf(stderr, "Stream connection closed [code: %s]; closing local connection\n", (code) ? 
+                            strerror(code) : 
+                            "NONE");
+                    
+                    auto peer = client_handle->peer();
+                    fprintf(stderr, "Closing connection to TPC peer [%s:%i]\n", peer.ip.c_str(), peer.port);
+                    client_handle->clear();
+                    client_handle->close();
+                    
+                }
+            );
+            
+            if (client_tunnel->open_cb)
+            {
+                fprintf(stderr, "Calling client tunnel open callback\n");
+                client_tunnel->open_cb(true, nullptr);
+                // only call once; always clear after calling
+                client_tunnel->open_cb = nullptr;
+            }
+            else
+                fprintf(stderr, 
+                    "Error: Connection::on_stream_available fired with no associated client tunnel object\n");
+        };
+
+        client_conn->on_closing = [this](Connection&)
+        {
+            fprintf(stderr, "QUIC connection closing; shutting down tunnel\n");
+
+            auto client_handle = client_tunnel->tcp_socket;
+            auto client_conn = client_tunnel->client->get_conn();
+
+            client_conn->open_stream(
+                [client_handle](Stream& s, bstring data)
+                {
+                    if (data.empty())
+                        return;
+                    if (auto b0 = data[0]; b0 == CONNECT_INIT)
+                    {
+                        client_handle->read();
+                        if (data.size() > 1)
+                        {
+                            data.erase(0, 1);
+                            s.data_callback(s, data);
+                        }
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Error: remote connection returned invalid initial byte; dropping\n");
+                        s.close(ERROR_BAD_INIT);
+                        client_handle->close();
+                    }
+                }, 
+                [client_handle](Stream& s, uint64_t code)
+                {
+                    if (code && code == ERROR_CONNECT)
+                        fprintf(stderr, "Error: remote TCP connection failed; closing local connection\n");
+                    else
+                        fprintf(stderr, "Stream connection closed [code: %s]; closing local connection\n", (code) ? 
+                            strerror(code) : 
+                            "NONE");
+                    
+                    auto peer = client_handle->peer();
+                    fprintf(stderr, "Closing connection to TPC peer [%s:%i]\n", peer.ip.c_str(), peer.port);
+                    client_handle->clear();
+                    client_handle->close();
+                    
+                }
+            );
+
+            if (client_tunnel->close_cb)
+            {
+                fprintf(stderr, "Calling client tunnel close callback\n");
+                client_tunnel->close_cb(0, nullptr);
+            }
+            else
+                fprintf(stderr, 
+                    "Error: Connection::on_closing fired with no associated client tunnel object\n");
+
+            this->close();
+        };
+
+        return;
+    }
+
+
+    void 
     Tunnel::make_server()
     {
-        //auto srv = std::make_unique<Server>();
+        server_ptr = std::make_unique<Server>(*this);
+        server_ptr->stream_open_callback = [this](Stream& stream, uint16_t port) -> bool
+        {
+            auto& conn = stream.get_conn();
+            auto remote_addr = conn.path.remote;
+            if (not remote_addr)
+                return false;
+            auto tcp_handle = loop()->resource<uvw::TCPHandle>();
+            auto error_handler = tcp_handle->once<uvw::ErrorEvent>([&stream](const uvw::ErrorEvent&, uvw::TCPHandle&)
+            {
+                fprintf(stderr, "Eror: Failed to connect to remote; shutting down QUIC stream\n");
+                stream.close(ERROR_CONNECT);
+            });
 
-        return 0;
+            tcp_handle->once<uvw::ConnectEvent>(
+                [stream_wptr = stream.weak_from_this(), error_handler = std::move(error_handler)](
+                    const uvw::ConnectEvent&, uvw::TCPHandle& tcp_handle) 
+                    {
+                        auto peer = tcp_handle.peer();
+                        auto stream = stream_wptr.lock();
+                        if (!stream)
+                        {
+                            fprintf(stderr, 
+                                "Error: Connected to TCP peer [%s:%i], but QUIC stream is gone; closing local TCP connection\n", 
+                                peer.ip.c_str(), peer.port);
+                            
+                            tcp_handle.close();
+                            return;
+                        }
+                        fprintf(stderr, 
+                            "Connected to TCP peer [%s:%i] for QUIC stream ID: %li\n", 
+                            peer.ip.c_str(), peer.port, stream->stream_id);
+                        // set up stream forwarding
+
+                        // send magic byte, start reading from tcp_tunnel
+                        stream->append_buffer(new std::byte[1]{CONNECT_INIT}, 1);
+                        tcp_handle.read();
+                    });
+
+            tcp_handle->connect(remote_addr);
+
+            return true;
+        };
+
+        return;
     }
 
 
-    //  Initializes ip_tunnel_t structure with default values.
-    //  'tun_fd' is set to -1, indicating the tunnel is not yet open
-    int ip_tunnel_init(Tunnel* tunnel) 
+    void
+    Tunnel::close_connection(Connection& conn, int code, std::string_view msg)
     {
-        if (!tunnel)
-            return -1;
+        fprintf(stderr, "Closing connection (CID: %s)\n", conn.source_cid.data);
 
-        tunnel->tun_fd = -1;
-        std::memset(&tunnel->remote_addr, 0, sizeof(struct sockaddr_in));
-        tunnel->read_buffer = (unsigned char*)malloc(IP_TUNNEL_MAX_BUFFER_SIZE);
-        if (!tunnel->read_buffer)
-            return -1;
-        std::memset(tunnel->read_buffer, 0, IP_TUNNEL_MAX_BUFFER_SIZE);
-        return 0;
+        if (!conn || conn.closing || conn.draining)
+            return;
+        
+        if (code == NGTCP2_ERR_IDLE_CLOSE)
+        {
+            fprintf(stderr, 
+                "Connection (CID: %s) passed idle expiry timer; closing now without close packet\n", 
+                conn.source_cid.data);
+            delete_connection(conn.source_cid);
+            return;
+        }
+
+        //  "The error not specifically mentioned, including NGTCP2_ERR_HANDSHAKE_TIMEOUT,
+        //  should be dealt with by calling ngtcp2_conn_write_connection_close."
+        //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
+        if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
+        {
+            fprintf(stderr, 
+            "Connection (CID: %s) passed idle expiry timer; closing now with close packet\n", 
+            conn.source_cid.data);
+        }
+
+        ngtcp2_connection_close_error err;
+        ngtcp2_connection_close_error_set_transport_error_liberr(
+            &err, 
+            code, 
+            reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), 
+            msg.size());
+        
+        conn.conn_buffer.resize(max_pkt_size_v4);
+        Path path;
+        ngtcp2_pkt_info pkt_info;
+
+        auto written = ngtcp2_conn_write_connection_close(
+            conn, path, &pkt_info, u8data(conn.conn_buffer), conn.conn_buffer.size(), &err, get_timestamp());
+
+        if (written <= 0)
+        {
+            fprintf(stderr, "Error: Failed to write connection close packet: ");
+            fprintf(stderr, "[%s]\n", (written < 0) ? 
+                strerror(written) : 
+                "[Error Unknown: closing pkt is 0 bytes?]");
+            
+            delete_connection(conn.source_cid);
+            return;
+        }
+        // ensure we have enough write space
+        assert(written <= (long)conn.conn_buffer.size());
+
+        if (auto rv = send_packet(conn.path.remote, conn.conn_buffer, 0, conn.pkt_type); not rv)
+        {
+            fprintf(stderr, 
+                "Error: failed to send close packet [code: %s]; removing connection (CID: %s)\n", 
+                strerror(rv.error_code), conn.source_cid.data);
+            delete_connection(conn.source_cid);
+        }
     }
     
 

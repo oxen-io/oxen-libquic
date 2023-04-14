@@ -26,14 +26,11 @@ namespace oxen::quic
             return nullptr;
         }
 
-        //  TOFIX: lokinet doesn't use 0RTT, but should we enable it in libQUICinet? Maybe add the
-        //      ability to toggle that on/off
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
             fprintf(stderr, "Error: 0RTT is currently not utilized in this implementation; dropping packet\n");
             return nullptr;
         }
-        //  TOFIX: same note and thoughts as above
         if (hdr.type == NGTCP2_PKT_INITIAL && hdr.tokenlen)
         {
             fprintf(stderr, "Error: Unexpected token in initial packet\n");
@@ -44,7 +41,7 @@ namespace oxen::quic
         {
             if (auto [itr, res] = conns.emplace(Connection::random(), conn_ptr{}); res)
             {
-                auto connptr = std::make_shared<Connection>(*this, itr->first, hdr, std::move(pkt.path));
+                auto connptr = std::make_shared<Connection>(*this, tunnel_ep, itr->first, hdr, std::move(pkt.path));
                 itr->second = connptr;
                 return connptr;
             }

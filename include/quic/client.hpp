@@ -23,7 +23,7 @@ namespace oxen::quic
     {
         public:
             Client(
-                Tunnel& tun_endpoint, const uint16_t port, Address&& remote, uint16_t psuedo_port);
+                Tunnel& tun_endpoint, const uint16_t remote_port, Address&& remote);
 
         private:
             size_t

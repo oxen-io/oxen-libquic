@@ -2,6 +2,7 @@
 
 #include "stream.hpp"
 #include "endpoint.hpp"
+#include "utils.hpp"
 
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
@@ -33,6 +34,8 @@ namespace oxen::quic
             int
             init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
+            std::array<std::byte, NGTCP2_MAX_UDP_PAYLOAD_SIZE> send_buffer{};
+            size_t send_buffer_size = 0;
             ngtcp2_pkt_info pkt_info{};
 
         public:
@@ -42,7 +45,7 @@ namespace oxen::quic
             //      path: network path to reach remote server
             //      tunnel_port: destination port to tunnel to at remote end
             Connection(
-                Tunnel& ep, const ngtcp2_cid& scid, const Path& path, uint16_t tunnel_port);
+                Client& client, Tunnel& ep, const ngtcp2_cid& scid, const Path& path, uint16_t tunnel_port);
 
             //  Construct and initialize a new incoming connection from remote client to local server
             //      ep: tunnel objec tmanaging this connection
@@ -50,13 +53,34 @@ namespace oxen::quic
             //      header: packet header used to initialize connection
             //      path: network path used to reach remote client
             Connection(
-                Tunnel& ep, const ngtcp2_cid& scid, ngtcp2_pkt_hd& hdr, const Path& path);
+                Server& server, Tunnel& ep, const ngtcp2_cid& scid, ngtcp2_pkt_hd& hdr, const Path& path);
 
             ~Connection();
 
             // Callbacks to be invoked if set
             std::function<void(Connection&)> on_stream_available;
             std::function<void(Connection&)> on_closing;            // clear immediately after use
+
+            const std::shared_ptr<Stream>&
+            open_stream(data_callback_t data_cb, close_callback_t close_cb);
+
+            void
+            on_io_ready();
+
+            io_result
+            send();
+
+            void
+            flush_streams();
+
+            void
+            io_ready();
+
+            static ngtcp2_cid
+            random(size_t size = NGTCP2_MAX_CIDLEN);
+
+            void
+            schedule_retransmit();
 
             int
             init_gnutls(Client& client);
@@ -67,18 +91,14 @@ namespace oxen::quic
             int
             get_streams_available();
 
-            const uint64_t 
-            timestamp(void);
-
-            static ngtcp2_cid
-            random(size_t size = NGTCP2_MAX_CIDLEN);
-
             std::unique_ptr<ngtcp2_conn> conn;
             int conn_fd;
+            std::byte pkt_type;
             struct sockaddr_storage local_addr;
             socklen_t local_addrlen;
             gnutls_session_t session;
             gnutls_certificate_credentials_t cred;
+            std::shared_ptr<uvw::TimerHandle> retransmit_timer;
 
             uint16_t client_tunnel_port = 0;
 
@@ -87,6 +107,7 @@ namespace oxen::quic
             bstring conn_buffer;
 
             Tunnel& tun_endpoint;
+            std::unique_ptr<Endpoint> endpoint;
 
             ngtcp2_cid source_cid;
             ngtcp2_cid dest_cid;

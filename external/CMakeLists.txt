@@ -22,7 +22,7 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 
-system_or_submodule(LIBUV uv_a libuv>=1.44.2 libuv)
+system_or_submodule(LIBUV uv_a libuv>=1.43.0 libuv)
 
 add_library(uvw INTERFACE)
 target_include_directories(uvw INTERFACE uvw/src)
@@ -32,12 +32,12 @@ set(GNUTLS_VERSION
     3.7.2 
     CACHE STRING "gnutls version")
 set(GNUTLS_MIRROR 
-    ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7/
+    ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7
     CACHE STRING "gnutls mirror")
 set(GNUTLS_SOURCE
-    gnutls-${GNUTLS_VERSION}.tar.gz)
+    gnutls-${GNUTLS_VERSION}.tar.xz)
 set(GNUTLS_HASH
-    SHA512=94a4836d12ec96437ee299707caeac317cbb3e84bb2259c62132b4817d0c8a38ec08cb01fc8f5f54dfc0dd6698040ca94e6a6afdd8802823a9940c48eeae1fd8
+    SHA512=5d01d561a05379da71e4847e30ba13c2abe09f7a5c4359fd539d8bd19abad0ce87120f82ee7b6264e787bd3edbc5ae16beffa892983cbc3d59f11a1811c10329
     CACHE STRING "gnutls source hash")
 
 build_external(gnutls

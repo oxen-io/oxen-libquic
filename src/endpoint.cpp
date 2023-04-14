@@ -1,13 +1,14 @@
 #include "endpoint.hpp"
 #include "connection.hpp"
-#include "ngtcp2/version.h"
 #include "utils.hpp"
-#include "uvw/timer.h"
 
-#include <cstddef>
+#include <ngtcp2/version.h>
+#include <uvw/timer.h>
 #include <ev.h>
 #include <ngtcp2/ngtcp2.h>
+
 #include <optional>
+#include <cstddef>
 
 
 namespace oxen::quic
@@ -80,7 +81,7 @@ namespace oxen::quic
         }
         if (rv != 0)
         {
-            fprintf(stderr, "Error: failed to decode QUIC packet header [code = %s]", ngtcp2_strerror(rv));
+            fprintf(stderr, "Error: failed to decode QUIC packet header [code: %s]", ngtcp2_strerror(rv));
             return std::nullopt;
         }
 
@@ -113,20 +114,10 @@ namespace oxen::quic
     }
 
 
-    //  Sends packet to 'destination' containing 'data'. io_result is implicitly
-    //  convertible to bool if successful, or error code if not
-    io_result
-    Endpoint::send_packet(const Address& destination, bstring data, uint8_t ecn)
-    {
-
-        return io_result{0};
-    }
-
-
     void
     Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source)
     {
-        std::array<std::byte, Endpoint::max_pkt_size_v4> _buf;
+        std::array<std::byte, max_pkt_size_v4> _buf;
         std::array<uint32_t, NGTCP2_PROTO_VER_MAX - NGTCP2_PROTO_VER_MIN + 2> versions;
         std::iota(versions.begin() + 1, versions.end(), NGTCP2_PROTO_VER_MIN);
         // we're supposed to send some 0x?a?a?a?a version to trigger version negotiation
@@ -148,7 +139,7 @@ namespace oxen::quic
             return;
         }
 
-        send_packet(source, bstring{_buf.data(), static_cast<size_t>(rv)}, 0);
+        tunnel_ep.send_packet(source, bstring{_buf.data(), static_cast<size_t>(rv)}, 0, std::byte{2});
     }
 
 
@@ -189,92 +180,5 @@ namespace oxen::quic
 
         return nullptr;
     }
-
-
-    bool
-    Endpoint::delete_conn(const conn_id &cid)
-    {
-        auto it = conns.find(cid);
-        if (it == conns.end()) {
-            fprintf(stderr, "Erorr: Cannot delete connection, cid not found\n");
-            return false;
-        }
-
-        auto ptr = it->second;
-
-        if (ptr->on_closing)
-        {
-            ptr->on_closing(*ptr);
-            ptr->on_closing = nullptr;
-        }
-
-        conns.erase(it);
-        return true;
-    }
-
-
-    void
-    Endpoint::close_conn(Connection& conn, int code, std::string_view msg)
-    {
-        fprintf(stderr, "Closing connection (CID: %s)\n", conn.source_cid.data);
-
-        if (!conn || conn.closing || conn.draining)
-            return;
-        
-        if (code == NGTCP2_ERR_IDLE_CLOSE)
-        {
-            fprintf(stderr, 
-                "Connection (CID: %s) passed idle expiry timer; closing now without close packet\n", 
-                conn.source_cid.data);
-            delete_conn(conn.source_cid);
-            return;
-        }
-
-        //  "The error not specifically mentioned, including NGTCP2_ERR_HANDSHAKE_TIMEOUT,
-        //  should be dealt with by calling ngtcp2_conn_write_connection_close."
-        //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
-        if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
-        {
-            fprintf(stderr, 
-            "Connection (CID: %s) passed idle expiry timer; closing now with close packet\n", 
-            conn.source_cid.data);
-        }
-
-        ngtcp2_connection_close_error err;
-        ngtcp2_connection_close_error_set_transport_error_liberr(
-            &err, 
-            code, 
-            reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), 
-            msg.size());
-        
-        conn.conn_buffer.resize(max_pkt_size_v4);
-        Path path;
-        ngtcp2_pkt_info pkt_info;
-
-        auto written = ngtcp2_conn_write_connection_close(
-            conn, path, &pkt_info, u8data(conn.conn_buffer), conn.conn_buffer.size(), &err, get_timestamp());
-
-        if (written <= 0)
-        {
-            fprintf(stderr, "Error: Failed to write connection close packet: ");
-            fprintf(stderr, "[%s]\n", (written < 0) ? 
-                strerror(written) : 
-                "[Error Unknown: closing pkt is 0 bytes?]\n");
-            
-            delete_conn(conn.source_cid);
-            return;
-        }
-        // ensure we have enough write space
-        assert(written <= (long)conn.conn_buffer.size());
-
-        if (auto rv = send_packet(conn.path.remote, conn.conn_buffer, 0); not rv)
-        {
-            fprintf(stderr, 
-                "Error: failed to send close packet (error code: %s); removing connection (CID: %s)\n", 
-                strerror(rv.error_code), conn.source_cid.data);
-            delete_conn(conn.source_cid);
-        }
-    }
-
 
 }   // namespace oxen::quic

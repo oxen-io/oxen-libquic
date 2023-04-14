@@ -1,10 +1,21 @@
 #include "connection.hpp"
-#include "ngtcp2/ngtcp2.h"
+#include "server.hpp"
+#include "client.hpp"
+#include "tunnel.hpp"
+#include "utils.hpp"
+
+#include <memory>
+#include <ngtcp2/ngtcp2.h>
+#include <uvw/async.h>
+#include <uvw/timer.h>
 
 #include <arpa/inet.h>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <exception>
+#include <limits>
+#include <netinet/ip.h>
 #include <stdexcept>
 
 
@@ -100,19 +111,10 @@ namespace oxen::quic
     }
 
 
-    const uint64_t
-    Connection::timestamp()
+    void
+    Connection::io_ready()
     {
-        struct timespec tp;
-
-        int rv = clock_gettime(CLOCK_MONOTONIC, &tp);
-
-        if (rv != 0) {
-            fprintf(stderr, "clock_gettime: %s\n", strerror(rv));
-            exit(EXIT_FAILURE);
-        }
-
-        return (uint64_t)tp.tv_sec * NGTCP2_SECONDS + (uint64_t)tp.tv_nsec;
+        io_trigger->send();
     }
 
 
@@ -123,6 +125,297 @@ namespace oxen::quic
         cid.datalen = std::min(size, static_cast<size_t>(NGTCP2_MAX_CIDLEN));
         std::generate(cid.data, (cid.data + cid.datalen), rand);
         return cid;
+    }
+
+
+    const std::shared_ptr<Stream>&
+    Connection::open_stream(data_callback_t data_cb, close_callback_t close_cb)
+    {
+        std::shared_ptr<Stream> stream{new Stream{
+            *this, std::move(data_cb), std::move(close_cb), endpoint->default_stream_bufsize}};
+        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get());
+            rv != 0)
+            throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
+
+        auto& strm = streams[stream->stream_id];
+        strm = std::move(stream);
+
+        return strm;
+    }
+
+
+    void
+    Connection::on_io_ready()
+    {
+        flush_streams();
+        schedule_retransmit();
+    }
+
+
+    io_result
+    Connection::send()
+    {
+        assert(send_buffer_size <= send_buffer.size());
+        io_result rv{};
+        bstring send_data{send_buffer.data(), send_buffer_size};
+
+        if (!send_data.empty())
+            rv = tun_endpoint.send_packet(path.remote, send_data, pkt_info.ecn, pkt_type);
+
+        return rv;
+    }
+
+
+    void
+    Connection::flush_streams()
+    {
+        fprintf(stderr, "Calling Connection::flush_streams()\n");
+        // Maximum number of stream data packets to send out at once; if we reach this then we'll
+        // schedule another event loop call of ourselves (so that we don't starve the loop).
+        auto max_udp_payload_size = ngtcp2_conn_get_max_tx_udp_payload_size(conn.get());
+        auto max_stream_packets = ngtcp2_conn_get_send_quantum(conn.get()) / max_udp_payload_size;
+        ngtcp2_ssize ndatalen;
+        uint16_t stream_packets = 0;
+        uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
+        uint64_t ts = get_timestamp();
+        pkt_info = {};
+
+        auto send_packet = [&](auto nwrite) -> int 
+        {
+            send_buffer_size = nwrite;
+
+            auto sent = send();
+            if (sent.blocked())
+            {
+                fprintf(stderr, "Error: Packet send blocked, scheduling retransmit\n");
+                ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                schedule_retransmit();
+                return 0;
+            }
+
+            send_buffer_size = 0;
+            if (!sent)
+            {
+                fprintf(stderr, "Error: I/O error while trying to send packet\n");
+                ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                return 0;
+            }
+            fprintf(stderr, "Packet away!\n");
+            return 1;
+        };
+
+        std::list<Stream*> strs;
+        for (auto& [stream_id, stream_ptr] : streams)
+        {
+            if (stream_ptr and not stream_ptr->sent_fin)
+            {
+                try
+                {
+                    strs.push_back(stream_ptr.get());
+                }
+                catch (std::exception& e)
+                {
+                    fprintf(stderr, "Exception caught: %s\n", e.what());
+                }
+            }
+            }
+
+        while (!strs.empty() && stream_packets < max_stream_packets)
+        {
+            for (auto it = strs.begin(); it != strs.end();)
+            {
+                fprintf(
+                    stderr,
+                    "Max stream packets: %lu\nCurrent stream packets: %hu\n",
+                    max_stream_packets,
+                    stream_packets);
+
+                auto& stream = **it;
+                auto bufs = stream.pending();
+
+                std::vector<ngtcp2_vec> vecs;
+                vecs.reserve(bufs.size());
+                std::transform(bufs.begin(), bufs.end(), std::back_inserter(vecs), [](const auto& buf) {
+                    return ngtcp2_vec{const_cast<uint8_t*>(u8data(buf)), buf.size()};
+                });
+
+                if (stream.is_closing && !stream.sent_fin && stream.unsent() == 0)
+                {
+                    fprintf(stderr, "Sending FIN\n");
+                    flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
+                    stream.sent_fin = true;
+                }
+                else if (stream.is_new)
+                {
+                    stream.is_new = false;
+                }
+
+                auto nwrite = ngtcp2_conn_writev_stream(
+                    conn.get(),
+                    &path.path,
+                    &pkt_info,
+                    u8data(send_buffer),
+                    send_buffer.size(),
+                    &ndatalen,
+                    flags,
+                    stream.stream_id,
+                    reinterpret_cast<const ngtcp2_vec*>(vecs.data()),
+                    vecs.size(),
+                    (!ts) ? get_timestamp() : ts);
+
+                fprintf(stderr, "add_stream_data for stream %lu  returned [{%lu},{%lu}]\n",
+                    stream.stream_id, nwrite, ndatalen);
+
+                if (nwrite < 0)
+                {
+                    if (nwrite == -240)  // NGTCP2_ERR_WRITE_MORE
+                    {
+                        fprintf(stderr, "Consumed %lu bytes from stream %lu and have space left\n",
+                            ndatalen, stream.stream_id);
+                        assert(ndatalen >= 0);
+                        stream.wrote(ndatalen);
+                        it = strs.erase(it);
+                        continue;
+                    }
+                    if (nwrite == NGTCP2_ERR_CLOSING)  // -230
+                    {
+                        fprintf(stderr, "Cannot write to %lu: stream is closing\n", stream.stream_id);
+                        it = strs.erase(it);
+                        continue;
+                    }
+                    if (nwrite == NGTCP2_ERR_STREAM_SHUT_WR)  // -230
+                    {
+                        fprintf(stderr, "Cannot add to stream %lu: stream is shut, proceeding\n", stream.stream_id);
+                        assert(ndatalen == -1);
+                        it = strs.erase(it);
+                        continue;
+                    }
+                    if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)  // -210
+                    {
+                        fprintf(stderr, "Cannot add to stream %lu: stream is blocked\n", stream.stream_id);
+                        it = strs.erase(it);
+                        continue;
+                    }
+
+                    fprintf(stderr, "Error writing non-stream data: %s\n", ngtcp2_strerror(nwrite));
+                    break;
+                }
+
+                if (ndatalen >= 0)
+                {
+                    fprintf(stderr, "consumed %lu bytes from stream %lu\n", ndatalen, stream.stream_id);
+                    stream.wrote(ndatalen);
+                }
+
+                if (nwrite == 0)  //  we are congested
+                {
+                    fprintf(stderr, "Done stream writing to %lu (stream is congested)\n", stream.stream_id);
+
+                    ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                    //  we are congested, so clear pending streams to exit outer loop
+                    //  and enter next loop to flush unsent stuff
+                    strs.clear();
+                    break;
+                }
+
+                fprintf(stderr, "Sending stream data packet\n");
+                if (!send_packet(nwrite))
+                    return;
+
+                ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                if (stream.unsent() == 0)
+                    it = strs.erase(it);
+                else
+                    ++it;
+
+                if (++stream_packets == max_stream_packets)
+                {
+                    fprintf(stderr, "Max stream packets ({%lu) reached\n", max_stream_packets);
+                    ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                    return;
+                }
+            }
+        }
+
+        // Now try more with stream id -1 and no data: this takes care of things like initial handshake
+        // packets, and also finishes off any partially-filled packet from above.
+        for (;;)
+        {
+            fprintf(stderr, "Calling add_stream_data for empty stream\n");
+
+            auto nwrite = ngtcp2_conn_writev_stream(
+                conn.get(),
+                &path.path,
+                &pkt_info,
+                u8data(send_buffer),
+                send_buffer.size(),
+                &ndatalen,
+                flags,
+                -1,
+                nullptr,
+                0,
+                (!ts) ? get_timestamp() : ts);
+
+            fprintf(stderr, "add_stream_data for non-stream returned [{%lu},{%lu}]\n", nwrite, ndatalen);
+            assert(ndatalen <= 0);
+
+            if (nwrite == 0)
+            {
+                fprintf(
+                    stderr, "Nothing else to write for non-stream data for now (or we are congested)\n");
+                break;
+            }
+
+            if (nwrite < 0)
+            {
+                if (nwrite == NGTCP2_ERR_WRITE_MORE)  // -240
+                {
+                    fprintf(stderr, "Writing non-stream data frames, and have space left\n");
+                    ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+                    continue;
+                }
+                if (nwrite == NGTCP2_ERR_CLOSING)  // -230
+                {
+                    fprintf(stderr, "Error writing non-stream data: %s\n", ngtcp2_strerror(nwrite));
+                    break;
+                }
+                if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)  // -210
+                {
+                    fprintf(stderr, "Cannot add to empty stream right now: stream is blocked\n");
+                    break;
+                }
+
+                fprintf(stderr, "Error writing non-stream data: %s\n", ngtcp2_strerror(nwrite));
+                break;
+            }
+
+            fprintf(stderr, "Sending data packet with non-stream data frames\n");
+            if (auto rv = send_packet(nwrite); rv != 0)
+                return;
+            ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
+        }
+
+        fprintf(stderr, "Exiting flush_streams()\n");
+    }
+
+
+    void
+    Connection::schedule_retransmit()
+    {
+        auto exp = static_cast<uvw::Loop::Time>(ngtcp2_conn_get_expiry(conn.get()));
+        auto now = static_cast<uvw::Loop::Time>(get_timestamp());
+        auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(exp - now);
+
+        if (exp == std::numeric_limits<decltype(exp)>::max())
+        {
+            fprintf(stderr, "No retransmit needed, expiration passed");
+            retransmit_timer->stop();
+            return;
+        }
+
+        auto expiry = std::max(0ms, delta);
+        retransmit_timer->stop();
+        retransmit_timer->start(expiry, 0ms);
     }
 
 
@@ -247,6 +540,21 @@ namespace oxen::quic
     Connection::init(ngtcp2_settings &settings, ngtcp2_transport_params &params, 
                     ngtcp2_callbacks &callbacks)
     {
+        auto loop = tun_endpoint.loop();
+        io_trigger = loop->resource<uvw::AsyncHandle>();
+        io_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { on_io_ready(); });
+        
+        retransmit_timer = loop->resource<uvw::TimerHandle>();
+        retransmit_timer->on<uvw::TimerEvent>([this](auto&, auto&) 
+        {
+            fprintf(stderr, "Retransmit timer fired!\n");
+            if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
+            {
+                fprintf(stderr, "Error: expiry handler invocation returned error code: %s\n", ngtcp2_strerror(rv));
+                
+            }
+        });
+
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
@@ -278,7 +586,7 @@ namespace oxen::quic
 
         ngtcp2_settings_default(&settings);
 
-        settings.initial_ts = timestamp();
+        settings.initial_ts = get_timestamp();
         settings.log_printf = log_printer;
         
         ngtcp2_transport_params_default(&params);
@@ -297,14 +605,16 @@ namespace oxen::quic
 
 
     //  client conn
-    Connection::Connection( 
-        Tunnel& ep, const ngtcp2_cid& scid, const Path& path, uint16_t tunnel_port)
+    Connection::Connection(
+        Client& client, Tunnel& ep, const ngtcp2_cid& scid, const Path& path, uint16_t tunnel_port)
         : tun_endpoint{ep}, client_tunnel_port{tunnel_port}, source_cid{scid}, dest_cid{Connection::random()}, path{path}
     {
         ngtcp2_settings settings;
         ngtcp2_transport_params params;
         ngtcp2_callbacks callbacks;
         ngtcp2_conn* connptr;
+        pkt_type = CLIENT_TO_SERVER;
+        endpoint = std::make_unique<Endpoint>(client);
         
         if (auto rv = init(settings, params, callbacks); rv != 0)
             fprintf(stderr, "Error: Server-based connection not created\n");
@@ -335,7 +645,7 @@ namespace oxen::quic
 
     //  server conn
     Connection::Connection(
-        Tunnel& ep, const ngtcp2_cid& cid, ngtcp2_pkt_hd& hdr, const Path& path)
+        Server& server, Tunnel& ep, const ngtcp2_cid& cid, ngtcp2_pkt_hd& hdr, const Path& path)
         : tun_endpoint{ep}, source_cid{cid}, dest_cid{hdr.dcid}, path{path}
     {
         ngtcp2_settings settings;
@@ -343,6 +653,8 @@ namespace oxen::quic
         ngtcp2_callbacks callbacks;
         ngtcp2_cid dcid, scid;
         ngtcp2_conn* connptr;
+        pkt_type = SERVER_TO_CLIENT;
+        endpoint = std::make_unique<Endpoint>(server);
         
         if (auto rv = init(settings, params, callbacks); rv != 0)
             fprintf(stderr, "Error: Server-based connection not created\n");

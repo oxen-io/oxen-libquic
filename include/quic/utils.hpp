@@ -1,5 +1,6 @@
 #pragma once
 
+#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 
 #include <chrono>
@@ -14,7 +15,7 @@
 
 // temporary placeholders
 #define REMOTE_HOST "127.0.0.1"
-#define REMOTE_PORT "4433"
+#define REMOTE_PORT 4433
 #define ALPN "dummy"
 #define MESSAGE "GET /\r\n"
 
@@ -36,6 +37,29 @@ namespace oxen::quic
     static constexpr std::byte CLIENT_TO_SERVER{1};
     static constexpr std::byte SERVER_TO_CLIENT{2};
     static constexpr size_t dgram_size = 1200;
+
+    static constexpr size_t ev_loop_queue_size = 1024;
+
+    // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
+    static constexpr size_t max_bufsize = 64 * 1024;
+    // Max size of a UDP packet that we'll send
+    static constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    static constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+
+    // Remote TCP connection was established and is now accepting stream data; the client is not allowed 
+    // to send any other data down the stream until this comes back (any data sent down the stream before 
+    // then is discarded)
+    static constexpr std::byte CONNECT_INIT{0x00};
+    // Failure to establish an initial connection:
+    static constexpr uint64_t ERROR_CONNECT{0x5471907};
+    // Error for something other than CONNECT_INIT as the initial stream data from the server
+    static constexpr uint64_t ERROR_BAD_INIT{0x5471908};
+    // Close error code sent if we get an error on the TCP socket (other than an initial connect failure)
+    static constexpr uint64_t ERROR_TCP{0x5471909};
+
+    // We pause reading from the local TCP socket if we have more than this amount of outstanding
+    // unacked data in the quic tunnel, then resume once it drops below this.
+    inline constexpr size_t PAUSE_SIZE = 64 * 1024;
 
     const char priority[] =
         "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
@@ -98,17 +122,26 @@ namespace oxen::quic
                 return *this;
             }
 
-            //  template code to implicitly convert to sockaddr* and ngtcp2_addr&
+            // can pass Address object as boolean to check if addr is set
+            operator bool() const { return _sock_addr.sin6_port; }
+
+            //  template code to implicitly convert to sockaddr*, sockaddr&, ngtcp2_addr&, and sockaddr_in6&
             template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
             operator T*()
             { return reinterpret_cast<sockaddr*>(&_sock_addr); }
             template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
             operator const T*() const
             { return reinterpret_cast<const sockaddr*>(&_sock_addr); }
-
+            inline operator
+            sockaddr&() { return reinterpret_cast<sockaddr&>(_sock_addr); }
+            inline operator const
+            sockaddr&() const { return reinterpret_cast<const sockaddr&>(_sock_addr); }
+            inline operator
+            sockaddr_in6&() { return _sock_addr; }
+            inline operator const
+            sockaddr_in6&() const { return _sock_addr; }
             inline operator 
             ngtcp2_addr&() { return _addr; }
-
             inline operator const 
             ngtcp2_addr&() const { return _addr; }
 

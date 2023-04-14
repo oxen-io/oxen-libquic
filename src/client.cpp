@@ -10,26 +10,26 @@
 
 namespace oxen::quic
 {
-    Client::Client(Tunnel& tun_endpoint, const uint16_t port, Address&& remote, uint16_t psuedo_port) 
+    Client::Client(Tunnel& tun_endpoint, const uint16_t remote_port, Address&& remote) 
         : Endpoint{tun_endpoint}
     {
         default_stream_bufsize = 0;
 
-        local_addr.port(uint16_t{psuedo_port});
+        // if remnoving pseudo-port, this is superfluous
+        //local_addr.port(uint16_t{htons(psuedo_port)});
 
-        if (port == 0)
+        if (remote_port == 0)
             throw std::logic_error{"Cannot tunnel to port 0"};
 
         Path path
         {
             Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), uint16_t{0}},
-            Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), uint16_t{psuedo_port}}
+            std::move(remote)
         };
 
-        auto conn = std::make_shared<Connection>(*this, Connection::random(), std::move(path), port);
-
-        //  TOFIX: start event loop here
-
+        auto conn = std::make_shared<Connection>(*this, tun_endpoint, Connection::random(), std::move(path), remote_port);
+        
+        conn->io_ready();
         conns.emplace(conn->source_cid, std::move(conn));
     }
 

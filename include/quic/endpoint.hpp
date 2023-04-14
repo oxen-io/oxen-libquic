@@ -33,12 +33,12 @@ namespace std
     struct hash<ngtcp2_cid>
     {
         size_t
-        operator()(const ngtcp2_cid& cid) const
+        operator()(ngtcp2_cid& cid)
         {
             static_assert(
                 alignof(ngtcp2_cid) >= alignof(size_t)
                 && offsetof(ngtcp2_cid, data) % sizeof(size_t) == 0);
-            return *reinterpret_cast<const size_t*>(cid.data);
+            return *reinterpret_cast<size_t*>(cid.data);
         }
     };
 }
@@ -60,18 +60,13 @@ namespace oxen::quic
 
             std::array<std::byte, 1500> buf;
             size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
-            // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
-            static constexpr size_t max_bufsize = 64 * 1024;
-            // Max size of a UDP packet that we'll send
-            static constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-            static constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
 
             std::shared_ptr<uvw::Loop>
             get_loop();
 
             void
             handle_packet(const Packet& pkt);
-            
+
             conn_ptr 
             get_conn();
 
@@ -116,25 +111,14 @@ namespace oxen::quic
             void
             handle_conn_packet(Connection& conn, const Packet& pkt);
 
-            //  Sends packet to 'destination' containing 'data'. io_result is implicitly
-            //  convertible to bool if successful, or error code if not
-            io_result
-            send_packet(const Address& destination, bstring data, uint8_t ecn);
-
             void
             send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source);
 
             conn_ptr 
             get_conn(const conn_id& cid);
 
-            bool
-            delete_conn(const conn_id& cid);
-
             void
             check_timeouts();
-
-            void
-            close_conn(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = ""sv);
 
             //  Accepts new connection, returning either a ptr to the Connection
             //  object or nullptr if error. Virtual function returns nothing -- 
@@ -161,7 +145,7 @@ namespace oxen::quic
             //
             //  Returns the number of bytes written to buf
             virtual size_t
-            write_packet_header(uint16_t pseudo_port, uint8_t ecn) = 0;
+            write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; };
     };
 
 } // namespace oxen::quic

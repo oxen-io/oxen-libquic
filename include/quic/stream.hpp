@@ -2,17 +2,24 @@
 
 #include "utils.hpp"
 
-#include <cassert>
-#include <memory>
 #include <ngtcp2/ngtcp2.h>
 
+#include <cassert>
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <vector>
+#include <deque>
 
 
 namespace oxen::quic
 {
+	class Connection;
+	class Stream;
+
+	using data_callback_t = std::function<void(Stream&, bstring)>;
+	using close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+
 	///	One-shot datagram sent inside a quic connection
 	struct DatagramBuffer
 	{
@@ -54,20 +61,71 @@ namespace oxen::quic
             size_t remaining;
 	};
 
-	///	Base stream class with information universal to uni/bidi derived classes
-	class Stream
-	{
-		private:
 
+	class Stream : public std::enable_shared_from_this<Stream>
+	{
 		public:
-			ngtcp2_conn *conn;
+			Stream(Connection& conn, data_callback_t data_cb, close_callback_t close_cb, size_t bufsize, int64_t stream_id = -1);
+			Stream(Connection& conn, int64_t stream_id, size_t bufsize);
+
+			data_callback_t data_callback;
+			close_callback_t close_callback;
+
 			int64_t stream_id;
-			const uint8_t *data;
+			
+			std::vector<std::byte> buf{65536};
+			std::deque<std::pair<std::unique_ptr<const std::byte[]>, size_t>> user_buffers;
+
 			size_t datalen;
 			size_t nwrite;
-			
-			std::shared_ptr<Stream> 
-			quic_stream_create(ngtcp2_conn* connection);
+
+			Connection&
+			get_conn();
+
+			void
+			close(uint64_t error_code = 0);
+
+			void
+			wrote(size_t bytes);
+
+			void
+			append_buffer(const std::byte* buffer, size_t length);
+
+			void
+			acknowledge(size_t bytes);
+
+			inline size_t
+			available() const
+			{ return is_closing || buf.empty() ? 0 : buf.size() - size; }
+
+			inline size_t
+			used() const
+			{ return size; }
+
+			inline size_t
+			unacked() const
+			{ return unacked_size; }
+
+			inline size_t
+			unsent() const
+			{ return used() - unacked(); }
+		
+		private:
+			friend class Connection;
+
+			Connection& conn;
+
+			std::vector<bstring>
+			pending();
+
+			size_t size{0};
+			size_t start{0};
+			size_t unacked_size{0};
+
+			bool is_new{false};
+			bool is_closing{false};
+			bool is_shutdown{false};
+			bool sent_fin{false};
 	};
 
 	void quic_stream_destroy(Stream* stream);

@@ -43,3 +43,5 @@ target_link_libraries(libquic
     libuv
 	uvw
 )
+
+include_directories(tests)
