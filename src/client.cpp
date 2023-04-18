@@ -15,19 +15,17 @@ namespace oxen::quic
     {
         default_stream_bufsize = 0;
 
-        // if remnoving pseudo-port, this is superfluous
-        //local_addr.port(uint16_t{htons(psuedo_port)});
-
+    
         if (remote_port == 0)
             throw std::logic_error{"Cannot tunnel to port 0"};
 
         Path path
         {
-            Address{reinterpret_cast<const sockaddr_in6&>(in6addr_loopback), uint16_t{0}},
+            Address{reinterpret_cast<const sockaddr_in&>(in6addr_loopback), uint16_t{0}},
             std::move(remote)
         };
 
-        auto conn = std::make_shared<Connection>(*this, tun_endpoint, Connection::random(), std::move(path), remote_port);
+        auto conn = std::make_shared<Connection>(*this, tun_endpoint, ConnectionID::random(), std::move(path), remote_port);
         
         conn->io_ready();
         conns.emplace(conn->source_cid, std::move(conn));

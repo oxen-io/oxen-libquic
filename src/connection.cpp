@@ -4,11 +4,17 @@
 #include "tunnel.hpp"
 #include "utils.hpp"
 
-#include <memory>
 #include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+#include <ngtcp2/ngtcp2_crypto_gnutls.h>
+
+#include <gnutls/crypto.h>
+#include <gnutls/gnutls.h>
+
 #include <uvw/async.h>
 #include <uvw/timer.h>
 
+#include <memory>
 #include <arpa/inet.h>
 #include <cassert>
 #include <chrono>
@@ -51,17 +57,85 @@ namespace oxen::quic
 			numeric_host_family(hostname, AF_INET6);
     }
 
-    void 
+    extern "C" inline void 
     log_printer(void *user_data, const char *fmt, ...) 
     {
+        fprintf(stderr, "ding\n");
         va_list ap;
-        (void)user_data;
-
         va_start(ap, fmt);
-        fprintf(stderr, fmt, ap);
+        
+        //if (vsnprintf(buf.data(), buf.size(), fmt, ap) >= 0)
+        vfprintf(stderr, fmt, ap);
         va_end(ap);
 
         fprintf(stderr, "\n");
+    }
+
+    int
+    recv_stream_data(
+        ngtcp2_conn* conn,
+        uint32_t flags,
+        int64_t stream_id,
+        uint64_t offset,
+        const uint8_t* data,
+        size_t datalen,
+        void* user_data,
+        void* stream_user_data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        return static_cast<Connection*>(user_data)->stream_receive(
+            stream_id,
+            {reinterpret_cast<const std::byte*>(data), datalen},
+            flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+    }
+
+    int
+    acked_stream_data_offset(
+        ngtcp2_conn* conn_,
+        int64_t stream_id,
+        uint64_t offset,
+        uint64_t datalen,
+        void* user_data,
+        void* stream_user_data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        fprintf(stderr, "Ack [%lu,%lu)\n", offset, offset + datalen);
+        return static_cast<Connection*>(user_data)->stream_ack(stream_id, datalen);
+    }
+
+    int
+    stream_open(ngtcp2_conn* conn, int64_t stream_id, void* user_data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        return static_cast<Connection*>(user_data)->stream_opened(stream_id);
+    }
+
+    int
+    stream_close_cb(
+        ngtcp2_conn* conn,
+        uint32_t flags,
+        int64_t stream_id,
+        uint64_t app_error_code,
+        void* user_data,
+        void* stream_user_data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+        return 0;
+    }
+
+    int
+    stream_reset_cb(
+        ngtcp2_conn* conn,
+        int64_t stream_id,
+        uint64_t final_size,
+        uint64_t app_error_code,
+        void* user_data,
+        void* stream_user_data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+        return 0;
     }
 
     void 
@@ -99,7 +173,7 @@ namespace oxen::quic
 
         if (conn.on_stream_available)
         {
-            if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn.conn.get()); remaining > 0)
+            if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn); remaining > 0)
                 conn.on_stream_available(conn);
         }
     #else
@@ -110,21 +184,17 @@ namespace oxen::quic
         return 0;
     }
 
+    static ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref *conn_ref) 
+    {
+        Connection *c = reinterpret_cast<Connection*>(conn_ref->user_data);
+        return c->conn.get();
+    }
+
 
     void
     Connection::io_ready()
     {
         io_trigger->send();
-    }
-
-
-    ngtcp2_cid
-    Connection::random(size_t size)
-    {
-        ngtcp2_cid cid;
-        cid.datalen = std::min(size, static_cast<size_t>(NGTCP2_MAX_CIDLEN));
-        std::generate(cid.data, (cid.data + cid.datalen), rand);
-        return cid;
     }
 
 
@@ -147,8 +217,10 @@ namespace oxen::quic
     void
     Connection::on_io_ready()
     {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
         flush_streams();
         schedule_retransmit();
+        fprintf(stderr, "%s finished\n", __PRETTY_FUNCTION__);
     }
 
 
@@ -399,6 +471,19 @@ namespace oxen::quic
     }
 
 
+    Server*
+    Connection::server()
+    {
+        return dynamic_cast<Server*>(endpoint.get());
+    }
+
+    Client*
+    Connection::client()
+    {
+        return dynamic_cast<Client*>(endpoint.get());
+    }
+
+
     void
     Connection::schedule_retransmit()
     {
@@ -408,7 +493,7 @@ namespace oxen::quic
 
         if (exp == std::numeric_limits<decltype(exp)>::max())
         {
-            fprintf(stderr, "No retransmit needed, expiration passed");
+            fprintf(stderr, "No retransmit needed, expiration passed\n");
             retransmit_timer->stop();
             return;
         }
@@ -418,10 +503,140 @@ namespace oxen::quic
         retransmit_timer->start(expiry, 0ms);
     }
 
+    const std::shared_ptr<Stream>&
+    Connection::get_stream(int64_t ID) const
+    {
+        return streams.at(ID);
+    }
+
+
+    int
+    Connection::stream_opened(int64_t id)
+    {
+        fprintf(stderr, "New stream %lu\n", id);
+        auto* serv = server();
+
+        if (!serv)
+        {
+            fprintf(stderr, "We are a client, incoming streams are not accepted\n");
+            return NGTCP2_ERR_CALLBACK_FAILURE;
+        }
+
+        std::shared_ptr<Stream> stream{new Stream{*this, id, endpoint->default_stream_bufsize}};
+        
+        stream->stream_id = id;
+        bool good = true;
+        if (serv->stream_open_callback)
+            good = serv->stream_open_callback(*stream, client_tunnel_port);
+        if (!good)
+        {
+            fprintf(stderr, "stream_open_callback returned failure, dropping stream %lu\n", id);
+            ngtcp2_conn_shutdown_stream(conn.get(), id, 1);
+            io_ready();
+            return NGTCP2_ERR_CALLBACK_FAILURE;
+        }
+
+        [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(stream));
+        assert(ins);
+        fprintf(stderr, "Created new incoming stream %lu\n", id);
+        return 0;
+    }
+
+
+    void
+    Connection::stream_closed(int64_t id, uint64_t app_code)
+    {
+        assert(ngtcp2_is_bidi_stream(id));
+        fprintf(stderr, "Stream %lu closed with code %lu\n", id, app_code);
+        auto it = streams.find(id);
+
+        if (it == streams.end())
+            return;
+
+        auto& stream = *it->second;
+        const bool was_closing = stream.is_closing;
+        stream.is_closing = stream.is_shutdown = true;
+        if (!was_closing && stream.close_callback)
+        {
+            fprintf(stderr, "Invoke stream close callback\n");
+            std::optional<uint64_t> code;
+            if (app_code != 0)
+                code = app_code;
+            stream.close_callback(stream, *code);
+        }
+
+        fprintf(stderr, "Erasing stream %lu\n", id);
+        streams.erase(it);
+
+        if (!ngtcp2_conn_is_local_stream(conn.get(), id))
+            ngtcp2_conn_extend_max_streams_bidi(conn.get(), 1);
+
+        io_ready();
+    }
+
+
+    int
+    Connection::stream_ack(int64_t id, size_t size)
+    {
+        if (auto it = streams.find(id); it != streams.end())
+        {
+            it->second->acknowledge(size);
+            return 0;
+        }
+        return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+
+
+    int
+    Connection::stream_receive(int64_t id, bstring data, bool fin)
+    {
+        auto str = get_stream(id);
+
+        if (!str->data_callback)
+            fprintf(stderr, "Dropping incoming data on stream %lu: stream has no data callback set\n", str->stream_id);
+        else
+        {
+            bool good = false;
+            try
+            {
+                str->data_callback(*str, data);
+                good = true;
+            }
+            catch (const std::exception& e)
+            {
+                fprintf(stderr, "Stream %lu data callback raised exception (%s); closing stream with app code %lu\n",
+                    str->stream_id, e.what(), STREAM_ERROR_EXCEPTION);
+            }
+            catch (...)
+            {
+                fprintf(stderr, "Stream %lu data callback raised an unknown exception; closing stream with app code %lu\n",
+                    str->stream_id, STREAM_ERROR_EXCEPTION);
+            }
+            if (!good)
+            {
+                str->close(STREAM_ERROR_EXCEPTION);
+                return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
+        }
+        if (fin)
+        {
+            fprintf(stderr, "Stream %lu closed by remote\n", str->stream_id);
+            // no clean up, close_cb called after this
+        }
+        else
+        {
+            ngtcp2_conn_extend_max_stream_offset(conn.get(), id, data.size());
+            ngtcp2_conn_extend_max_offset(conn.get(), data.size());
+        }
+        return 0;
+    }
+
 
     int
     Connection::init_gnutls(Client& client)
     {
+        fprintf(stderr, "Initializing client gnutls session\n");
+
         int rv = gnutls_certificate_allocate_credentials(&cred);
 
         if (rv == 0)
@@ -452,7 +667,7 @@ namespace oxen::quic
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_ANY,
                                             GNUTLS_HOOK_POST, hook_func);
 
-        gnutls_session_set_ptr(session, conn.get());
+        gnutls_session_set_ptr(session, &conn_ref);
 
         rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, cred);
 
@@ -473,9 +688,12 @@ namespace oxen::quic
         return 0;
     }
 
+
     int
     Connection::init_gnutls(Server& server)
     {
+        fprintf(stderr, "Initializing server gnutls session\n");
+
         int rv = gnutls_certificate_allocate_credentials(&cred);
 
         if (rv == 0)
@@ -506,7 +724,7 @@ namespace oxen::quic
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_ANY,
                                             GNUTLS_HOOK_POST, hook_func);
 
-        gnutls_session_set_ptr(session, conn.get());
+        gnutls_session_set_ptr(session, &conn_ref);
 
         rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, cred);
 
@@ -527,6 +745,7 @@ namespace oxen::quic
         return 0;
     }
 
+
     int
     Connection::get_streams_available()
     {
@@ -536,9 +755,9 @@ namespace oxen::quic
         return static_cast<int>(open);
     }
 
+
     int
-    Connection::init(ngtcp2_settings &settings, ngtcp2_transport_params &params, 
-                    ngtcp2_callbacks &callbacks)
+    Connection::init(ngtcp2_settings &settings, ngtcp2_transport_params &params, ngtcp2_callbacks &callbacks)
     {
         auto loop = tun_endpoint.loop();
         io_trigger = loop->resource<uvw::AsyncHandle>();
@@ -551,9 +770,14 @@ namespace oxen::quic
             if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
             {
                 fprintf(stderr, "Error: expiry handler invocation returned error code: %s\n", ngtcp2_strerror(rv));
-                
+                endpoint->close_connection(*this, rv);
+            }
+            else
+            {
+                on_io_ready();
             }
         });
+        retransmit_timer->start(0ms, 0ms);
 
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
@@ -561,6 +785,11 @@ namespace oxen::quic
         callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
         callbacks.extend_max_local_streams_bidi = extend_max_local_streams_bidi;
         callbacks.rand = rand_cb;
+        callbacks.recv_stream_data = recv_stream_data;
+        callbacks.acked_stream_data_offset = acked_stream_data_offset;
+        callbacks.stream_open = stream_open;
+        callbacks.stream_close = stream_close_cb;
+        callbacks.stream_reset = stream_reset_cb;
         callbacks.get_new_connection_id = get_new_connection_id_cb;
         callbacks.update_key = ngtcp2_crypto_update_key_cb;
         callbacks.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
@@ -568,7 +797,7 @@ namespace oxen::quic
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
 
-        ngtcp2_cid dcid, scid;
+        ConnectionID dcid, scid;
         
         dcid.datalen = NGTCP2_MIN_INITIAL_DCIDLEN;
         if (gnutls_rnd(GNUTLS_RND_RANDOM, dcid.data, dcid.datalen) != 0) 
@@ -606,18 +835,22 @@ namespace oxen::quic
 
     //  client conn
     Connection::Connection(
-        Client& client, Tunnel& ep, const ngtcp2_cid& scid, const Path& path, uint16_t tunnel_port)
-        : tun_endpoint{ep}, client_tunnel_port{tunnel_port}, source_cid{scid}, dest_cid{Connection::random()}, path{path}
+        Client& client, Tunnel& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port)
+        : tun_endpoint{ep}, client_tunnel_port{tunnel_port}, source_cid{scid}, dest_cid{ConnectionID::random()}, path{path}
     {
+        fprintf(stderr, "Creating new client connection object\n");
+
         ngtcp2_settings settings;
         ngtcp2_transport_params params;
         ngtcp2_callbacks callbacks;
         ngtcp2_conn* connptr;
         pkt_type = CLIENT_TO_SERVER;
-        endpoint = std::make_unique<Endpoint>(client);
+        endpoint = std::make_unique<Client>(client);
         
+        init_gnutls(client);
+
         if (auto rv = init(settings, params, callbacks); rv != 0)
-            fprintf(stderr, "Error: Server-based connection not created\n");
+            fprintf(stderr, "Error: Client-based connection not created\n");
 
         callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
         callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
@@ -627,12 +860,15 @@ namespace oxen::quic
             &dest_cid, 
             &source_cid, 
             path, 
-            NGTCP2_PROTO_VER_V1,
-            &callbacks,
-            &settings,
+            NGTCP2_PROTO_VER_V1, 
+            &callbacks, 
+            &settings, 
             &params, 
             nullptr, 
             this);
+
+        conn_ref.get_conn = get_conn;
+        conn_ref.user_data = &conn_ref;
 
         if (rv != 0) {
             throw std::runtime_error{"Failed to initialize client connection to server: "s + ngtcp2_strerror(rv)};
@@ -640,29 +876,47 @@ namespace oxen::quic
         conn.reset(connptr);
 
         ngtcp2_conn_set_tls_native_handle(conn.get(), session);
+
+        fprintf(stderr, "Successfully created new client connection object\n");
     }
 
 
     //  server conn
     Connection::Connection(
-        Server& server, Tunnel& ep, const ngtcp2_cid& cid, ngtcp2_pkt_hd& hdr, const Path& path)
+        Server& server, Tunnel& ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path)
         : tun_endpoint{ep}, source_cid{cid}, dest_cid{hdr.dcid}, path{path}
     {
+        fprintf(stderr, "Creating new server connection object\n");
+
         ngtcp2_settings settings;
         ngtcp2_transport_params params;
         ngtcp2_callbacks callbacks;
         ngtcp2_cid dcid, scid;
         ngtcp2_conn* connptr;
         pkt_type = SERVER_TO_CLIENT;
-        endpoint = std::make_unique<Endpoint>(server);
+        endpoint = std::make_unique<Server>(server);
         
+        init_gnutls(server);
+
         if (auto rv = init(settings, params, callbacks); rv != 0)
             fprintf(stderr, "Error: Server-based connection not created\n");
 
         callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
 
-        int rv = ngtcp2_conn_server_new(&connptr, &dcid, &scid, path, NGTCP2_PROTO_VER_V1,
-                                        &callbacks, &settings, &params, nullptr, this);
+        int rv = ngtcp2_conn_server_new(
+            &connptr, 
+            &dcid, 
+            &scid, 
+            path, 
+            NGTCP2_PROTO_VER_V1,
+            &callbacks, 
+            &settings, 
+            &params, 
+            nullptr, 
+            this);
+
+        conn_ref.get_conn = get_conn;
+        conn_ref.user_data = &conn_ref;
 
         if (rv != 0) {
             throw std::runtime_error{"Failed to initialize server connection to client: "s + ngtcp2_strerror(rv)};
@@ -670,6 +924,20 @@ namespace oxen::quic
         conn.reset(connptr);
 
         ngtcp2_conn_set_tls_native_handle(conn.get(), session);
+
+        fprintf(stderr, "Successfully created new server connection object\n");
+    }
+
+
+    Connection::~Connection()
+    {
+        if (io_trigger)
+            io_trigger->close();
+        if (retransmit_timer)
+        {
+            retransmit_timer->stop();
+            retransmit_timer->close();
+        }
     }
 
 }   // namespace oxen::quic

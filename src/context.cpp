@@ -1,6 +1,8 @@
 #include "context.hpp"
+#include "tunnel.hpp"
 #include "utils.hpp"
 
+#include <stdexcept>
 #include <uv.h>
 #include <uvw/tcp.h>
 #include <memory>
@@ -11,39 +13,25 @@ namespace oxen::quic
     Context::Context()
     {
         fprintf(stderr, "Beginning context creation\n");
-
-        ev_loop = std::make_shared<uvw::Loop>(ev_loop_queue_size);
-
-        fprintf(stderr, "%s\n", (ev_loop) ? 
-            "Event loop successfully created" : 
-            "Error: event loop creation failed");
-
+        quic_manager = std::make_unique<Tunnel>(*this);
         init();
     }
 
 
     Context::~Context()
     {
-        //ev_loop->clear();
-        //ev_loop->close();
+        fprintf(stderr, "Shutting down context...\n");
     }
 
 
     void
     Context::init()
     {
-        fprintf(stderr, "Initializing context and configuring tunnel endpoint\n");
+        fprintf(stderr, "Configuring tunnel endpoint\n");
         
-        // make and configure tunnel object
-        quic_manager = std::make_unique<Tunnel>(*this);
-        configure_tunnel(quic_manager.get());
-    }
-
-
-    std::shared_ptr<uvw::Loop>
-    Context::loop()
-    {
-        return (ev_loop) ? ev_loop : nullptr;
+        // configure tunnel object
+        if (auto rv = configure_tunnel(quic_manager.get()); rv != 0)
+            throw std::runtime_error{"Tunnel manager not configured correctly"};
     }
 
 
@@ -71,9 +59,9 @@ namespace oxen::quic
             return;
         }
 
-        try 
+        try
         {
-            ep->listen();
+            ep->listen(port);
         }
         catch (std::exception& e)
         {
@@ -96,10 +84,28 @@ namespace oxen::quic
             return;
         }
 
+        open_callback on_open = [laddr = std::move(local_addr), remote_host, remote_port, 
+            open = std::move(open_cb)](bool success, void* user_data) 
+        {
+            fprintf(stderr, "QUIC tunnel opened %s\n", (success) ? "successfully" : "unsuccessfully");
+
+            if (open)
+                open(success, user_data);
+        };
+
+        close_callback on_close = [laddr = std::move(local_addr), remote_host, remote_port, 
+            close = std::move(close_cb)](int rv, void* user_data)
+        {
+            fprintf(stderr, "QUIC tunnel closed to %s:%d\n", remote_host.c_str(), remote_port);
+
+            if (close)
+                close(rv, user_data);
+        };
+
         try 
         {
             auto rv = ep->open(
-                remote_host, remote_port, std::move(open_cb), std::move(close_cb), local_addr);
+                remote_host, remote_port, std::move(on_open), std::move(on_close), local_addr);
         }
         catch (std::exception& e)
         {
@@ -109,26 +115,6 @@ namespace oxen::quic
         {
             fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
         }
-    }
-
-
-    void
-    Context::on_open(Address& local_addr, std::string remote_host, int remote_port, void* user_data, bool success, open_callback open_cb)
-    {
-        fprintf(stderr, "Quic tunnel opened successfully to %s:%d\n", remote_host.c_str(), remote_port);
-
-        if (open_cb)
-            open_cb(success, user_data);
-    }
-
-
-    void
-    Context::on_close(Address& local_addr, std::string remote_host, int remote_port, void* user_data, int rv, close_callback close_cb)
-    {
-        fprintf(stderr, "Quic tunnel closed successfully to %s:%d\n", remote_host.c_str(), remote_port);
-
-        if (close_cb)
-            close_cb(rv, user_data);
     }
 
 

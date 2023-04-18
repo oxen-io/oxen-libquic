@@ -1,7 +1,9 @@
 #include "quic.hpp"
 
 #include <iostream>
+#include <csignal>
 #include <chrono>
+#include <memory>
 #include <thread>
 
 
@@ -19,11 +21,19 @@ int main(void)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    auto shared_ctx = std::shared_ptr<oxen::quic::Context>{};
-    const auto port = 10000;
+    auto shared_ctx = std::make_shared<oxen::quic::Context>();
+    const auto port = 12345;
 
     shared_ctx->server_call(port);
+
+    size_t counter = 0;
+
+    do {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+
+        if (++counter % 30 == 0)
+            std::cout << "Listening..." << std::endl;
+    } while (run);
     
- 
     return 0;
 }

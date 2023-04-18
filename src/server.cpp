@@ -22,7 +22,7 @@ namespace oxen::quic
         }
         if (rv < 0) // catches all other possible ngtcp2 errors
         {
-            fprintf(stderr, "Erorr: invalid packet received, length=%ld\n", pkt.data.size());
+            fprintf(stderr, "Error: invalid packet received, length=%ld\n", pkt.data.size());
             return nullptr;
         }
 
@@ -39,7 +39,7 @@ namespace oxen::quic
         
         for (;;)
         {
-            if (auto [itr, res] = conns.emplace(Connection::random(), conn_ptr{}); res)
+            if (auto [itr, res] = conns.emplace(ConnectionID::random(), conn_ptr{}); res)
             {
                 auto connptr = std::make_shared<Connection>(*this, tunnel_ep, itr->first, hdr, std::move(pkt.path));
                 itr->second = connptr;

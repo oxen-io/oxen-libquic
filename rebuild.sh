@@ -5,7 +5,12 @@
 rm -rf build && \
 mkdir build && \
 cd build && \
-export CXX="$(which clang++)" && \
-export C="$(which clang)" && \
-cmake .. -GNinja -DCMAKE_C_COMPILER="clang" -DCMAKE_CXX_COMPILER="clang++" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=1 && \
-ninja
+cmake .. -GNinja \
+    -DCMAKE_C_COMPILER="clang" \
+    -DCMAKE_CXX_COMPILER="clang++" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+    -DWITH_LTO=ON \
+    -DCMAKE_POLICY_DEFAULT_CMP0069=NEW && \
+ninja -v
+

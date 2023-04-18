@@ -1,5 +1,11 @@
 include(ExternalProject)
 
+function(enable_lto)
+  if(IPO_ENABLED)
+    set_target_properties(${ARGN} PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+  endif()
+endfunction()
+
 set(DEPS_DESTDIR ${CMAKE_BINARY_DIR}/static-deps)
 set(DEPS_SOURCEDIR ${CMAKE_BINARY_DIR}/static-deps-sources)
 
@@ -22,29 +28,32 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 
-system_or_submodule(LIBUV uv_a libuv>=1.43.0 libuv)
+# ngtcp2
+set(ENABLE_GNUTLS ON CACHE BOOL "")
+set(ENABLE_OPENSSL OFF CACHE BOOL "")
+set(ENABLE_STATIC_LIB ON CACHE BOOL "")
+set(ENABLE_SHARED_LIB OFF CACHE BOOL "")
+set(ENABLE_LIB_ONLY OFF CACHE BOOL "")
 
-add_library(uvw INTERFACE)
-target_include_directories(uvw INTERFACE uvw/src)
-target_link_libraries(uvw INTERFACE uv_a::uv_a)
+add_subdirectory(ngtcp2 EXCLUDE_FROM_ALL)
+add_library(ngtcp2::ngtcp2 ALIAS ngtcp2_static)  # Base ngtcp2 (no crypto)
+add_library(ngtcp2_crypto INTERFACE)
+target_link_libraries(ngtcp2_crypto 
+    INTERFACE
+    ngtcp2::ngtcp2
+    ngtcp2_crypto_gnutls_static)
+add_library(ngtcp2::crypto
+    ALIAS 
+    ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
 
-set(GNUTLS_VERSION 
-    3.7.2 
-    CACHE STRING "gnutls version")
-set(GNUTLS_MIRROR 
-    ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7
-    CACHE STRING "gnutls mirror")
-set(GNUTLS_SOURCE
-    gnutls-${GNUTLS_VERSION}.tar.xz)
-set(GNUTLS_HASH
-    SHA512=5d01d561a05379da71e4847e30ba13c2abe09f7a5c4359fd539d8bd19abad0ce87120f82ee7b6264e787bd3edbc5ae16beffa892983cbc3d59f11a1811c10329
-    CACHE STRING "gnutls source hash")
+# uvw
+set(BUILD_UVW_LIBS ON CACHE BOOL "")
+set(FETCH_LIBUV OFF CACHE BOOL "")
+set(BUILD_TESTING OFF CACHE BOOL "")
+set(FIND_GTEST_PACKAGE OFF CACHE BOOL "")
+add_subdirectory(uvw)
 
-build_external(gnutls
-    CONFIGURE_COMMAND ./configure --with-included-libtasn1 --with-included-unistring --without-p11-kit --disable-tests --disable-doc
-    BUILD_COMMAND make -j)
-add_static_target(gnutls gnutls-external gnutls.a)
+# libuv
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
+add_subdirectory(libuv)
 
-# ngtcp2 needs some massaging to build nicely:
-include(ngtcp2_lib)
-add_ngtcp2_lib()

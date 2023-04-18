@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utils.hpp"
-#include "tunnel.hpp"
 
 #include <cstddef>
 #include <netinet/in.h>
@@ -17,6 +16,7 @@
 #include <uvw/timer.h>
 #include <uvw/poll.h>
 
+#include <queue>
 #include <random>
 #include <numeric>
 #include <optional>
@@ -27,18 +27,18 @@
 
 namespace std
 {
-    //  Custom hash is required s.t. unordered_set storing conn_id:shared_ptr<Connection> 
+    //  Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection> 
     //  is able to call its implicit constructor
     template <>
-    struct hash<ngtcp2_cid>
+    struct hash<oxen::quic::ConnectionID>
     {
         size_t
-        operator()(ngtcp2_cid& cid)
+        operator()(const oxen::quic::ConnectionID& cid) const
         {
             static_assert(
-                alignof(ngtcp2_cid) >= alignof(size_t)
-                && offsetof(ngtcp2_cid, data) % sizeof(size_t) == 0);
-            return *reinterpret_cast<size_t*>(cid.data);
+                alignof(oxen::quic::ConnectionID) >= alignof(size_t)
+                && offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
+            return *reinterpret_cast<const size_t*>(cid.data);
         }
     };
 }
@@ -46,12 +46,12 @@ namespace std
 namespace oxen::quic
 {
     class Connection;
-
-    using conn_id = ngtcp2_cid;
+    class Tunnel;
     using conn_ptr = std::shared_ptr<Connection>;
 
     class Endpoint
     {
+
         public:
             friend class Connection;
 
@@ -66,6 +66,12 @@ namespace oxen::quic
 
             void
             handle_packet(const Packet& pkt);
+
+            void
+    		close_connection(Connection& conn, int code, std::string_view msg = ""sv);
+
+            void
+            delete_connection(const ConnectionID &cid);
 
             conn_ptr 
             get_conn();
@@ -100,12 +106,12 @@ namespace oxen::quic
             //  
             //      They are indexed by connection ID, storing the removal time as a uint64_t value
             //
-            std::unordered_map<conn_id, conn_ptr> conns;
-            std::queue<std::pair<conn_id, uint64_t>> draining;
+            std::unordered_map<ConnectionID, conn_ptr> conns;
+            std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
-            Address local_addr{reinterpret_cast<const sockaddr_in6&>(in6addr_any)};
+            Address local_addr{reinterpret_cast<const sockaddr_in&>(in6addr_any)};
 
-            std::optional<conn_id>
+            std::optional<ConnectionID>
             handle_initial_packet(const Packet& pkt);
 
             void
@@ -115,7 +121,7 @@ namespace oxen::quic
             send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source);
 
             conn_ptr 
-            get_conn(const conn_id& cid);
+            get_conn(const ConnectionID& cid);
 
             void
             check_timeouts();

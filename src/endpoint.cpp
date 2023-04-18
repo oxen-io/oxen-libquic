@@ -1,5 +1,6 @@
 #include "endpoint.hpp"
 #include "connection.hpp"
+#include "tunnel.hpp"
 #include "utils.hpp"
 
 #include <ngtcp2/version.h>
@@ -68,7 +69,93 @@ namespace oxen::quic
     }
 
 
-    std::optional<conn_id>
+    void
+    Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
+    {
+        fprintf(stderr, "Closing connection (CID: %s)\n", conn.source_cid.data);
+
+        if (!conn || conn.closing || conn.draining)
+            return;
+        
+        if (code == NGTCP2_ERR_IDLE_CLOSE)
+        {
+            fprintf(stderr, 
+                "Connection (CID: %s) passed idle expiry timer; closing now without close packet\n", 
+                conn.source_cid.data);
+            delete_connection(conn.source_cid);
+            return;
+        }
+
+        //  "The error not specifically mentioned, including NGTCP2_ERR_HANDSHAKE_TIMEOUT,
+        //  should be dealt with by calling ngtcp2_conn_write_connection_close."
+        //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
+        if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
+        {
+            fprintf(stderr, 
+            "Connection (CID: %s) passed idle expiry timer; closing now with close packet\n", 
+            conn.source_cid.data);
+        }
+
+        ngtcp2_connection_close_error err;
+        ngtcp2_connection_close_error_set_transport_error_liberr(
+            &err, 
+            code, 
+            reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), 
+            msg.size());
+        
+        conn.conn_buffer.resize(max_pkt_size_v4);
+        Path path;
+        ngtcp2_pkt_info pkt_info;
+
+        auto written = ngtcp2_conn_write_connection_close(
+            conn, path, &pkt_info, u8data(conn.conn_buffer), conn.conn_buffer.size(), &err, get_timestamp());
+
+        if (written <= 0)
+        {
+            fprintf(stderr, "Error: Failed to write connection close packet: ");
+            fprintf(stderr, "[%s]\n", (written < 0) ? 
+                strerror(written) : 
+                "[Error Unknown: closing pkt is 0 bytes?]");
+            
+            delete_connection(conn.source_cid);
+            return;
+        }
+        // ensure we have enough write space
+        assert(written <= (long)conn.conn_buffer.size());
+
+        if (auto rv = tunnel_ep.send_packet(conn.path.remote, conn.conn_buffer, 0, conn.pkt_type); not rv)
+        {
+            fprintf(stderr, 
+                "Error: failed to send close packet [code: %s]; removing connection (CID: %s)\n", 
+                strerror(rv.error_code), conn.source_cid.data);
+            delete_connection(conn.source_cid);
+        }
+    }
+
+
+    void
+    Endpoint::delete_connection(const ConnectionID &cid)
+    {
+        auto target = conns.find(cid);
+        if (target == conns.end())
+        {
+            fprintf(stderr, "Error: could not delete connection [ID: %s]; could not find \n", cid.data);
+            return;
+        }
+
+        auto c_ptr = target->second;
+
+        if (c_ptr->on_closing)
+        {
+            c_ptr->on_closing(*c_ptr);
+            c_ptr->on_closing = nullptr;
+        }
+        
+        conns.erase(target);
+    }
+
+
+    std::optional<ConnectionID>
     Endpoint::handle_initial_packet(const Packet& pkt)
     {
         ngtcp2_version_cid vid;
@@ -91,19 +178,18 @@ namespace oxen::quic
             return std::nullopt;
         }
 
-        auto c_id = conn_id{.datalen=vid.dcidlen};
-        std::memmove(c_id.data, vid.dcid, vid.dcidlen);
 
-        return std::make_optional<conn_id>(c_id);
+        return std::make_optional<ConnectionID>(vid.dcid, vid.dcidlen);
     }
 
 
     void
     Endpoint::handle_conn_packet(Connection& conn, const Packet& pkt)
     {
-        if (ngtcp2_conn_is_in_closing_period(conn))
+        if (auto rv = ngtcp2_conn_is_in_closing_period(conn); rv != 0)
         {
-            fprintf(stderr, "Erorr: connection (CID: %s) is in closing period; dropping connection\n", conn.source_cid.data);
+            fprintf(stderr, "Error: connection (CID: %s) is in closing period; dropping connection\n", conn.source_cid.data);
+            close_connection(conn, rv);
             return;
         }
 
@@ -126,7 +212,7 @@ namespace oxen::quic
         auto rv = ngtcp2_pkt_write_version_negotiation(
             u8data(_buf),
             _buf.size(),
-            std::uniform_int_distribution<uint8_t>{0, 255}(rand),
+            0xfe,//std::uniform_int_distribution<uint8_t>(0, 255)(make_mt19937),
             vid.dcid,
             vid.dcidlen,
             vid.scid,
@@ -135,7 +221,7 @@ namespace oxen::quic
             versions.size());
         if (rv <= 0)
         {
-            fprintf(stderr, "Erorr: Failed to construct version negotiation packet: %s\n", ngtcp2_strerror(rv));
+            fprintf(stderr, "Error: Failed to construct version negotiation packet: %s\n", ngtcp2_strerror(rv));
             return;
         }
 
@@ -173,7 +259,7 @@ namespace oxen::quic
 
 
     conn_ptr
-    Endpoint::get_conn(const conn_id& cid)
+    Endpoint::get_conn(const ConnectionID& cid)
     {
         if (auto it = conns.find(cid); it != conns.end())
             return it->second;

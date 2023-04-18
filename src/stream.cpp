@@ -1,6 +1,7 @@
 #include "stream.hpp"
 #include "connection.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <ngtcp2/ngtcp2.h>
 
@@ -29,12 +30,29 @@ namespace oxen::quic
         conn{conn},
         stream_id{stream_id},
         buf{bufsize} 
-    {}
+    {
+        avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
+    }
 
 
     Stream::Stream(Connection& conn, int64_t stream_id, size_t bufsize) :
         Stream{conn, nullptr, nullptr, bufsize, stream_id}
     {}
+
+
+    Stream::~Stream()
+    {
+        fprintf(stderr, "Destroying stream %lu\n", stream_id);
+        if (avail_trigger)
+        {
+            avail_trigger->close();
+            avail_trigger.reset();
+        }
+        bool was_closing = is_closing;
+        is_closing = is_shutdown = true;
+        if (!was_closing && close_callback)
+            close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
+    }
 
 
     Connection&
@@ -69,6 +87,7 @@ namespace oxen::quic
         conn.io_ready();
     }
 
+
     auto
     get_buffer_it(
         std::deque<std::pair<std::unique_ptr<const std::byte[]>, size_t>>& bufs, size_t offset)
@@ -81,25 +100,7 @@ namespace oxen::quic
         }
         return std::make_pair(std::move(it), offset);
     }
-    
 
-    // TOFIX: delete this from orbit
-    /*
-    std::shared_ptr<Stream> 
-	Stream::quic_stream_create(ngtcp2_conn* connection)
-    {
-        auto new_stream = std::make_shared<Stream>();
-        //new_stream.get()->conn = connection;  TOFIX
-        
-        if (ngtcp2_conn_open_bidi_stream(new_stream->conn, &new_stream->stream_id, &new_stream->buf))
-        {
-            fprintf(stderr, "Erorr: unable to open new bidi stream");
-            return nullptr;
-        }
-
-        return new_stream;
-    }
-    */
 
     void
     Stream::append_buffer(const std::byte* buffer, size_t length)
@@ -109,6 +110,7 @@ namespace oxen::quic
         size += length;
         conn.io_ready();
     }
+
 
     void
     Stream::acknowledge(size_t bytes)
@@ -148,6 +150,59 @@ namespace oxen::quic
     }
 
 
+    void
+    Stream::when_available(unblocked_callback_t unblocked_cb)
+    {
+        assert(available() == 0);
+        unblocked_callbacks.push(std::move(unblocked_cb));
+    }
+
+
+    void
+    Stream::handle_unblocked()
+    {
+        if (is_closing)
+            return;
+        if (buf.empty())
+        {
+            while (!unblocked_callbacks.empty() && unblocked_callbacks.front()(*this))
+                unblocked_callbacks.pop();
+        }
+        while (!unblocked_callbacks.empty() && available() > 0)
+        {
+            if (unblocked_callbacks.front()(*this))
+                unblocked_callbacks.pop();
+            else
+                assert(available() == 0);
+        }
+
+        conn.io_ready();
+    }
+
+
+    void
+    Stream::io_ready()
+    {
+        conn.io_ready();
+    }
+
+
+    void
+    Stream::available_ready()
+    {
+        if (avail_trigger)
+            avail_trigger->send();
+    }
+
+
+    void
+    Stream::wrote(size_t bytes)
+    {
+        assert(bytes <= unsent());
+        unacked_size += bytes;
+    }
+
+
     std::vector<bstring>
     Stream::pending()
     {
@@ -181,6 +236,13 @@ namespace oxen::quic
         }
 
         return bufs;
+    }
+
+
+    void
+    Stream::data(std::shared_ptr<void> data)
+    {
+        user_data = std::move(data);
     }
 
 

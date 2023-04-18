@@ -1,22 +1,27 @@
 #pragma once
 
-#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+#include <ngtcp2/ngtcp2_crypto_gnutls.h>
+#include <gnutls/gnutls.h>
 
+#include <iostream>
+#include <cassert>
 #include <chrono>
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <gnutls/gnutls.h>
+#include <random>
+#include <string>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdexcept>
-#include <string>
 #include <sys/socket.h>
 
 // temporary placeholders
 #define REMOTE_HOST "127.0.0.1"
-#define REMOTE_PORT 4433
-#define ALPN "dummy"
+#define REMOTE_PORT 12345
+#define ALPN "h1"
 #define MESSAGE "GET /\r\n"
 
 /*
@@ -56,10 +61,22 @@ namespace oxen::quic
     static constexpr uint64_t ERROR_BAD_INIT{0x5471908};
     // Close error code sent if we get an error on the TCP socket (other than an initial connect failure)
     static constexpr uint64_t ERROR_TCP{0x5471909};
+    // Application error code we close with if the data handle throws
+    inline constexpr uint64_t STREAM_ERROR_EXCEPTION = (1ULL << 62) - 2;
+    // Error code we send to a stream close callback if the stream's connection expires
+    inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
     // We pause reading from the local TCP socket if we have more than this amount of outstanding
     // unacked data in the quic tunnel, then resume once it drops below this.
     inline constexpr size_t PAUSE_SIZE = 64 * 1024;
+
+
+    // We send and verify this in the initial connection and handshake; this is designed to allow
+  // future changes (by either breaking or handling backwards compat).
+    constexpr const std::array<uint8_t, 8> handshake_magic_bytes{
+        'l', 'o', 'k', 'i', 'n', 'e', 't', 0x01};
+    constexpr std::basic_string_view<uint8_t> handshake_magic{
+        handshake_magic_bytes.data(), handshake_magic_bytes.size()};
 
     const char priority[] =
         "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
@@ -69,52 +86,57 @@ namespace oxen::quic
 
     const gnutls_datum_t alpn = {(uint8_t *)ALPN, sizeof(ALPN) - 1};
 
-    static uint64_t
-    get_timestamp()
-    {
-        struct timespec tp;
+    uint64_t
+    get_timestamp();
 
-        if (clock_gettime(CLOCK_MONOTONIC, &tp) != 0) 
+    std::string
+    str_tolower(std::string s);
+
+    std::mt19937 make_mt19937();
+
+    // Wrapper for ngtcp2_cid with helper functionalities to make it passable
+    struct alignas(size_t) ConnectionID : ngtcp2_cid
+    {
+        ConnectionID() = default;
+        ConnectionID(const ConnectionID& c) = default;
+        ConnectionID(const uint8_t* cid, size_t length);
+        ConnectionID(ngtcp2_cid c) : ConnectionID(c.data, c.datalen) {}
+        
+        ConnectionID&
+        operator=(const ConnectionID& c) = default;
+
+        inline bool
+        operator==(const ConnectionID& other) const
         {
-            fprintf(stderr, "clock_gettime: %s\n", ngtcp2_strerror(errno));
-            exit(EXIT_FAILURE);
+            return datalen == other.datalen && std::memcmp(data, other.data, datalen) == 0;
         }
+        inline bool
+        operator!=(const ConnectionID& other) const
+        { 
+            return !(*this == other);
+        }
+        static ConnectionID
+        random(size_t size = NGTCP2_MAX_CIDLEN);
 
-        return (uint64_t)tp.tv_sec * NGTCP2_SECONDS + (uint64_t)tp.tv_nsec;
-    }
+    };
 
-    static std::string
-    str_tolower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
-        return s;
-    }
 
     //  Wrapper for ngtcp2_addr with helper functionalities, sockaddr_in6, etc
     struct Address
     {
         private:
-            sockaddr_in6 _sock_addr{};
+            sockaddr_in _sock_addr{};
             ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
 
         public:
             Address() = default;
-            Address(std::string addr, uint16_t port) 
-            {
-                memset(&_sock_addr, 0, sizeof(_sock_addr));
-                _sock_addr.sin6_family = AF_INET6;
-                _sock_addr.sin6_port = port;
-
-                if (auto rv = inet_pton(AF_INET6, addr.c_str(), &_sock_addr.sin6_addr); rv != 1)
-                {
-                    throw std::runtime_error("Erorr: could not parse IPv6 address from string");
-                }
-            }
-            Address(const sockaddr_in6& addr) : _sock_addr{addr} {}
-            Address(const sockaddr_in6& addr, uint16_t port) : _sock_addr{addr} 
-            { _sock_addr.sin6_port = port; }
+            Address(std::string addr, uint16_t port);
+            Address(const sockaddr_in& addr) : _sock_addr{addr} {}
+            Address(const sockaddr_in& addr, uint16_t port) : _sock_addr{addr} 
+            { _sock_addr.sin_port = port; }
 
             Address(const Address& obj) { *this = obj; }
+
             inline Address& operator=(const Address& obj)
             {
                 std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
@@ -122,10 +144,11 @@ namespace oxen::quic
                 return *this;
             }
 
-            // can pass Address object as boolean to check if addr is set
-            operator bool() const { return _sock_addr.sin6_port; }
+            //tcp_tunnel->bind(*bind_addr.operator const sockaddr*());
 
-            //  template code to implicitly convert to sockaddr*, sockaddr&, ngtcp2_addr&, and sockaddr_in6&
+            // can pass Address object as boolean to check if addr is set
+            operator bool() const { return _sock_addr.sin_port; }
+            //  template code to implicitly convert to sockaddr*, sockaddr&, ngtcp2_addr&, and sockaddr_in&
             template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
             operator T*()
             { return reinterpret_cast<sockaddr*>(&_sock_addr); }
@@ -137,22 +160,34 @@ namespace oxen::quic
             inline operator const
             sockaddr&() const { return reinterpret_cast<const sockaddr&>(_sock_addr); }
             inline operator
-            sockaddr_in6&() { return _sock_addr; }
+            sockaddr_in&() { return _sock_addr; }
             inline operator const
-            sockaddr_in6&() const { return _sock_addr; }
+            sockaddr_in&() const { return _sock_addr; }
             inline operator 
             ngtcp2_addr&() { return _addr; }
             inline operator const 
             ngtcp2_addr&() const { return _addr; }
 
+            inline friend bool operator==(const Address& lhs, const Address& rhs)
+            {
+                
+                if ((lhs._sock_addr.sin_addr.s_addr != rhs._sock_addr.sin_addr.s_addr) ||
+                    (lhs._sock_addr.sin_port != rhs._sock_addr.sin_port) || 
+                    (lhs._sock_addr.sin_family != rhs._sock_addr.sin_family) || 
+                    (lhs._addr.addr->sa_data != rhs._addr.addr->sa_data))
+                    return false;
+                
+                return true;
+            }
+
             inline ngtcp2_socklen 
-            sockaddr_size() const { return sizeof(sockaddr_in6); }
+            sockaddr_size() const { return sizeof(sockaddr_in); }
 
             inline uint16_t
-            port() const { return _sock_addr.sin6_port; }
+            port() const { return _sock_addr.sin_port; }
 
             inline void 
-            port(uint16_t port) { _sock_addr.sin6_port = port; }
+            port(uint16_t port) { _sock_addr.sin_port = port; }
     };
 
     //  Wrapper for ngtcp2_path with remote/local components. Implicitly convertible

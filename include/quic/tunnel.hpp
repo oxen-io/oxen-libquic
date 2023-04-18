@@ -2,6 +2,12 @@
 
 #include "utils.hpp"
 
+#include <uvw/emitter.h>
+#include <uvw/stream.h>
+#include <uvw/tcp.h>
+#include <uvw/async.h>
+#include <uvw/timer.h>
+
 #include <memory>
 #include <stddef.h>
 #include <stdint.h>
@@ -10,12 +16,6 @@
 #include <unordered_set>
 #include <netinet/ip.h>
 
-#include <uvw/async.h>
-#include <uvw/timer.h>
-#include <uvw/poll.h>
-#include <uvw/tcp.h>
-#include <uvw/loop.h>
-#include <uvw/emitter.h>
 
 #define IP_TUNNEL_MAX_BUFFER_SIZE 4096
 
@@ -34,9 +34,8 @@ namespace oxen::quic
 	using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
 	using timer_callback = std::function<void(int nwrite, void* user_data)>;
 	//	Callback for server connectivity
-	using server_callback = std::function<int(std::string addr, uint16_t port)>;
-	
-	using conn_id = ngtcp2_cid;
+	template <typename T>
+	using server_callback = std::function<T(uint16_t port)>;
 
 	struct ClientTunnel
 	{
@@ -86,14 +85,14 @@ namespace oxen::quic
 			close();
 
 			void
-			listen();
+			listen(uint16_t port);
+
+			void
+			flush_incoming(ClientTunnel& ct);
 
 			int
 			open(
-				std::string remote_address, uint16_t remote_port, open_callback on_open, close_callback on_close, Address bind_addr);
-
-			void
-    		reset_tcp_handles(uvw::TCPHandle& tcp, Stream& stream);
+				std::string remote_address, uint16_t remote_port, open_callback on_open, close_callback on_close, Address& bind_addr);
 
 			void 
 			make_client(
@@ -101,12 +100,6 @@ namespace oxen::quic
 			
 			void 
 			make_server();
-
-			void
-			delete_connection(const conn_id &cid);
-
-			void
-    		close_connection(Connection& conn, int code, std::string_view msg);
 
 		private:
 			std::unique_ptr<ClientTunnel> client_tunnel;
@@ -120,7 +113,7 @@ namespace oxen::quic
 			read_callback read_cb;
 			timer_callback timer_cb;
 			
-			server_callback server_cb;
+			server_callback<Address> server_cb;
 
 			//	keep ev loop open for cleanup
 			std::shared_ptr<int> keep_alive = std::make_shared<int>(0); 

@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.13)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
+option(BUILD_SHARED_LIBS "Build as shared library" OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(LANGS C CXX)
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -29,19 +32,31 @@ endif()
 set(CMAKE_C_FLAGS_DEBUG "-g")
 set(CMAKE_C_FLAGS_RELEASE "-O3")
 
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+option(WITH_LTO "enable lto on compile time" ON)
+if(WITH_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT IPO_ENABLED OUTPUT ipo_error)
+    if(IPO_ENABLED)
+        message(STATUS "LTO enabled")
+    else()
+        message(WARNING "LTO not supported by compiler: ${ipo_error}")
+    endif()
+else()
+    message(STATUS "LTO disabled")
+    set(IPO_ENABLED OFF)
+endif()
 
+if(IPO_ENABLED AND NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+endif()
+
+include(GNUInstallDirs)
+include(combine_archives)
 include_directories(cmake)
 include_directories(include)
 
 add_subdirectory(external)
 add_subdirectory(src)
 
-target_link_libraries(libquic
-    ngtcp2
-	gnutls
-    libuv
-	uvw
-)
+add_subdirectory(tests)
 
-include_directories(tests)
