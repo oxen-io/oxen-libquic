@@ -1,4 +1,5 @@
 #include "utils.hpp"
+
 #include <netinet/in.h>
 
 
@@ -65,6 +66,9 @@ namespace oxen::quic
 
         std::cout << "After:\n\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
         std::cout << "\tPort: " << _sock_addr.sin_port << std::endl;
+        
+        _uaddr = uvw::Addr{addr, port};
+        _addr = ngtcp2_addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
     }
 
 }   // namespace oxen::quic

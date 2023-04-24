@@ -1,6 +1,6 @@
 #include "endpoint.hpp"
 #include "connection.hpp"
-#include "tunnel.hpp"
+#include "handler.hpp"
 #include "utils.hpp"
 
 #include <ngtcp2/version.h>
@@ -14,7 +14,7 @@
 
 namespace oxen::quic
 {
-    Endpoint::Endpoint(Tunnel& tun)  : tunnel_ep{tun} 
+    Endpoint::Endpoint(Handler& handler)  : handler{handler} 
     {
         expiry_timer = get_loop()->resource<uvw::TimerHandle>();
         expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&){ check_timeouts(); });
@@ -33,7 +33,7 @@ namespace oxen::quic
     std::shared_ptr<uvw::Loop>
     Endpoint::get_loop()
     {
-        return (tunnel_ep.ev_loop) ? tunnel_ep.ev_loop : nullptr;
+        return (handler.ev_loop) ? handler.ev_loop : nullptr;
     }
 
 
@@ -123,13 +123,16 @@ namespace oxen::quic
         // ensure we have enough write space
         assert(written <= (long)conn.conn_buffer.size());
 
-        if (auto rv = tunnel_ep.send_packet(conn.path.remote, conn.conn_buffer, 0, conn.pkt_type); not rv)
+        /*
+        if (auto rv = handler.send_data(conn.path.remote, conn.conn_buffer, 0); not rv)
         {
             fprintf(stderr, 
                 "Error: failed to send close packet [code: %s]; removing connection (CID: %s)\n", 
                 strerror(rv.error_code), conn.source_cid.data);
             delete_connection(conn.source_cid);
         }
+        */
+
     }
 
 
@@ -225,7 +228,7 @@ namespace oxen::quic
             return;
         }
 
-        tunnel_ep.send_packet(source, bstring{_buf.data(), static_cast<size_t>(rv)}, 0, std::byte{2});
+        //handler.send_data(source, bstring{_buf.data(), static_cast<size_t>(rv)}, 0);
     }
 
 
@@ -246,25 +249,14 @@ namespace oxen::quic
     }
 
 
-    conn_ptr
-    Endpoint::get_conn()
+    std::shared_ptr<Connection>
+    Endpoint::get_conn(ConnectionID ID)
     {
-        auto it = conns.begin();
+        auto it = conns.find(ID);
         
         if (it == conns.end())
             return nullptr;
 
         return it->second;
     }
-
-
-    conn_ptr
-    Endpoint::get_conn(const ConnectionID& cid)
-    {
-        if (auto it = conns.find(cid); it != conns.end())
-            return it->second;
-
-        return nullptr;
-    }
-
 }   // namespace oxen::quic

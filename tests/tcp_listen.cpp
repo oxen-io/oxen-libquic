@@ -22,9 +22,10 @@ int main(void)
     signal(SIGTERM, signal_handler);
 
     auto shared_ctx = std::make_shared<oxen::quic::Context>();
-    const auto port = 12345;
+    std::string host{"127.0.01"};
+    uint16_t port = 12345;
 
-    shared_ctx->server_call(port);
+    shared_ctx->listen_to(host, port);
 
     size_t counter = 0;
 

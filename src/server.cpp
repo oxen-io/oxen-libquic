@@ -41,20 +41,10 @@ namespace oxen::quic
         {
             if (auto [itr, res] = conns.emplace(ConnectionID::random(), conn_ptr{}); res)
             {
-                auto connptr = std::make_shared<Connection>(*this, tunnel_ep, itr->first, hdr, std::move(pkt.path));
+                auto connptr = std::make_shared<Connection>(*this, handler, itr->first, hdr, std::move(pkt.path));
                 itr->second = connptr;
                 return connptr;
             }
         }
-    }
-
-
-    size_t
-    Server::write_packet_header(uint16_t pseudo_port, uint8_t ecn)
-    {
-        buf[0] = SERVER_TO_CLIENT;
-        std::memcpy(&buf[1], &pseudo_port, 2);
-        buf[3] = std::byte{ecn};
-        return 4;
     }
 }   // namespace oxen::quic

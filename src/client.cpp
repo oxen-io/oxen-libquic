@@ -10,35 +10,43 @@
 
 namespace oxen::quic
 {
-    Client::Client(Tunnel& tun_endpoint, const uint16_t remote_port, Address&& remote) 
-        : Endpoint{tun_endpoint}
+    Client::Client(Handler& handler, const uint16_t remote_port, Address& remote, Address& local) 
+        : Endpoint{handler}
     {
         default_stream_bufsize = 0;
-
     
         if (remote_port == 0)
             throw std::logic_error{"Cannot tunnel to port 0"};
 
-        Path path
-        {
-            Address{reinterpret_cast<const sockaddr_in&>(in6addr_loopback), uint16_t{0}},
-            std::move(remote)
-        };
+        Path path{local, remote};
 
-        auto conn = std::make_shared<Connection>(*this, tun_endpoint, ConnectionID::random(), std::move(path), remote_port);
+        auto conn = std::make_shared<Connection>(*this, handler, ConnectionID::random(), std::move(path), remote_port);
         
         conn->io_ready();
         conns.emplace(conn->source_cid, std::move(conn));
     }
 
 
-    size_t
-    Client::write_packet_header(uint16_t remote_port, uint8_t ecn)
+    Client::Client(Handler& handler) 
+        : Endpoint{handler}
     {
-        buf[0] = CLIENT_TO_SERVER;
-        auto pseudo_port = local_addr.port();
-        std::memcpy(&buf[1], &pseudo_port, 2);
-        buf[3] = std::byte{ecn};
-        return 4;
+        default_stream_bufsize = 0;
     }
+
+
+    ConnectionID
+    Client::make_conn(const uint16_t remote_port, Address& remote, Address& local)
+    {
+        auto ID = ConnectionID::random();
+
+        Path path{local, remote};
+
+        auto conn = std::make_shared<Connection>(*this, handler, ID, std::move(path), remote_port);
+        
+        conn->io_ready();
+        conns.emplace(conn->source_cid, std::move(conn));
+
+        return ID;
+    }
+
 }   // namespace oxen::quic

@@ -1,9 +1,12 @@
 #pragma once
 
-#include "tunnel.hpp"
+#include "handler.hpp"
+#include "crypto.hpp"
 #include "utils.hpp"
 
-#include <uvw/loop.h>
+#include <uvw.hpp>
+
+#include <cstdint>
 
 #include <memory>
 
@@ -13,7 +16,7 @@ namespace oxen::quic
     class Context
     {
         public:
-            Context();
+            Context(std::shared_ptr<uvw::Loop> loop_ptr = nullptr);
             ~Context();
 
             void
@@ -25,25 +28,44 @@ namespace oxen::quic
             int
             next_socket_id();
 
-            Tunnel*
+            Handler*
             get_quic();
 
             void
-            server_call(uint16_t port);
+            shutdown_test();
 
             void
-            client_call(Address& local_addr, std::string remote_host, uint16_t remote_port, open_callback open_cb = NULL, close_callback close_cb = NULL);
+            listen_to(std::string host, uint16_t port);
 
+            template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
+            void
+            udp_connect(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
+                T cert, open_callback open_cb = NULL, close_callback close_cb = NULL);
+
+            void
+            udp_connect(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
+                open_callback open_cb = NULL, close_callback close_cb = NULL);
+
+            /****** TEST FUNCTIONS ******/
+            void
+            listen_test(std::string host, uint16_t port);
+            void
+            send_oneshot_test(
+                std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, std::string msg="");
+            // TOFIX: add cert verification to nullcert tests
+            void
+            listen_nullcert_test(std::string host, uint16_t port, TLSCert cert);
+            void
+            send_oneshot_nullcert_test(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
+                TLSCert cert, std::string msg="");
+            /****************************/
         protected:
-            std::unique_ptr<oxen::quic::Tunnel> quic_manager;
+            std::unique_ptr<Handler> quic_manager;
 
             int 
-            configure_tunnel(Tunnel* tunnel);
+            configure_tunnel(Handler* handler);
 
-        private:
-            // tracks the last used socket
-            int _socket_id = 0;
-            
+        private:            
 
     };
 

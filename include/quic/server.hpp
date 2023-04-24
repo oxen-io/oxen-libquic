@@ -2,7 +2,7 @@
 
 #include "endpoint.hpp"
 #include "stream.hpp"
-#include "tunnel.hpp"
+#include "handler.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -21,12 +21,12 @@
 
 namespace oxen::quic
 {
-	using stream_open_cb = std::function<bool(Stream& stream, uint16_t port)>;
+	using stream_open_cb = std::function<bool(Stream& stream, std::string remote_addr, uint16_t remote_port)>;
 	
 	class Server : public Endpoint
 	{
 		public:
-			Server(Tunnel& tun_endpoint) : Endpoint{tun_endpoint}
+			Server(Handler& endpoint) : Endpoint{endpoint}
 			{ default_stream_bufsize = 0; }
 
 			stream_open_cb stream_open_callback;
@@ -35,9 +35,6 @@ namespace oxen::quic
 
 			std::shared_ptr<Connection>
 			accept_initial_connection(const Packet& pkt) override;
-
-			size_t
-			write_packet_header(uint16_t pseudo_port, uint8_t ecn) override;
 
 	};
 

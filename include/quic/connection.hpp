@@ -1,14 +1,12 @@
 #pragma once
 
+#include "crypto.hpp"
 #include "stream.hpp"
-#include "endpoint.hpp"
 #include "utils.hpp"
 
 #include <ngtcp2/ngtcp2.h>
 
-#include <uvw/async.h>
-#include <uvw/timer.h>
-#include <uvw/poll.h>
+#include <uvw.hpp>
 
 #include <map>
 #include <functional>
@@ -23,6 +21,7 @@ namespace oxen::quic
     class Endpoint;
     class Server;
     class Client;
+    class Handler;
 
     class Connection : public std::enable_shared_from_this<Connection>
     {
@@ -42,13 +41,27 @@ namespace oxen::quic
             ngtcp2_pkt_info pkt_info{};
 
         public:
+            // underlying ngtcp2 connection object
+            std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
+            ngtcp2_crypto_conn_ref conn_ref;
+            TLSCertManager& cert_manager;
+
+            struct sockaddr_storage local_addr;
+            socklen_t local_addrlen;
+
+            gnutls_session_t session;
+            gnutls_certificate_credentials_t cred;
+            
+            std::shared_ptr<uvw::TimerHandle> retransmit_timer;
+            uint16_t client_tunnel_port = 0;
+
             //  Create and establish a new connection from local client to remote server
             //      ep: tunnel object managing this connection
             //      scid: source/local ("primary") CID used for this connection (usually random)
             //      path: network path to reach remote server
             //      tunnel_port: destination port to tunnel to at remote end
             Connection(
-                Client& client, Tunnel& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port);
+                Client& client, Handler& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port);
 
             //  Construct and initialize a new incoming connection from remote client to local server
             //      ep: tunnel objec tmanaging this connection
@@ -56,7 +69,7 @@ namespace oxen::quic
             //      header: packet header used to initialize connection
             //      path: network path used to reach remote client
             Connection(
-                Server& server, Tunnel& ep, const ConnectionID& scid, ngtcp2_pkt_hd& hdr, const Path& path);
+                Server& server, Handler& ep, const ConnectionID& scid, ngtcp2_pkt_hd& hdr, const Path& path);
 
             ~Connection();
 
@@ -115,23 +128,11 @@ namespace oxen::quic
             int
             recv_initial_crypto(std::basic_string_view<uint8_t> data);
 
-            std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
-            ngtcp2_crypto_conn_ref conn_ref;
-            int conn_fd;
-            std::byte pkt_type;
-            struct sockaddr_storage local_addr;
-            socklen_t local_addrlen;
-            gnutls_session_t session;
-            gnutls_certificate_credentials_t cred;
-            std::shared_ptr<uvw::TimerHandle> retransmit_timer;
-
-            uint16_t client_tunnel_port = 0;
-
             // Buffer used to store non-stream connection data
             //  ex: initial transport params
             bstring conn_buffer;
 
-            Tunnel& tun_endpoint;
+            Handler& tun_endpoint;
             std::unique_ptr<Endpoint> endpoint;
 
             const ConnectionID source_cid;

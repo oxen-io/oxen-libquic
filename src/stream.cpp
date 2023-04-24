@@ -1,9 +1,10 @@
 #include "stream.hpp"
 #include "connection.hpp"
 
+#include <ngtcp2/ngtcp2.h>
+
 #include <cstddef>
 #include <cstdio>
-#include <ngtcp2/ngtcp2.h>
 
 
 namespace oxen::quic
@@ -240,7 +241,7 @@ namespace oxen::quic
 
 
     void
-    Stream::data(std::shared_ptr<void> data)
+    Stream::set_user_data(std::shared_ptr<void> data)
     {
         user_data = std::move(data);
     }

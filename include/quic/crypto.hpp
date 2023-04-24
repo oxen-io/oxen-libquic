@@ -1,43 +1,58 @@
 #pragma once
 
+#include "utils.hpp"
 
+#include <gnutls/crypto.h>
+
+#include <memory>
+#include <unordered_map>
 
 namespace oxen::quic
 {
-    /// Private key material for self-signing TLS certs and other PK material (ex: KEM)
-    class TLSCertPrivateKeys
-    {
+    class Connection;
 
+    // Cert base class
+    struct TLSCert
+    {
+        virtual ~TLSCert() = default;
     };
 
-    /// Pinned self-signed TLS cert addressible by pubkey and IP
-    /// Fulfills TLSCert_t type constraint
-    class Pinned_TLSCert
+    //  Pinned self-signed TLS cert addressible by pubkey and IP
+    //  Fulfills TLSCert_t type constraint
+    struct Pinned_TLSCert : public TLSCert
     {
-
+        //
     };
     
-    /// Pinned CA signed certificate used to connect to a remote QUIC server addressible
-    /// by common name
-    /// Fulfills TLSCert_t type constraint
-    class x509_TLSCert
+    //  Pinned CA signed certificate used to connect to a remote QUIC server addressible
+    //  by common name
+    //  Fulfills TLSCert_t type constraint
+    struct x509_TLSCert : public TLSCert
     {
-
+        //
     };
 
-	///	Manages all pinned TLS certificates and wraps system's root CA trust
-    class TLSCertManager
-    {
-
+    //  Null cert for unsecured connections
+    struct NullCert : public TLSCert
+    { 
+        //
     };
 
-	///	Templatized type constraints for passing certs to network classes
-	template <typename T>
-	constexpr bool is_valid_cert = false;
-	template <>
-	inline constexpr bool is_valid_cert<Pinned_TLSCert> = true;
-	template <>
-	inline constexpr bool is_valid_cert<x509_TLSCert> = true;
+    //  Private key material for self-signing TLS certs and other PK material (ex: KEM)
+    struct TLSCertPrivateKeys
+    {
+        //
+    };
+
+	// 	Manages all pinned TLS certificates and wraps system's root CA trust
+    struct TLSCertManager
+    {
+        std::unique_ptr<TLSCert> cert{};
+        gnutls_certificate_credentials_t cred;
+
+        int
+        gnutls_config(Connection& c);
+    };
 
 }   // namespace oxen::quic
 

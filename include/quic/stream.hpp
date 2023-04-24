@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils.hpp"
+#include "uvw/tcp.h"
 
 #include <ngtcp2/ngtcp2.h>
 #include <uvw.hpp>
@@ -78,12 +79,13 @@ namespace oxen::quic
 			close_callback_t close_callback;
 
 			int64_t stream_id;
+			std::shared_ptr<uvw::TCPHandle> tcp_handle;
+			std::vector<uint8_t> data;
+			size_t datalen;
+			size_t nwrite;
 			
 			std::vector<std::byte> buf{65536};
 			std::deque<std::pair<std::unique_ptr<const std::byte[]>, size_t>> user_buffers;
-
-			size_t datalen;
-			size_t nwrite;
 
 			Connection&
 			get_conn();
@@ -128,11 +130,11 @@ namespace oxen::quic
 			// Retrieve stashed data with static cast to desired type
 			template <typename T>
 			std::shared_ptr<T>
-			data() const
+			get_user_data() const
 			{ return std::static_pointer_cast<T>(user_data); }
 
 			void
-			data(std::shared_ptr<void> data);
+			set_user_data(std::shared_ptr<void> data);
 		
 		private:
 			friend class Connection;

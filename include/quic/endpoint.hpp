@@ -11,10 +11,7 @@
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 
-#include <uvw/async.h>
-#include <uvw/loop.h>
-#include <uvw/timer.h>
-#include <uvw/poll.h>
+#include <uvw.hpp>
 
 #include <queue>
 #include <random>
@@ -46,7 +43,7 @@ namespace std
 namespace oxen::quic
 {
     class Connection;
-    class Tunnel;
+    class Handler;
     using conn_ptr = std::shared_ptr<Connection>;
 
     class Endpoint
@@ -55,7 +52,7 @@ namespace oxen::quic
         public:
             friend class Connection;
 
-            explicit Endpoint(Tunnel& tun);
+            explicit Endpoint(Handler& handler);
             virtual ~Endpoint();
 
             std::array<std::byte, 1500> buf;
@@ -73,15 +70,15 @@ namespace oxen::quic
             void
             delete_connection(const ConnectionID &cid);
 
-            conn_ptr 
-            get_conn();
+            std::shared_ptr<Connection> 
+            get_conn(ConnectionID ID);
 
         protected:
-            Tunnel& tunnel_ep;
+            Handler& handler;
 
             std::shared_ptr<uvw::TimerHandle> expiry_timer;
 
-            // Data structures used to keep track of various types of connections
+            //  Data structures used to keep track of various types of connections
             //
             //  conns: 
             //      When a client establishes a new connection, it provides its own source CID (scid) and
@@ -106,10 +103,11 @@ namespace oxen::quic
             //  
             //      They are indexed by connection ID, storing the removal time as a uint64_t value
             //
-            std::unordered_map<ConnectionID, conn_ptr> conns;
+            std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
+            //std::unordered_map<ConnectionID>
             std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
-            Address local_addr{reinterpret_cast<const sockaddr_in&>(in6addr_any)};
+            Address local_addr{};
 
             std::optional<ConnectionID>
             handle_initial_packet(const Packet& pkt);
@@ -119,9 +117,6 @@ namespace oxen::quic
 
             void
             send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source);
-
-            conn_ptr 
-            get_conn(const ConnectionID& cid);
 
             void
             check_timeouts();

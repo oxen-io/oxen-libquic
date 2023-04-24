@@ -12,9 +12,7 @@
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 
-#include <uvw/async.h>
-#include <uvw/timer.h>
-#include <uvw/poll.h>
+#include <uvw.hpp>
 
 
 namespace oxen::quic
@@ -23,11 +21,16 @@ namespace oxen::quic
     {
         public:
             Client(
-                Tunnel& tun_endpoint, const uint16_t remote_port, Address&& remote);
+                Handler& handler, const uint16_t remote_port, Address& remote, Address& local);
+
+            Client(
+                Handler& handler);
+
+            ConnectionID
+            make_conn(const uint16_t remote_port, Address& remote, Address& local);
 
         private:
-            size_t
-            write_packet_header(uint16_t remote_port, uint8_t ecn) override;
+
     };
 
 }   // namespace oxen::quic

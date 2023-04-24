@@ -1,8 +1,10 @@
 #pragma once
 
+#include "uvw/util.h"
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
+
 #include <gnutls/gnutls.h>
 
 #include <iostream>
@@ -125,30 +127,29 @@ namespace oxen::quic
     struct Address
     {
         private:
-            sockaddr_in _sock_addr{};
-            ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
+            sockaddr_in _sock_addr;
+            ngtcp2_addr _addr;
+            uvw::Addr _uaddr;
 
         public:
             Address() = default;
-            Address(std::string addr, uint16_t port);
-            Address(const sockaddr_in& addr) : _sock_addr{addr} {}
-            Address(const sockaddr_in& addr, uint16_t port) : _sock_addr{addr} 
-            { _sock_addr.sin_port = port; }
+            explicit Address(std::string addr, uint16_t port);
 
             Address(const Address& obj) { *this = obj; }
 
             inline Address& operator=(const Address& obj)
             {
                 std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
+                _addr = obj._addr;
                 _addr.addrlen = obj._addr.addrlen;
+                _uaddr = obj._uaddr;
                 return *this;
             }
 
-            //tcp_tunnel->bind(*bind_addr.operator const sockaddr*());
-
             // can pass Address object as boolean to check if addr is set
             operator bool() const { return _sock_addr.sin_port; }
-            //  template code to implicitly convert to sockaddr*, sockaddr&, ngtcp2_addr&, and sockaddr_in&
+            //  template code to implicitly convert to uvw::Addr, sockaddr*, 
+            //  sockaddr&, ngtcp2_addr&, and sockaddr_in&
             template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
             operator T*()
             { return reinterpret_cast<sockaddr*>(&_sock_addr); }
@@ -167,6 +168,10 @@ namespace oxen::quic
             ngtcp2_addr&() { return _addr; }
             inline operator const 
             ngtcp2_addr&() const { return _addr; }
+            inline operator
+            uvw::Addr&() { return _uaddr; }
+            inline operator const
+            uvw::Addr&() const { return _uaddr; }
 
             inline friend bool operator==(const Address& lhs, const Address& rhs)
             {
@@ -176,7 +181,6 @@ namespace oxen::quic
                     (lhs._sock_addr.sin_family != rhs._sock_addr.sin_family) || 
                     (lhs._addr.addr->sa_data != rhs._addr.addr->sa_data))
                     return false;
-                
                 return true;
             }
 

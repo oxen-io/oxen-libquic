@@ -1,7 +1,8 @@
 #include "connection.hpp"
 #include "server.hpp"
+#include "endpoint.hpp"
 #include "client.hpp"
-#include "tunnel.hpp"
+#include "handler.hpp"
 #include "utils.hpp"
 
 #include <ngtcp2/ngtcp2.h>
@@ -203,8 +204,7 @@ namespace oxen::quic
     {
         std::shared_ptr<Stream> stream{new Stream{
             *this, std::move(data_cb), std::move(close_cb), endpoint->default_stream_bufsize}};
-        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get());
-            rv != 0)
+        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
             throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
 
         auto& strm = streams[stream->stream_id];
@@ -231,8 +231,8 @@ namespace oxen::quic
         io_result rv{};
         bstring send_data{send_buffer.data(), send_buffer_size};
 
-        if (!send_data.empty())
-            rv = tun_endpoint.send_packet(path.remote, send_data, pkt_info.ecn, pkt_type);
+        //if (!send_data.empty())
+        //    rv = tun_endpoint.send_data(path.remote, send_data, pkt_info.ecn);
 
         return rv;
     }
@@ -526,8 +526,8 @@ namespace oxen::quic
         
         stream->stream_id = id;
         bool good = true;
-        if (serv->stream_open_callback)
-            good = serv->stream_open_callback(*stream, client_tunnel_port);
+        //if (serv->stream_open_callback)
+        //    good = serv->stream_open_callback(*stream, client_tunnel_port);
         if (!good)
         {
             fprintf(stderr, "stream_open_callback returned failure, dropping stream %lu\n", id);
@@ -835,7 +835,7 @@ namespace oxen::quic
 
     //  client conn
     Connection::Connection(
-        Client& client, Tunnel& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port)
+        Client& client, Handler& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port)
         : tun_endpoint{ep}, client_tunnel_port{tunnel_port}, source_cid{scid}, dest_cid{ConnectionID::random()}, path{path}
     {
         fprintf(stderr, "Creating new client connection object\n");
@@ -844,7 +844,6 @@ namespace oxen::quic
         ngtcp2_transport_params params;
         ngtcp2_callbacks callbacks;
         ngtcp2_conn* connptr;
-        pkt_type = CLIENT_TO_SERVER;
         endpoint = std::make_unique<Client>(client);
         
         init_gnutls(client);
@@ -883,7 +882,7 @@ namespace oxen::quic
 
     //  server conn
     Connection::Connection(
-        Server& server, Tunnel& ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path)
+        Server& server, Handler& ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path)
         : tun_endpoint{ep}, source_cid{cid}, dest_cid{hdr.dcid}, path{path}
     {
         fprintf(stderr, "Creating new server connection object\n");
@@ -893,7 +892,6 @@ namespace oxen::quic
         ngtcp2_callbacks callbacks;
         ngtcp2_cid dcid, scid;
         ngtcp2_conn* connptr;
-        pkt_type = SERVER_TO_CLIENT;
         endpoint = std::make_unique<Server>(server);
         
         init_gnutls(server);
