@@ -4,9 +4,9 @@
 #include "client.hpp"
 #include "crypto.hpp"
 
-#include <unordered_map>
 #include <uvw.hpp>
 
+#include <unordered_map>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <memory>
@@ -20,66 +20,23 @@
 
 #define IP_TUNNEL_MAX_BUFFER_SIZE 4096
 
+
 namespace oxen::quic
 {
 	//class Client;
 	class Stream;
 	class Server;
-	class Context;
+	class Network;
 	class Connection;
-
-	//	Callbacks for opening quic connections and closing tunnels
-    using open_callback = std::function<void(bool success, void* user_data)>;
-    using close_callback = std::function<void(int rv, void* user_data)>;
-	//	Callbacks for ev timer functionality
-	using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
-	using timer_callback = std::function<void(int nwrite, void* user_data)>;
-	//	Callback for server connectivity
-	template <typename T>
-	using server_callback = std::function<T(uint16_t port)>;
-
-    //template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
-	struct ClientManager
-	{
-		// Client endpoint linked to this tunnel instance
-		std::unique_ptr<Client> client;
-		open_callback open_cb;
-		close_callback close_cb;
-
-		std::string remote_host, local_host;
-		uint16_t remote_port, local_port;
-		Address remote_addr, local_addr;
-
-		// UDP handles
-        std::unordered_set<std::shared_ptr<uvw::UDPHandle>> udp_handles;
-		std::shared_ptr<uvw::UDPHandle> udp_handle;
-
-        // Cert information for each connection is stored in a map indexed by ConnectionID.
-        // As a result, each connection (also mapped in client->conns) can have its own
-        // TLS cert info. Each connection also stores within it the gnutls_session_t and
-        // gnutls_certificate_credentials_t objects used to initialize its ngtcp2 things
-        std::unordered_map<ConnectionID, TLSCertManager> cert_managers;
-
-        inline void
-        set_addrs(std::string laddr, uint16_t lport, std::string raddr, uint16_t rport)
-        {
-            local_host = laddr;
-            local_port = lport;
-            remote_host = raddr;
-            remote_port = rport;
-            local_addr = Address{local_host, local_port};
-            remote_addr = Address{remote_host, remote_port};
-        }
-
-		~ClientManager();
-	};
+    class ClientContext;
+    class ServerContext;
 
 	class Handler 
 	{
-		friend class Context;
+		friend class Network;
 		
 		public:
-			explicit Handler(std::shared_ptr<uvw::Loop> loop_ptr = nullptr);
+			explicit Handler(std::shared_ptr<uvw::Loop> loop_ptr);
 			~Handler();
 
 			std::shared_ptr<uvw::AsyncHandle> io_trigger;
@@ -93,9 +50,9 @@ namespace oxen::quic
 
 			//  Sends packet to 'destination' containing 'data'
             void
-            send_datagram(uvw::UDPHandle handle, std::string host, uint8_t port, char* data, size_t datalen);
+            send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, char* data, size_t datalen);
             void
-            send_datagram(uvw::UDPHandle handle, std::string host, uint8_t port, std::string data);
+            send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, std::string data);
 
 			void
 			close(bool all=false);
@@ -105,15 +62,10 @@ namespace oxen::quic
 
             template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
             int
-            udp_connect_secured(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-                T cert, open_callback on_open, close_callback on_close);
+            udp_connect(Address& local, Address& remote, T cert, open_callback on_open, close_callback on_close);
 
 			int
-			udp_connect_unsecured(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-                open_callback on_open, close_callback on_close);
-
-			ConnectionID 
-			make_client(std::shared_ptr<ClientManager> client_manager);
+			udp_connect(Address& local, Address& remote, open_callback on_open, close_callback on_close);
 
 			void 
 			make_server(std::string host, uint16_t port);
@@ -133,27 +85,302 @@ namespace oxen::quic
             /****************************/
 
         private:
-			//	Maps outbound connections that are currently being managed by handler object
-			//		- key: std::string{remote_address}
-			//		- value: pointer to client manager object
+			//	Maps client connections that are currently being managed by handler object
+			//		- key: Address{remote_addr}
+			//		- value: pointer to client context object
 			//
-			//	For example, when a user opens a connection to 127.0.0.1:5440, the ClientManager ptr
-			//	will be indexed to "127.0.0.1:5440"
-			std::map<std::string, std::unique_ptr<ClientManager>> client_tunnels;
-
-			std::unique_ptr<Server> server_ptr;
-
-			//	Tead callback is passed to ev_io_init, then the corresponding connection
-			//	is stored in ev_io.data
-			read_callback read_cb;
-			//	Timer callback is passed to ev_timer_init, then the corresponding connection
-			//	is stored in ev_timer.data
-			timer_callback timer_cb;
-			
-			server_callback<Address> server_cb;
+			//	For example, when a user opens a connection to 127.0.0.1:5440, the ClientContext ptr
+			//	will be indexed to Address{"127.0.0.1", "5440"}
+            std::unordered_map<Address, std::shared_ptr<ClientContext>> clients;
+            //	Maps server connections that are currently being managed by handler object
+			//		- key: Address{local_addr}
+			//		- value: pointer to server context object
+			//
+			//	For example, when a user listens to 127.0.0.1:4433, the ClientManager ptr
+			//	will be indexed to Address{"127.0.0.1", "5440"}
+            std::unordered_map<Address, std::shared_ptr<ServerContext>> servers;
 
 			///	keep ev loop open for cleanup
 			std::shared_ptr<int> keep_alive = std::make_shared<int>(0); 
 
+        public:
+
 	};
 }	// namespace oxen::quic
+
+
+
+/*
+
+We need to open the socket in quicinet object creation
+    -> everything then shoves it into that one uvw::UDPHandle
+
+
+How to add code blocks that do NOT run for things that do not satisfy the constexpr:
+    template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
+    int udp_connect(Address& local, Address& remote, T cert, open_callback on_open, close_callback on_close) 
+    {
+        if constexpr (!std::is_same_v<T, NullCert>) 
+        {
+            // code ignored for NullCert 
+        }
+    }
+
+Single constexpr function that can return either a std::array<std::string, N> or a std::string based on whether N > 1 or == 1:
+https://github.com/jagerman/libsession-util-nodejs/blob/node-addon-api/src/utilities.hpp#L34
+
+constexpr function that wraps a callback and does different things based on what the callback returns:
+https://github.com/jagerman/libsession-util-nodejs/blob/node-addon-api/src/utilities.hpp#L158
+
+
+Perfect Forwarding
+https://en.cppreference.com/w/cpp/utility/forward
+How to pass a number of cert arguments and fwd them along:
+    template <typename CertType, typename... CertArgs>
+    int udp_connect(Address& local, Address& remote, open_callback on_open, close_callback on_close, CertArgs&&... cert_args) 
+    {
+        // ...
+        tls_manager.cert = std::make_unique<CertType>(std::forward<CertArgs>(cert_args)...);
+    }
+
+
+Can pass cert in, which will convert itself into context based on the type of cert:
+    struct TLSCert 
+    {
+        virtual std::unique_ptr<TLSContext> into_context() && = 0;
+    };
+    struct GNUTLSCert : TLSCert 
+    {
+        std::unique_ptr<TLSContext> into_context() && override 
+        {
+            return std::make_unique<GNUTLSContext>(std::move(*this));
+        }
+    };
+
+    struct TLSContext 
+    { 
+        // virtual methods, etc
+    };
+    struct GNUTLSContext 
+    {
+        GNUTLSCert cert;
+        GNUTLSContext(GNUTLSCert&& cert) : cert{std::move(cert)} {}
+    };
+
+Then when you need to construct a context from a cert:
+    auto context = std::move(cert).into_context(); 
+    // context is unique_ptr<TLSContext>, but holds a GNUTLSContext
+
+
+Sample usage flow
+    - establish a QUIC connection to remote:port
+        - this works with ngtcp2 calls (which in turn will fire into TLSContext callbacks) to do TLS/QUIC handshaking
+        - ngtcp2 gives us the packets we need to send to remote:port
+        - response packets get fed into ngtcp2, it might generate more packets, etc.
+        - eventually connection gets established, verified, and handshaked.
+
+    - create a new QUIC  stream from that connection
+
+    - send some stream data with: stream.send("hello");
+        - This adds "hello" to that stream's buffer
+        - flush_streams (or equivalent) picks that up, feeds it into ngtcp2
+        - ngtcp2 gives us a ready to go packet
+        - we fire the packet via clearnet UDP at the remote:port
+
+    //
+
+Sample API Usage 1:
+
+    Network net{};
+    auto server1 = net.listen("127.0.0.1:5440"_local, &tls1);
+    auto server2 = net.listen("127.0.0.1:4646"_local, &tls2);
+
+    auto client1 = net.connect("127.0.0.1:4920"_remote, &tls3, &remote_cert2); // binds to anyaddr udp handle
+    auto client2 = server1.connect("127.0.0.1:4433"_remote, &remote_cert1); // binds to 127.0.0.1:5440, uses tls1
+    auto client3 = net.connect("127.0.0.1:7777"_remote, "127.0.0.1:7778"_local, &local_cert3, &remote_cert3);
+    auto client4 = client1.connect("127.0.0.1:2222"_remote, &remote_cert1); // binds to client1's addr, uses client1's tls
+
+    auto stream = client1.make_stream();
+
+
+Sample API Usage 2:
+
+    Network net{};
+    // Full:
+        auto ep = net.endpoint(&tls, //Bind addr=//"127.0.0.1:1111");
+        auto server = ep.server_listen(// callbacks, extra junk );
+        auto client1 = ep.client_connect(remote_addr1, &remote_tls1);
+        auto client2 = ep.client_connect(remote_addr2, &remote_tls2, Network::local_tls{&tls2});
+
+    // Simple:
+        auto client3 = net.connect("1.1.1.1:5555", &mytls, &theirtls);
+        // client3 is a convenience shortcut for:
+        auto client4 = net.endpoint(&mytls).client_connect("1.1.1.1:5555", &theirtls);
+
+        // Connects without client cert authentication:
+        auto client5 = net.connect("1.1.1.1:5555", &theirtls);
+        auto client6 = net.endpoint().client_connect("1.1.1.1:5555", &theirtls);
+
+
+Sample API Usage 3:
+
+    Network net{};
+    auto ep1 = net.endpoint(&local_addr1, &tls1);
+    auto ep2 = net.endpoint(&local_addr2, &tlswhatever);
+
+    auto server = ep.make_server(...)
+
+    auto client1 = ep.client_connect(&remote_addr1, &tls2, &remote_tls3);
+    auto client2 = ep.client_connect(&remote_addr2, &tls3, &remote_tls4);
+
+    auto client3 = net.connect(&remote_addr3, ...);
+    auto client4 = net.connect(&remote_addr4, ...);
+
+
+// Necessary certs and parameters:
+
+server (listen only):
+    - cert
+    - private key
+    - optional: callback for validating client cert, depending on use case
+        - can use jason's template examples to pass other types of callbacks 
+
+client:
+    mode 1: i have the remote's cert
+        method 1:
+            - (O) client cert
+            - (O) client private key
+            - remote cert
+        method 2:
+            - remote cert
+
+    mode 2: use the system CA (or some callback if no CA) to verify the remote's cert
+        method 1:
+            - (O) client cert
+            - (O) client private key
+            - server cert verification callback
+        method 2:
+            - server cert verification callback
+
+
+Client: [server_cert, server_CA, system_CA, server_cert_callback] x [client_key/crt, no client key]
+
+Server: [server_keycrt] x [client_callback, client_CA, no_client_verification] 
+
+
+
+Can create tags around arguments, using templates to extract them to specify arguments however you want
+
+    namespace opt {
+        struct _base_addr 
+        { 
+            std::string addr; 
+            _base_addr(std::string a) : addr{std::move(a)}; 
+        };
+
+        struct local_addr : _base_addr { using _base_addr::_base_addr; };
+
+        struct remote_addr : _base_addr { using _base_addr::_base_addr; };
+
+        struct _base_tls 
+        { 
+            int a, b, c; 
+            _base_tls(int a, b, c) : a{a}, b{b}, c{c};
+        };
+
+        struct local_tls : _base_tls { using _base_tls::_base_tls; };
+        
+        struct remote_tls : _base_tls { using _base_tls::_base_tls; };
+
+        struct timeout 
+        {
+            int seconds;
+            timeout(int secs) : seconds{secs} {}; 
+        };
+    };
+
+    using namespace quicinet::opt;
+
+    net.connect(local_tls{1,2,3}, remote_addr{"1.2.3.4:5678"}, remote_tls{5,6,7}, local_addr{"10.0.0.1:4444"});
+
+    template <typename... Opt>
+    Client connect(Opt&&... opts)
+    {
+        Client c;
+        handle_client_opt(c, std::forward<Opt>(opts)...);
+    }
+
+    void handle_client_opt(Client& c, opt::local_addr a) 
+    {
+        c.set_local_addr(std::move(a.addr)); 
+    }
+
+    void handle_client_opt(Client& c, opt::remote_addr a) 
+    {
+        c.set_remote_addr(std::move(a.addr)); 
+    }
+
+
+For doing this with Address:
+
+    namespace opt 
+    {
+        // Method 1 (useful if there is more than just Address here)
+        struct local_addr 
+        {
+            int x;
+            Address a;
+            template <typename... Args>
+            local_addr(int x, Args&&... args) : a{std::forward<Args>(args)...}, x{x} {}
+        };
+
+        // Method 2:
+        struct local_addr : Address { using Address::Address; };
+    }
+
+utils.hpp
+
+namespace oxen::quic
+{
+    namespace opt
+    {
+        ...
+    }
+    ...
+
+}
+
+network.hpp
+
+namespace oxen::quic
+{
+    using namespace opt
+    ...
+        other code
+    ...
+
+}
+
+namespace opt 
+{
+    template <typename TLSType>
+    struct local_tls : TLSType { using TLSType::TLSType; };
+}
+
+
+Wrapping callbacks for C API:
+// *.c
+typedef double (*) (double a, double b, void* context) some_callback_t;
+
+// *.cpp
+using cpp_callback = std::function<int(int a, int b)>;
+
+// *.cpp
+extern "C" 
+double callback_wrapper(double a, double b, void* context) 
+{
+    auto& callback = *static_cast<cpp_callback*>(context);
+    return (double) callback(a, b);
+}
+
+*/

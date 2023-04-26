@@ -14,8 +14,10 @@
 
 namespace oxen::quic
 {
-    Endpoint::Endpoint(Handler& handler)  : handler{handler} 
+    Endpoint::Endpoint(std::shared_ptr<Handler>& quic_manager)
     {
+        handler = quic_manager;
+
         expiry_timer = get_loop()->resource<uvw::TimerHandle>();
         expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&){ check_timeouts(); });
         expiry_timer->start(250ms, 250ms);
@@ -33,7 +35,7 @@ namespace oxen::quic
     std::shared_ptr<uvw::Loop>
     Endpoint::get_loop()
     {
-        return (handler.ev_loop) ? handler.ev_loop : nullptr;
+        return (handler->ev_loop) ? handler->ev_loop : nullptr;
     }
 
 

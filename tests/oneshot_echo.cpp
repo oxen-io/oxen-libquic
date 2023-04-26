@@ -17,7 +17,7 @@ signal_handler(int)
 }
 
 void
-make_echo_server(std::shared_ptr<oxen::quic::Context> ctx)
+make_echo_server(std::shared_ptr<oxen::quic::Network> ctx)
 {
     std::string host{"127.0.0.1"};
     uint16_t port = 12345;
@@ -26,7 +26,7 @@ make_echo_server(std::shared_ptr<oxen::quic::Context> ctx)
 };
 
 void
-make_oneshot_client(std::shared_ptr<oxen::quic::Context> ctx)
+make_oneshot_client(std::shared_ptr<oxen::quic::Network> ctx)
 {
     std::string remote_host{"127.0.0.1"}, local_host{"127.0.0.1"};
     uint16_t remote_port{12345}, local_port{4400};
@@ -40,7 +40,7 @@ int main(void)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    auto ctx = std::make_shared<oxen::quic::Context>();
+    auto ctx = std::make_shared<oxen::quic::Network>();
 
     make_echo_server(ctx);
     make_oneshot_client(ctx);

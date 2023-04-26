@@ -1,3 +1,4 @@
+#include "crypto.hpp"
 #include "quic.hpp"
 
 #include <iostream>
@@ -21,12 +22,13 @@ int main(void)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    auto ctx = std::make_shared<oxen::quic::Context>();
-    std::string remote_host{"127.0.0.1"}, local_host{"127.0.0.1"};
-    uint16_t remote_port{12345}, local_port{4400};
+    auto ctx = std::make_shared<oxen::quic::Network>();
+    oxen::quic::Address local{"127.0.0.1", 4400},
+        remote{"127.0.0.1", 12345};
+
     std::string message;
 
-    ctx->connect_to(local_host, local_port, remote_host, remote_port);
+    ctx->udp_connect(local, remote, nullptr, nullptr, oxen::quic::NullCert{});
     
     do {
         std::cout << "Enter a message to send...\n" << std::endl;

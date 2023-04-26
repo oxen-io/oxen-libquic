@@ -1,277 +1,68 @@
-#include "context.hpp"
-#include "handler.hpp"
 #include "utils.hpp"
-
-#include <uvw.hpp>
-
-#include <stdexcept>
-#include <memory>
+#include "context.hpp"
+#include "client.hpp"
 
 
 namespace oxen::quic
 {
-    Context::Context(std::shared_ptr<uvw::Loop> loop_ptr)
+    ClientContext::~ClientContext()
     {
-        fprintf(stderr, "Beginning context creation\n");
-        quic_manager = std::make_unique<Handler>(loop_ptr);
-        init();
-    }
-
-
-    Context::~Context()
-    {
-        fprintf(stderr, "Shutting down context...\n");
-    }
-
-
-    void
-    Context::init()
-    {
-        fprintf(stderr, "Configuring tunnel endpoint\n");
-        
-        // configure tunnel object
-        if (auto rv = configure_tunnel(quic_manager.get()); rv != 0)
-            throw std::runtime_error{"Tunnel manager not configured correctly"};
-    }
-
-
-    Handler*
-    Context::get_quic()
-    {
-        return (quic_manager) ? quic_manager.get() : nullptr;
-    }
-
-
-    void
-    Context::shutdown_test()
-    {
-        quic_manager->close(true);
-        quic_manager.reset();
-        fprintf(stderr, "Test framework shut down, tunnel manager deleted\n");
-    }
-
-
-    void
-    Context::listen_to(std::string host, uint16_t port)
-    {
-        auto ep = get_quic();
-        if (ep == nullptr)
+        if (udp_handle)
         {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
+            udp_handle->close();
+            udp_handle->data(nullptr);
+            udp_handle.reset();
         }
 
-        try
+        for (auto h : udp_handles)
         {
-            ep->listen(host, port);
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception:%s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-        }
-    }
-
-
-    template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool>>
-    void
-    Context::udp_connect(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-        T cert, open_callback open_cb, close_callback close_cb)
-    {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
-
-        open_callback on_open = [open = std::move(open_cb)](bool success, void* user_data) 
-        {
-            fprintf(stderr, "QUIC tunnel opened %s\n", (success) ? "successfully" : "unsuccessfully");
-
-            if (open)
-                open(success, user_data);
-        };
-
-        close_callback on_close = [remote_host, remote_port,close = std::move(close_cb)](int rv, void* user_data)
-        {
-            fprintf(stderr, "QUIC tunnel closed to %s:%d\n", remote_host.c_str(), remote_port);
-
-            if (close)
-                close(rv, user_data);
-        };
-
-        try 
-        {
-            auto rv = ep->udp_connect_secured(
-                local_host, local_port, remote_host, remote_port, std::move(cert), std::move(on_open), std::move(on_close));
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception:%s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
+            h->close();
+            h->data(nullptr);
+            h.reset();
         }
     }
 
 
     void
-    Context::udp_connect(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-        open_callback open_cb, close_callback close_cb)
+    ClientContext::set_addrs(uvw::Addr &local_addr, uvw::Addr &remote_addr)
     {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
-
-        open_callback on_open = [open = std::move(open_cb)](bool success, void* user_data) 
-        {
-            fprintf(stderr, "QUIC tunnel opened %s\n", (success) ? "successfully" : "unsuccessfully");
-
-            if (open)
-                open(success, user_data);
-        };
-
-        close_callback on_close = [remote_host, remote_port,close = std::move(close_cb)](int rv, void* user_data)
-        {
-            fprintf(stderr, "QUIC tunnel closed to %s:%d\n", remote_host.c_str(), remote_port);
-
-            if (close)
-                close(rv, user_data);
-        };
-
-        try 
-        {
-            auto rv = ep->udp_connect_unsecured(
-                local_host, local_port, remote_host, remote_port, std::move(on_open), std::move(on_close));
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception:%s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-        }
-    }
-
-    //  May be unneeded
-    int 
-    Context::configure_tunnel(Handler* handler) 
-    {
-        return 0;
+        set_local(local_addr);
+        set_remote(remote_addr);
     }
 
 
-    /****** TEST FUNCTIONS ******/
-
-    void
-    Context::listen_test(std::string host, uint16_t port)
+    void 
+    ServerContext::handle_serverctx_opt(opt::local_addr& addr)
     {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
-
-        try
-        {
-            ep->echo_server_test(host, port);
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception:%s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-        }
-    }
-
-    void
-    Context::send_oneshot_test(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, std::string msg)
-    {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
-
-        try 
-        {
-            auto rv = ep->connect_oneshot_test(
-                local_host, local_port, remote_host, remote_port, msg);
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception: %s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-        }
+        fprintf(stderr, "Server passed bind address: %s\n", addr.string_addr.data());
+        set_addr(addr);
     }
 
 
     void
-    Context::listen_nullcert_test(std::string host, uint16_t port, TLSCert cert)
+    ServerContext::handle_serverctx_opt(server_callback& func)
     {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
-
-        try
-        {
-            ep->echo_server_test(host, port);
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception:%s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-        }
+        fprintf(stderr, "Server given client certification callback\n");
+        server_cb = std::move(func);
     }
 
 
-    void
-    Context::send_oneshot_nullcert_test(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-        TLSCert cert, std::string msg)
+    void 
+    ServerContext::handle_serverctx_opt(opt::server_tls& tls)
     {
-        auto ep = get_quic();
-        if (ep == nullptr)
-        {
-            fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-            return;
-        }
+        tls_ctx = std::move(tls).into_context();
+    }
 
-        try 
+
+    ServerContext::~ServerContext()
+    {
+        if (udp_handle)
         {
-            auto rv = ep->connect_oneshot_test(
-                local_host, local_port, remote_host, remote_port, msg);
-        }
-        catch (std::exception& e)
-        {
-            fprintf(stderr, "Exception: %s\n", e.what());
-        }
-        catch (int err)
-        {
-            fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
+            udp_handle->close();
+            udp_handle->data(nullptr);
+            udp_handle.reset();
         }
     }
 
-    /****************************/
+    
 }   // namespace oxen::quic

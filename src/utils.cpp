@@ -1,6 +1,7 @@
 #include "utils.hpp"
 
 #include <netinet/in.h>
+#include <string>
 
 
 namespace oxen::quic
@@ -51,8 +52,9 @@ namespace oxen::quic
     }
 
 
-    Address::Address(std::string addr, uint16_t port) 
+    Address::Address(std::string addr, uint16_t port) : uvw::Addr{addr, port}
     {
+        string_addr = std::string{addr + static_cast<char>(port)};
         memset(&_sock_addr, 0, sizeof(_sock_addr));
         _sock_addr.sin_family = AF_INET;
         _sock_addr.sin_port = htons(port);
@@ -67,7 +69,6 @@ namespace oxen::quic
         std::cout << "After:\n\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
         std::cout << "\tPort: " << _sock_addr.sin_port << std::endl;
         
-        _uaddr = uvw::Addr{addr, port};
         _addr = ngtcp2_addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
     }
 

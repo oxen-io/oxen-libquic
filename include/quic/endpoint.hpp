@@ -22,24 +22,6 @@
 #include <unordered_map>
 
 
-namespace std
-{
-    //  Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection> 
-    //  is able to call its implicit constructor
-    template <>
-    struct hash<oxen::quic::ConnectionID>
-    {
-        size_t
-        operator()(const oxen::quic::ConnectionID& cid) const
-        {
-            static_assert(
-                alignof(oxen::quic::ConnectionID) >= alignof(size_t)
-                && offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
-            return *reinterpret_cast<const size_t*>(cid.data);
-        }
-    };
-}
-
 namespace oxen::quic
 {
     class Connection;
@@ -51,8 +33,7 @@ namespace oxen::quic
 
         public:
             friend class Connection;
-
-            explicit Endpoint(Handler& handler);
+            explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
             virtual ~Endpoint();
 
             std::array<std::byte, 1500> buf;
@@ -74,7 +55,7 @@ namespace oxen::quic
             get_conn(ConnectionID ID);
 
         protected:
-            Handler& handler;
+            std::shared_ptr<Handler> handler;
 
             std::shared_ptr<uvw::TimerHandle> expiry_timer;
 
@@ -104,7 +85,6 @@ namespace oxen::quic
             //      They are indexed by connection ID, storing the removal time as a uint64_t value
             //
             std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
-            //std::unordered_map<ConnectionID>
             std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
             Address local_addr{};

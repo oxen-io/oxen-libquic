@@ -21,11 +21,11 @@ int main(void)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    auto shared_ctx = std::make_shared<oxen::quic::Context>();
+    auto shared_ctx = std::make_shared<oxen::quic::Network>();
     std::string host{"127.0.01"};
     uint16_t port = 12345;
 
-    shared_ctx->listen_to(host, port);
+    shared_ctx->listen(host, port);
 
     size_t counter = 0;
 

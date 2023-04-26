@@ -44,16 +44,12 @@ namespace oxen::quic
             // underlying ngtcp2 connection object
             std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
             ngtcp2_crypto_conn_ref conn_ref;
-            TLSCertManager& cert_manager;
+            TLSContext& tls_context;
 
             struct sockaddr_storage local_addr;
             socklen_t local_addrlen;
-
-            gnutls_session_t session;
-            gnutls_certificate_credentials_t cred;
             
             std::shared_ptr<uvw::TimerHandle> retransmit_timer;
-            uint16_t client_tunnel_port = 0;
 
             //  Create and establish a new connection from local client to remote server
             //      ep: tunnel object managing this connection

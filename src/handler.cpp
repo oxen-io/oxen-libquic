@@ -1,5 +1,6 @@
 #include "handler.hpp"
 #include "context.hpp"
+#include "network.hpp"
 #include "crypto.hpp"
 #include "server.hpp"
 #include "client.hpp"
@@ -196,21 +197,10 @@ namespace oxen::quic
     }
 
 
-    ClientManager::~ClientManager()
-    {
-        if (udp_handle)
-        {
-            udp_handle->close();
-            udp_handle->data(nullptr);
-            udp_handle.reset();
-        }
-    }
-
-
     Handler::Handler(std::shared_ptr<uvw::Loop> loop_ptr)
     {
-        ev_loop = (loop_ptr) ? loop_ptr : uvw::Loop::create();
-
+        ev_loop = loop_ptr;
+        
         fprintf(stderr, "%s\n", (ev_loop) ? 
             "Event loop successfully created" : 
             "Error: event loop creation failed");
@@ -233,16 +223,16 @@ namespace oxen::quic
     
 
     void
-    Handler::send_datagram(uvw::UDPHandle handle, std::string host, uint8_t port, char* data, size_t datalen)
+    Handler::send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, char* data, size_t datalen)
     {
-        handle.send(host, port, data, datalen);
+        handle->send(destination, data, datalen);
     }
 
 
     void
-    Handler::send_datagram(uvw::UDPHandle handle, std::string host, uint8_t port, std::string data)
+    Handler::send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, std::string data)
     {
-        handle.send(host, port, &data[0], data.length());
+        handle->send(destination, &data[0], data.length());
     }
 
 
@@ -300,8 +290,6 @@ namespace oxen::quic
             return;
         }
 
-        auto remote_addr = Address{REMOTE_HOST, remote_port};
-
         //Packet pkt{
         //    Path{Address{reinterpret_cast<const sockaddr_in&>(in6addr_loopback), remote_port}, 
         //        std::move(remote_addr)},
@@ -316,7 +304,7 @@ namespace oxen::quic
     void
     Handler::close(bool all)
     {
-        for (auto& itr : client_tunnels)
+        for (auto& itr : clients)
         {
             itr.second->udp_handle->close();
             itr.second->udp_handle->data(nullptr);
@@ -337,20 +325,13 @@ namespace oxen::quic
     void
     Handler::listen(std::string host, uint16_t port)
     {
-        if (!server_cb)
-            server_cb = [p = port](uint16_t port) { return Address{"127.0.0.1", (port) ? port : p}; };
-        if (!server_ptr)
-            make_server(host, port);
+        make_server(host, port);
     }
 
 
-    template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool>>
     int
-    Handler::udp_connect_secured(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-                T cert, open_callback on_open, close_callback on_close)
+    Handler::udp_connect(Address& local, Address& remote, open_callback on_open, close_callback on_close)
     {
-        std::string _remote_address{remote_host + static_cast<char>(remote_port)};
-
         auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
 
         udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
@@ -369,13 +350,56 @@ namespace oxen::quic
             fprintf(stderr, "Finished SendEvent\n");
         });
 
-        udp_handle->connect(remote_host, remote_port);
+        udp_handle->connect(remote);
+
+        // create client manager object and set addresses/cbacks
+        auto client_manager = std::make_shared<ClientManager>();
+        client_manager->open_cb = std::move(on_open);
+        client_manager->close_cb = std::move(on_close);
+        client_manager->set_addrs(local, remote);
+
+        // emplace shared ptr inside client manager set
+        client_manager->udp_handles.emplace(udp_handle);
+
+        // make client object
+        auto ID = make_client(client_manager);
+
+        // emplace client manager in handler map
+        clients.emplace(remote.string_addr, client_manager);
+
+        return 0;
+    }
+
+
+    template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool>>
+    int
+    Handler::udp_connect(Address& local, Address& remote, T cert, open_callback on_open, close_callback on_close)
+    {
+        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
+
+        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
+        {
+            handle.close();
+            throw std::runtime_error{event.what()};
+        });
+
+        udp_handle->once<uvw::ConnectEvent>([](const uvw::ConnectEvent&, uvw::UDPHandle& udp)
+        {
+            fprintf(stderr, "Successfully connected to port:%u\n", udp.sock().port);
+        });
+
+        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
+        {
+            fprintf(stderr, "Finished SendEvent\n");
+        });
+
+        udp_handle->connect(remote);
 
         // create client manager object and set addresses/cbacks/certs
         auto client_manager = std::make_shared<ClientManager>();
         client_manager->open_cb = std::move(on_open);
         client_manager->close_cb = std::move(on_close);
-        client_manager->set_addrs(local_host, local_port, remote_host, remote_port);
+        client_manager->set_addrs(local, remote);
 
         // emplace shared ptr inside client manager set
         client_manager->udp_handles.emplace(udp_handle);
@@ -384,59 +408,13 @@ namespace oxen::quic
         auto ID = make_client(client_manager);
 
         // emplace unique_ptr to cert for cert_manager
-        auto tls_manager = TLSCertManager{};
-        tls_manager.cert = std::make_unique<T>(cert);
+        auto tls_context = std::move(cert).into_context();
 
         // emplace cert manager into client manager indexed by ID
-        client_manager->cert_managers.emplace(ID, std::move(tls_manager));
+        client_manager->cert_managers.emplace(ID, std::move(tls_context));
 
         // emplace client manager in handler map
-        client_tunnels.emplace(_remote_address, client_manager);
-
-        return 0;
-    }
-
-
-    int
-    Handler::udp_connect_unsecured(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, 
-        open_callback on_open, close_callback on_close)
-    {
-        std::string _remote_address{remote_host + static_cast<char>(remote_port)};
-
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-
-        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
-        {
-            handle.close();
-            throw std::runtime_error{event.what()};
-        });
-
-        udp_handle->once<uvw::ConnectEvent>([](const uvw::ConnectEvent&, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Successfully connected to port:%u\n", udp.sock().port);
-        });
-
-        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Finished SendEvent\n");
-        });
-
-        udp_handle->connect(remote_host, remote_port);
-
-        // create client manager object and set addresses/cbacks
-        auto client_manager = std::make_shared<ClientManager>();
-        client_manager->open_cb = std::move(on_open);
-        client_manager->close_cb = std::move(on_close);
-        client_manager->set_addrs(local_host, local_port, remote_host, remote_port);
-
-        // emplace shared ptr inside client manager set
-        client_manager->udp_handles.emplace(udp_handle);
-
-        // make client object
-        make_client(client_manager);
-
-        // emplace client manager in handler map
-        client_tunnels.emplace(_remote_address, client_manager);
+        clients.emplace(remote.string_addr, client_manager);
 
         return 0;
     }
@@ -452,10 +430,8 @@ namespace oxen::quic
         assert(not client);
         client = std::make_unique<Client>(*this);
 
-        // create new connection, emplace indexed by ID, retrieve conn_ptr
-        auto conn_ID = client->make_conn(client_manager->remote_port, client_manager->remote_addr, client_manager->local_addr);
-        auto conn_ptr = client->get_conn(conn_ID);
-        assert(conn_ptr != nullptr);
+        // create new connection, emplace into client->conns indexed by ID, retrieve {ID, conn_ptr}
+        auto [conn_ID, conn_ptr] = client->make_conn(client_manager->remote, client_manager->local);
 
         // set conn_ptr inside 
 
@@ -501,7 +477,6 @@ namespace oxen::quic
     Handler::make_server(std::string host, uint16_t port)
     {
         fprintf(stderr, "Making server endpoint...\n");
-        server_ptr = std::make_unique<Server>(*this);
 
         auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
 
@@ -514,7 +489,7 @@ namespace oxen::quic
         udp_handle->bind(host, port);
         udp_handle->recv();
 
-        ev_loop->run();
+        //ev_loop->run();
 
         fprintf(stderr, "Server endpoint successfully created\n");
     }

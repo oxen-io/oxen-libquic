@@ -1,11 +1,12 @@
 #pragma once
 
-#include "uvw/util.h"
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 
 #include <gnutls/gnutls.h>
+
+#include <uvw.hpp>
 
 #include <iostream>
 #include <cassert>
@@ -19,12 +20,7 @@
 #include <arpa/inet.h>
 #include <stdexcept>
 #include <sys/socket.h>
-
-// temporary placeholders
-#define REMOTE_HOST "127.0.0.1"
-#define REMOTE_PORT 12345
-#define ALPN "h1"
-#define MESSAGE "GET /\r\n"
+#include <filesystem>
 
 /*
  * Example 1: Handshake with www.google.com
@@ -41,10 +37,19 @@ namespace oxen::quic
     using namespace std::literals;
     using bstring = std::basic_string<std::byte>;
 
+    //	Callbacks for opening quic connections and closing tunnels
+    using open_callback = std::function<void(bool success, void* user_data)>;
+    using close_callback = std::function<void(int rv, void* user_data)>;
+	//	Callbacks for ev timer functionality
+	using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
+	using timer_callback = std::function<void(int nwrite, void* user_data)>;
+	//	Callback for server connectivity
+	using server_callback = std::function<int(gnutls_session_t session, unsigned int htype,
+        unsigned int when, unsigned int incoming, const gnutls_datum_t* msg)>;
+
     static constexpr std::byte CLIENT_TO_SERVER{1};
     static constexpr std::byte SERVER_TO_CLIENT{2};
     static constexpr size_t dgram_size = 1200;
-
     static constexpr size_t ev_loop_queue_size = 1024;
 
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
@@ -72,21 +77,20 @@ namespace oxen::quic
     // unacked data in the quic tunnel, then resume once it drops below this.
     inline constexpr size_t PAUSE_SIZE = 64 * 1024;
 
-
     // We send and verify this in the initial connection and handshake; this is designed to allow
-  // future changes (by either breaking or handling backwards compat).
+    // future changes (by either breaking or handling backwards compat).
     constexpr const std::array<uint8_t, 8> handshake_magic_bytes{
         'l', 'o', 'k', 'i', 'n', 'e', 't', 0x01};
     constexpr std::basic_string_view<uint8_t> handshake_magic{
         handshake_magic_bytes.data(), handshake_magic_bytes.size()};
 
+    /*
     const char priority[] =
         "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
         "+CHACHA20-POLY1305:+AES-128-CCM:-GROUP-ALL:+GROUP-SECP256R1:+GROUP-X25519:"
         "+GROUP-SECP384R1:"
         "+GROUP-SECP521R1:%DISABLE_TLS13_COMPAT_MODE";
-
-    const gnutls_datum_t alpn = {(uint8_t *)ALPN, sizeof(ALPN) - 1};
+    */
 
     uint64_t
     get_timestamp();
@@ -123,18 +127,24 @@ namespace oxen::quic
     };
 
 
-    //  Wrapper for ngtcp2_addr with helper functionalities, sockaddr_in6, etc
-    struct Address
+    // Wrapper for address types with helper functionalities, operators, etc. By inheriting from
+    // uvw::Addr, we are able to use string/uint16_t representations of host/port through the API
+    // interface and in the constructors. The string/uint16_t representation is stored in a two
+    // other formats for ease of use with ngtcp2: sockaddr_in and ngtcp2_addr. ngtcp2_addr store
+    // a member of type ngtcp2_sockaddr, which is itself a typedef of sockaddr
+    struct Address : public uvw::Addr
     {
         private:
             sockaddr_in _sock_addr;
             ngtcp2_addr _addr;
-            uvw::Addr _uaddr;
 
         public:
+            std::string string_addr;
+
             Address() = default;
             explicit Address(std::string addr, uint16_t port);
-
+            explicit Address(uvw::Addr addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
+            
             Address(const Address& obj) { *this = obj; }
 
             inline Address& operator=(const Address& obj)
@@ -142,7 +152,6 @@ namespace oxen::quic
                 std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
                 _addr = obj._addr;
                 _addr.addrlen = obj._addr.addrlen;
-                _uaddr = obj._uaddr;
                 return *this;
             }
 
@@ -168,10 +177,6 @@ namespace oxen::quic
             ngtcp2_addr&() { return _addr; }
             inline operator const 
             ngtcp2_addr&() const { return _addr; }
-            inline operator
-            uvw::Addr&() { return _uaddr; }
-            inline operator const
-            uvw::Addr&() const { return _uaddr; }
 
             inline friend bool operator==(const Address& lhs, const Address& rhs)
             {
@@ -186,12 +191,6 @@ namespace oxen::quic
 
             inline ngtcp2_socklen 
             sockaddr_size() const { return sizeof(sockaddr_in); }
-
-            inline uint16_t
-            port() const { return _sock_addr.sin_port; }
-
-            inline void 
-            port(uint16_t port) { _sock_addr.sin_port = port; }
     };
 
     //  Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
@@ -264,4 +263,50 @@ namespace oxen::quic
         return reinterpret_cast<u8_sameconst_t*>(c.data());
     }
 
+
+    // Namespacing for named arguments in API calls
+    namespace opt
+    {
+        struct local_addr : public Address { using Address::Address; };
+        struct remote_addr : public Address { using Address::Address; };
+
+        /*
+        TOFIX: templated TLS argument forwarding for client/server ctx creation
+
+        template <typename TLSType_t>
+        struct local_tls : TLSType_t { using TLSType_t::TLSType_t; };
+        template <typename TLSType_t>
+        struct remote_tls : TLSType_t { using TLSType_t::TLSType_t; };
+        */
+    }   // namespace oxen::quic::opt
+
 }   // namespace oxen::quic
+
+
+namespace std
+{
+    // Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection> 
+    // is able to call its implicit constructor
+    template <>
+    struct hash<oxen::quic::ConnectionID>
+    {
+        size_t
+        operator()(const oxen::quic::ConnectionID& cid) const
+        {
+            static_assert(
+                alignof(oxen::quic::ConnectionID) >= alignof(size_t)
+                && offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
+            return *reinterpret_cast<const size_t*>(cid.data);
+        }
+    };
+
+    template <>
+    struct hash<oxen::quic::Address>
+    {
+        size_t
+        operator()(const oxen::quic::Address& addr) const
+        {
+            return std::hash<uint16_t>{}(addr.port);
+        }
+    };
+}   // namespace std

@@ -3,6 +3,7 @@
 #include "endpoint.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <stdlib.h>
 #include <string_view>
 
@@ -17,17 +18,19 @@
 
 namespace oxen::quic
 {
+    class ClientContext;
+    
     class Client : public Endpoint
     {
         public:
-            Client(
-                Handler& handler, const uint16_t remote_port, Address& remote, Address& local);
+            std::shared_ptr<ClientContext> context;
 
-            Client(
-                Handler& handler);
+            Client(std::shared_ptr<Handler> quic_manager, const uint16_t remote_port, Address& remote, Address& local);
 
-            ConnectionID
-            make_conn(const uint16_t remote_port, Address& remote, Address& local);
+            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx);
+
+            std::pair<ConnectionID&, std::shared_ptr<Connection>>
+            make_conn(Address& remote, Address& local);
 
         private:
 

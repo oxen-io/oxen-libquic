@@ -637,33 +637,10 @@ namespace oxen::quic
     {
         fprintf(stderr, "Initializing client gnutls session\n");
 
-        int rv = gnutls_certificate_allocate_credentials(&cred);
+        int rv;
 
-        if (rv == 0)
-            rv = gnutls_certificate_set_x509_system_trust(cred);
-        if (rv < 0) {
-            fprintf(stderr, "cred init failed: %d: %s\n", rv, gnutls_strerror(rv));
-            return -1;
-        }
 
-        rv = gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_ENABLE_EARLY_DATA |
-                        GNUTLS_NO_END_OF_EARLY_DATA);
-        if (rv != 0) {
-            fprintf(stderr, "gnutls_init: %s\n", gnutls_strerror(rv));
-            return -1;
-        }
-
-        if (ngtcp2_crypto_gnutls_configure_client_session(session) != 0) {
-            fprintf(stderr, "ngtcp2_crypto_gnutls_configure_client_session failed\n");
-            return -1;
-        }
-
-        rv = gnutls_priority_set_direct(session, priority, NULL);
-        if (rv != 0) {
-            fprintf(stderr, "gnutls_priority_set_direct: %s\n", gnutls_strerror(rv));
-            return -1;
-        }
-
+        /*
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_ANY,
                                             GNUTLS_HOOK_POST, hook_func);
 
@@ -684,6 +661,7 @@ namespace oxen::quic
         else
             gnutls_server_name_set(session, GNUTLS_NAME_DNS, "localhost",
                                     strlen("localhost"));
+        */
 
         return 0;
     }
@@ -693,6 +671,7 @@ namespace oxen::quic
     Connection::init_gnutls(Server& server)
     {
         fprintf(stderr, "Initializing server gnutls session\n");
+        /*
 
         int rv = gnutls_certificate_allocate_credentials(&cred);
 
@@ -741,7 +720,7 @@ namespace oxen::quic
         else
             gnutls_server_name_set(session, GNUTLS_NAME_DNS, "localhost",
                                     strlen("localhost"));
-
+        */
         return 0;
     }
 
@@ -874,7 +853,7 @@ namespace oxen::quic
         }
         conn.reset(connptr);
 
-        ngtcp2_conn_set_tls_native_handle(conn.get(), session);
+        //gtcp2_conn_set_tls_native_handle(conn.get(), session);
 
         fprintf(stderr, "Successfully created new client connection object\n");
     }
@@ -920,8 +899,6 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize server connection to client: "s + ngtcp2_strerror(rv)};
         }
         conn.reset(connptr);
-
-        ngtcp2_conn_set_tls_native_handle(conn.get(), session);
 
         fprintf(stderr, "Successfully created new server connection object\n");
     }
