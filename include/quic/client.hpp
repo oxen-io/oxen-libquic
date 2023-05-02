@@ -1,6 +1,7 @@
 #pragma once
 
 #include "endpoint.hpp"
+#include "utils.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -27,7 +28,7 @@ namespace oxen::quic
 
             Client(std::shared_ptr<Handler> quic_manager, const uint16_t remote_port, Address& remote, Address& local);
 
-            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx);
+            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id);
 
             std::pair<ConnectionID&, std::shared_ptr<Connection>>
             make_conn(Address& remote, Address& local);

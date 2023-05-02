@@ -7,29 +7,47 @@ namespace oxen::quic
 {
     ClientContext::~ClientContext()
     {
-        if (udp_handle)
+        for (auto& h : udp_handles)
         {
-            udp_handle->close();
-            udp_handle->data(nullptr);
-            udp_handle.reset();
+            h.second.first->close();
+            h.second.first->data(nullptr);
+            h.second.first.reset();
+            h.second.second.reset();
         }
 
-        for (auto h : udp_handles)
-        {
-            h->close();
-            h->data(nullptr);
-            h.reset();
-        }
+        udp_handles.clear();
     }
 
 
     void
-    ClientContext::set_addrs(uvw::Addr &local_addr, uvw::Addr &remote_addr)
+    ClientContext::handle_clientctx_opt(opt::local_addr& addr)
     {
-        set_local(local_addr);
-        set_remote(remote_addr);
+        fprintf(stderr, "Client passed local address: %s\n", addr.string_addr.data());
+        set_local(addr);
     }
 
+
+    void
+    ClientContext::handle_clientctx_opt(opt::remote_addr& addr)
+    {
+        fprintf(stderr, "Client passed remote address: %s\n", addr.string_addr.data());
+        set_remote(addr);
+    }
+
+
+    void
+    ClientContext::handle_clientctx_opt(opt::client_tls& tls)
+    {
+        temp_ctx = std::move(tls).into_context();
+    }
+
+
+    void
+    ClientContext::handle_clientctx_opt(client_callback& func)
+    {
+        fprintf(stderr, "Client given server certification callback\n");
+        client_cb = std::move(func);
+    }
 
     void 
     ServerContext::handle_serverctx_opt(opt::local_addr& addr)

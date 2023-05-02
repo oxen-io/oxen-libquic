@@ -44,7 +44,7 @@ namespace oxen::quic
             // underlying ngtcp2 connection object
             std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
             ngtcp2_crypto_conn_ref conn_ref;
-            TLSContext& tls_context;
+            std::shared_ptr<TLSContext> tls_context;
 
             struct sockaddr_storage local_addr;
             socklen_t local_addrlen;
@@ -57,7 +57,7 @@ namespace oxen::quic
             //      path: network path to reach remote server
             //      tunnel_port: destination port to tunnel to at remote end
             Connection(
-                Client& client, Handler& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port);
+                std::shared_ptr<Client> client, std::shared_ptr<Handler> ep, const ConnectionID& scid, const Path& path);
 
             //  Construct and initialize a new incoming connection from remote client to local server
             //      ep: tunnel objec tmanaging this connection
@@ -65,7 +65,7 @@ namespace oxen::quic
             //      header: packet header used to initialize connection
             //      path: network path used to reach remote client
             Connection(
-                Server& server, Handler& ep, const ConnectionID& scid, ngtcp2_pkt_hd& hdr, const Path& path);
+                std::shared_ptr<Server> server, std::shared_ptr<Handler> ep, const ConnectionID& scid, ngtcp2_pkt_hd& hdr, const Path& path);
 
             ~Connection();
 
@@ -88,14 +88,14 @@ namespace oxen::quic
             void
             io_ready();
 
+            inline std::shared_ptr<Server>
+            server() { return std::dynamic_pointer_cast<Server>(endpoint); }
+
+            inline std::shared_ptr<Client>
+            client() { return std::dynamic_pointer_cast<Client>(endpoint); }
+
             void
             schedule_retransmit();
-
-            Server*
-            server();
-
-            Client*
-            client();
 
             int
             init_gnutls(Client& client);
@@ -128,9 +128,9 @@ namespace oxen::quic
             //  ex: initial transport params
             bstring conn_buffer;
 
-            Handler& tun_endpoint;
-            std::unique_ptr<Endpoint> endpoint;
-
+            std::shared_ptr<Handler> quic_manager;
+            std::shared_ptr<Endpoint> endpoint;
+            
             const ConnectionID source_cid;
             ConnectionID dest_cid;
 

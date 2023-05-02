@@ -1,6 +1,8 @@
 #include "server.hpp"
 #include "connection.hpp"
+#include "crypto.hpp"
 
+#include <memory>
 #include <ngtcp2/ngtcp2.h>
 #include <cstddef>
 
@@ -42,6 +44,12 @@ namespace oxen::quic
             if (auto [itr, res] = conns.emplace(ConnectionID::random(), conn_ptr{}); res)
             {
                 auto connptr = std::make_shared<Connection>(*this, handler, itr->first, hdr, std::move(pkt.path));
+                
+                // TOFIX: revisit if this is even needed
+                // link conn to gnutls context
+                //auto& gtx = dynamic_cast<GNUTLSContext&>(*context->tls_ctx);
+                //gtx.conn_link(*connptr);
+
                 itr->second = connptr;
                 return connptr;
             }

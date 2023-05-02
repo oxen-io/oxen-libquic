@@ -1,6 +1,7 @@
 #include "client.hpp"
 #include "context.hpp"
 #include "connection.hpp"
+#include "utils.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -28,11 +29,18 @@ namespace oxen::quic
     }
 
 
-    Client::Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx) 
+    Client::Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id) 
         : Endpoint{quic_manager}
     {
         default_stream_bufsize = 0;
         context = ctx;
+
+        Path path{ctx->local, ctx->remote};
+
+        auto conn = std::make_shared<Connection>(*this, handler, id, std::move(path));
+
+        conn->io_ready();
+        conns.emplace(conn->source_cid, conn);
     }
 
 
@@ -46,7 +54,7 @@ namespace oxen::quic
         auto conn = std::make_shared<Connection>(*this, handler, ID, std::move(path), remote.port);
         
         conn->io_ready();
-        conns.emplace(conn->source_cid, std::move(conn));
+        conns.emplace(conn->source_cid, conn);
 
         return {ID, conn};
     }

@@ -1,7 +1,10 @@
 #include "crypto.hpp"
+#include "server.hpp"
+#include "client.hpp"
 #include "connection.hpp"
 
 #include <gnutls/gnutls.h>
+#include <stdexcept>
 
 
 #define CHECK(x) \
@@ -13,41 +16,62 @@
 
 namespace oxen::quic
 {
-    int
-    server_protocol_hook(gnutls_session_t session, unsigned int type, unsigned int when, unsigned int incoming, const gnutls_datum_t *msg)
+    extern "C"
     {
-        assert(type == GNUTLS_HANDSHAKE_CLIENT_HELLO);
-        assert(when == GNUTLS_HOOK_POST);
-        assert(incoming != 0);
-
-        gnutls_datum_t alpn;
-
-        // confirm ALPN extension
-        CHECK(gnutls_alpn_get_selected_protocol(session, &alpn));
-
-        // set protocol
-        gnutls_alpn_set_protocols(session, &alpn, 1, 0);
-
-        return 0;
-    }
-
-    
-    int
-    client_hook(gnutls_session_t session, unsigned int type, unsigned int when, unsigned int incoming, const gnutls_datum_t *msg)
-    {
-        // currently no-op
-		return 0;
-    }
-
-
-    GNUTLSContext::GNUTLSContext(GNUTLSCert cert)
-    {
-        // by the time the constructor is called, the templated GNUTLSCert constructors have stored all necessary information
-        if (cert.server_cb)
+        int
+        server_cb_wrapper(gnutls_session_t session, unsigned int htype, unsigned int when, unsigned int incoming, const gnutls_datum_t *ms)
         {
-            server_cb = std::move(cert.server_cb);
+            auto conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
+            auto server = static_cast<Connection*>(conn_ref->user_data)->server();
+
+            if (!server)
+            {
+                fprintf(stderr, "Error: server unsuccessfully retrieved from conn_ref->user_data->server()\n");
+                return -1;
+            }
+
+            return server->context->server_cb(session, htype, when, incoming, ms);
         }
-        
+
+        int
+        client_cb_wrapper(gnutls_session_t session, unsigned int htype, unsigned int when, unsigned int incoming, const gnutls_datum_t *ms)
+        {
+            auto conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
+            auto client = static_cast<Connection*>(conn_ref->user_data)->client();
+
+            if (!client)
+            {
+                fprintf(stderr, "Error: client unsuccessfully retrieved from conn_ref->user_data->server()\n");
+                return -1;
+            }
+
+            return client->context->client_cb(session, htype, when, incoming, ms);
+        }
+
+        int
+        server_protocol_hook(gnutls_session_t session, unsigned int type, unsigned int when, unsigned int incoming, const gnutls_datum_t *msg)
+        {
+            assert(type == GNUTLS_HANDSHAKE_CLIENT_HELLO);
+            assert(when == GNUTLS_HOOK_POST);
+            assert(incoming != 0);
+
+            gnutls_datum_t alpn;
+
+            // confirm ALPN extension
+            CHECK(gnutls_alpn_get_selected_protocol(session, &alpn));
+
+            // set protocol
+            gnutls_alpn_set_protocols(session, &alpn, 1, 0);
+
+            return 0;
+        }
+
+        int
+        client_hook(gnutls_session_t session, unsigned int type, unsigned int when, unsigned int incoming, const gnutls_datum_t *msg)
+        {
+            // currently no-op
+            return 0;
+        }
     }
 
 
@@ -59,17 +83,9 @@ namespace oxen::quic
     }
 
 
-    //  TODO: figure out a logical way to order these function calls. The main differences
-    //  between server and client initialization are:
-    //      - GNUTLS_{CLIENT/SERVER} Is passed as a flag to gnutls_init
-    //          - this is stored in session; ngtcp2_crypto_gnutls_config_{client/server}_session
-    //            call the same underlying function
-    //      - server needs to set a certificate key pair as well
-    //      - server can set protocol during handshake after client hello by calling
-    //        gnutls_alpn_get_selected protocol (see /ngtcp2/examples/tls_server_session.cc)
-    //      
-    //  The session pointer to the conn_ref struct needs to be done at Connection creation, so
-    //  conn_link will likely need to stay a separate function
+    // The session pointer to the conn_ref struct needs to be done at Connection creation, so
+    // conn_link will likely need to stay a separate function, especially for server connections
+    // created in Server::accept_initial_connection
     int
     GNUTLSContext::conn_link(Connection &conn)
     {
@@ -82,9 +98,10 @@ namespace oxen::quic
 
     
     int
-    GNUTLSContext::client_init(std::string pkeyfile, gnutls_x509_crt_fmt_t type)
+    GNUTLSContext::client_init(GNUTLSCert& cert)
     {
-        //CHECK(config_certs(pkeyfile, type));
+        CHECK(config_client_certs(cert));
+
         CHECK(gnutls_certificate_allocate_credentials(&cred));
 
         CHECK(gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_ENABLE_EARLY_DATA | GNUTLS_NO_END_OF_EARLY_DATA));
@@ -94,8 +111,10 @@ namespace oxen::quic
         CHECK(gnutls_priority_init(&priority, NULL, NULL));
         CHECK(gnutls_priority_set(session, priority));
 
-        gnutls_handshake_set_hook_function(
-            session, GNUTLS_HANDSHAKE_CLIENT_HELLO, GNUTLS_HOOK_POST, client_hook);
+        gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_CLIENT_HELLO, GNUTLS_HOOK_POST, client_hook);
+
+        if (cert.client_cb)
+            gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_CERTIFICATE_VERIFY, GNUTLS_HOOK_POST, client_cb_wrapper);
 
         CHECK(ngtcp2_crypto_gnutls_configure_client_session(session));
 
@@ -109,6 +128,7 @@ namespace oxen::quic
     GNUTLSContext::server_init(GNUTLSCert& cert)
     {
         CHECK(config_server_certs(cert));
+
         CHECK(gnutls_certificate_allocate_credentials(&cred));
 
         CHECK(gnutls_init(&session, GNUTLS_SERVER | GNUTLS_ENABLE_EARLY_DATA | GNUTLS_NO_END_OF_EARLY_DATA));
@@ -116,9 +136,11 @@ namespace oxen::quic
         CHECK(gnutls_priority_init(&priority, NULL, NULL));
         CHECK(gnutls_priority_set(session, priority));
 
-        gnutls_handshake_set_hook_function(
-            session, GNUTLS_HANDSHAKE_CLIENT_HELLO, GNUTLS_HOOK_POST, server_protocol_hook);
+        gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_CLIENT_HELLO, GNUTLS_HOOK_POST, server_protocol_hook);
 
+        if (cert.server_cb)
+            gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_CERTIFICATE_VERIFY, GNUTLS_HOOK_POST, server_cb_wrapper);
+        
         CHECK(ngtcp2_crypto_gnutls_configure_server_session(session));
 
         CHECK(gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, cred));
@@ -130,9 +152,36 @@ namespace oxen::quic
     int
     GNUTLSContext::config_server_certs(GNUTLSCert& cert)
     {
-        CHECK(gnutls_certificate_set_x509_trust_file(cred, cert.certfile.data(), cert.cert_type));
+        if (!cert.remotecafile.empty())
+            CHECK(gnutls_certificate_set_x509_trust_file(cred, cert.remotecafile.data(), cert.remoteca_type));
 
         CHECK(gnutls_certificate_set_x509_key_file(cred, cert.certfile.data(), cert.keyfile.data(), cert.key_type));
+
+        return 0;
+    }
+
+
+    int
+    GNUTLSContext::config_client_certs(GNUTLSCert& cert)
+    {
+        // remote CA file is passed, but not remote cert file
+        if (!cert.remotecafile.empty() && cert.remotecert.empty())
+        {
+            CHECK(gnutls_certificate_set_x509_trust_file(cred, cert.remotecafile.data(), cert.remoteca_type))
+        }
+        // remote cert file is passed, but not remote CA file
+        else if (cert.remotecafile.empty() && !cert.remotecert.empty())
+        {
+            CHECK(gnutls_certificate_set_x509_trust_file(cred, cert.remotecert.data(), cert.remotecert_type));
+        }
+        else
+        {
+            if (!cert.server_cb)
+                throw std::invalid_argument("Error. Either the remote CA, remote cert, or cert verification callback must be passed");
+        }
+
+        if (!cert.keyfile.empty() && !cert.certfile.empty())
+            CHECK(gnutls_certificate_set_x509_key_file(cred, cert.certfile.data(), cert.keyfile.data(), cert.key_type));
 
         return 0;
     }

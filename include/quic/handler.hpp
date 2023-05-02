@@ -239,31 +239,7 @@ Sample API Usage 3:
 
 // Necessary certs and parameters:
 
-server (listen only):
-    - cert
-    - private key
-    - optional: callback for validating client cert, depending on use case
-        - can use jason's template examples to pass other types of callbacks 
-
-client:
-    mode 1: i have the remote's cert
-        method 1:
-            - (O) client cert
-            - (O) client private key
-            - remote cert
-        method 2:
-            - remote cert
-
-    mode 2: use the system CA (or some callback if no CA) to verify the remote's cert
-        method 1:
-            - (O) client cert
-            - (O) client private key
-            - server cert verification callback
-        method 2:
-            - server cert verification callback
-
-
-Client: [server_cert, server_CA, system_CA, server_cert_callback] x [client_key/crt, no client key]
+Client: [server_cert, server_CA, system_CA, server_cert_callback] x [client_key/crt, no client key/cert]
 
 Server: [server_keycrt] x [client_callback, client_CA, no_client_verification] 
 

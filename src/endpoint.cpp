@@ -183,7 +183,6 @@ namespace oxen::quic
             return std::nullopt;
         }
 
-
         return std::make_optional<ConnectionID>(vid.dcid, vid.dcidlen);
     }
 

@@ -43,8 +43,10 @@ namespace oxen::quic
 	//	Callbacks for ev timer functionality
 	using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
 	using timer_callback = std::function<void(int nwrite, void* user_data)>;
-	//	Callback for server connectivity
+	//	Callback for client/server connectivity
 	using server_callback = std::function<int(gnutls_session_t session, unsigned int htype,
+        unsigned int when, unsigned int incoming, const gnutls_datum_t* msg)>;
+    using client_callback = std::function<int(gnutls_session_t session, unsigned int htype,
         unsigned int when, unsigned int incoming, const gnutls_datum_t* msg)>;
 
     static constexpr std::byte CLIENT_TO_SERVER{1};
@@ -76,6 +78,10 @@ namespace oxen::quic
     // We pause reading from the local TCP socket if we have more than this amount of outstanding
     // unacked data in the quic tunnel, then resume once it drops below this.
     inline constexpr size_t PAUSE_SIZE = 64 * 1024;
+
+    // For templated parameter strict type checking
+    template <typename Base, typename T>
+    inline constexpr bool is_strict_base_of_v = std::is_base_of_v<Base, T> && !std::is_same_v<Base, T>;
 
     // We send and verify this in the initial connection and handshake; this is designed to allow
     // future changes (by either breaking or handling backwards compat).

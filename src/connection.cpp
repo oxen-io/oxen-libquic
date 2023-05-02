@@ -470,20 +470,6 @@ namespace oxen::quic
         fprintf(stderr, "Exiting flush_streams()\n");
     }
 
-
-    Server*
-    Connection::server()
-    {
-        return dynamic_cast<Server*>(endpoint.get());
-    }
-
-    Client*
-    Connection::client()
-    {
-        return dynamic_cast<Client*>(endpoint.get());
-    }
-
-
     void
     Connection::schedule_retransmit()
     {
@@ -514,9 +500,8 @@ namespace oxen::quic
     Connection::stream_opened(int64_t id)
     {
         fprintf(stderr, "New stream %lu\n", id);
-        auto* serv = server();
 
-        if (!serv)
+        if (!server())
         {
             fprintf(stderr, "We are a client, incoming streams are not accepted\n");
             return NGTCP2_ERR_CALLBACK_FAILURE;
@@ -738,7 +723,7 @@ namespace oxen::quic
     int
     Connection::init(ngtcp2_settings &settings, ngtcp2_transport_params &params, ngtcp2_callbacks &callbacks)
     {
-        auto loop = tun_endpoint.loop();
+        auto loop = quic_manager->loop();
         io_trigger = loop->resource<uvw::AsyncHandle>();
         io_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { on_io_ready(); });
         
@@ -814,8 +799,8 @@ namespace oxen::quic
 
     //  client conn
     Connection::Connection(
-        Client& client, Handler& ep, const ConnectionID& scid, const Path& path, uint16_t tunnel_port)
-        : tun_endpoint{ep}, client_tunnel_port{tunnel_port}, source_cid{scid}, dest_cid{ConnectionID::random()}, path{path}
+        std::shared_ptr<Client> client, std::shared_ptr<Handler> ep, const ConnectionID& scid, const Path& path)
+        : quic_manager{ep}, source_cid{scid}, dest_cid{ConnectionID::random()}, path{path}
     {
         fprintf(stderr, "Creating new client connection object\n");
 
@@ -823,9 +808,7 @@ namespace oxen::quic
         ngtcp2_transport_params params;
         ngtcp2_callbacks callbacks;
         ngtcp2_conn* connptr;
-        endpoint = std::make_unique<Client>(client);
-        
-        init_gnutls(client);
+        endpoint = client;
 
         if (auto rv = init(settings, params, callbacks); rv != 0)
             fprintf(stderr, "Error: Client-based connection not created\n");
@@ -845,15 +828,17 @@ namespace oxen::quic
             nullptr, 
             this);
 
+        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
         conn_ref.get_conn = get_conn;
-        conn_ref.user_data = &conn_ref;
+        // store pointer to connection in user_data
+        conn_ref.user_data = *this;
 
         if (rv != 0) {
             throw std::runtime_error{"Failed to initialize client connection to server: "s + ngtcp2_strerror(rv)};
         }
         conn.reset(connptr);
 
-        //gtcp2_conn_set_tls_native_handle(conn.get(), session);
+        //ngtcp2_conn_set_tls_native_handle(conn.get(), session);
 
         fprintf(stderr, "Successfully created new client connection object\n");
     }
@@ -861,8 +846,8 @@ namespace oxen::quic
 
     //  server conn
     Connection::Connection(
-        Server& server, Handler& ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path)
-        : tun_endpoint{ep}, source_cid{cid}, dest_cid{hdr.dcid}, path{path}
+        std::shared_ptr<Server> server, std::shared_ptr<Handler> ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path)
+        : quic_manager{ep}, source_cid{cid}, dest_cid{hdr.dcid}, path{path}
     {
         fprintf(stderr, "Creating new server connection object\n");
 
@@ -871,9 +856,7 @@ namespace oxen::quic
         ngtcp2_callbacks callbacks;
         ngtcp2_cid dcid, scid;
         ngtcp2_conn* connptr;
-        endpoint = std::make_unique<Server>(server);
-        
-        init_gnutls(server);
+        endpoint = server;
 
         if (auto rv = init(settings, params, callbacks); rv != 0)
             fprintf(stderr, "Error: Server-based connection not created\n");
@@ -892,8 +875,10 @@ namespace oxen::quic
             nullptr, 
             this);
 
+        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
         conn_ref.get_conn = get_conn;
-        conn_ref.user_data = &conn_ref;
+        // store pointer to connection in user_data
+        conn_ref.user_data = *this;
 
         if (rv != 0) {
             throw std::runtime_error{"Failed to initialize server connection to client: "s + ngtcp2_strerror(rv)};

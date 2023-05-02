@@ -36,6 +36,7 @@ namespace oxen::quic
             explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
             virtual ~Endpoint();
 
+            std::shared_ptr<Handler> handler;
             std::array<std::byte, 1500> buf;
             size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
@@ -55,7 +56,6 @@ namespace oxen::quic
             get_conn(ConnectionID ID);
 
         protected:
-            std::shared_ptr<Handler> handler;
 
             std::shared_ptr<uvw::TimerHandle> expiry_timer;
 
@@ -86,8 +86,6 @@ namespace oxen::quic
             //
             std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
             std::queue<std::pair<ConnectionID, uint64_t>> draining;
-
-            Address local_addr{};
 
             std::optional<ConnectionID>
             handle_initial_packet(const Packet& pkt);

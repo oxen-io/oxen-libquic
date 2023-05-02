@@ -306,7 +306,7 @@ namespace oxen::quic
     {
         for (auto& itr : clients)
         {
-            itr.second->udp_handle->close();
+            itr.second->udp_handles->udp_handle->close();
             itr.second->udp_handle->data(nullptr);
             itr.second.reset();
         }
