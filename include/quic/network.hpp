@@ -22,12 +22,12 @@ namespace oxen::quic
             - add methods for system CA verification to client_connect and server_listen pathways
             - make Network::connect(...) a client method s.t. multiple connections can be opened
               given that one already exists
-    
     */
 
-    /// Main library context 
     class Network
     {
+        friend class Handler;
+
         public:
             Network(std::shared_ptr<uvw::Loop> loop_ptr = nullptr);
             ~Network();
@@ -40,8 +40,8 @@ namespace oxen::quic
             /****** NEW API ******/
 
             // Main client endpoint creation function. If a local address is passed, then a dedicated UDPHandle
-            // is bound to that address. If not, UVW will pick a random local port and bind to it. To use this
-            // function, four parameter structs can be passed:
+            // is bound to that address. If not, the universal UDPHandle is used for I/O. To use this function
+            // four parameter structs can be passed:
             //
             //      local_addr                      OPTIONAL (if not, a random localhost:port
             //      {                               will be assigned)
@@ -67,23 +67,24 @@ namespace oxen::quic
             std::shared_ptr<Client>
             client_connect(Opt&&... opts)
             {
-                // create UDP handle/conn_id's to use later for emplacing into maps
-                auto udp_handle = quic_manager->loop()->resource<uvw::UDPHandle>();
-                auto conn_id = ConnectionID::random();
-
                 // initialize client context and client tls context simultaneously
                 std::shared_ptr<ClientContext> client_ctx = std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
-                
-                // bind to local addr (if passed)
+
+                // Create UDP handle/conn_id's to use later for emplacing into maps
+                auto conn_id = ConnectionID::random();
+
+                std::shared_ptr<uvw::UDPHandle> udp_handle = nullptr;
+
                 if (client_ctx->local)
+                {
+                    udp_handle = handle_mapping(client_ctx->local);
                     udp_handle->bind(client_ctx->local);
-
-                // connect to remote ep; will select random local if not specified to client_connect
-                udp_handle->connect(client_ctx->remote);
-
-                // if no local addr is passed, populate with random local selected by UDPHandle
-                if (!client_ctx->local)
+                }
+                else
+                {
+                    udp_handle = quic_manager->universal_handle;
                     client_ctx->local = Address{udp_handle->peer()};
+                }
 
                 // create client and then copy assign it to the client context so we can return
                 // the shared ptr from this function
@@ -96,7 +97,11 @@ namespace oxen::quic
                 // emplace in client context
                 client_ctx->udp_handles.emplace(conn_id, std::make_pair(udp_handle, std::move(temp_ctx)));
 
-                // clear local and remote address members
+                // clear local and remote temp address members
+                client_ctx->local = Address{};
+                client_ctx->remote = Address{};
+
+                quic_manager->clients.push_back(client_ctx);
 
                 return client_ctx->client;
             };
@@ -150,7 +155,13 @@ namespace oxen::quic
             /*********************/
 
         protected:
+
+        private:
             std::shared_ptr<Handler> quic_manager;
+            std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_client_addrs;
+
+            std::shared_ptr<uvw::UDPHandle>
+            handle_mapping(Address& addr);
 
         public:
             /*

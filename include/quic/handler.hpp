@@ -36,9 +36,12 @@ namespace oxen::quic
 		friend class Network;
 		
 		public:
-			explicit Handler(std::shared_ptr<uvw::Loop> loop_ptr);
+			explicit Handler(std::shared_ptr<uvw::Loop> loop_ptr, Network& net);
 			~Handler();
 
+            Network& net;
+
+            std::shared_ptr<uvw::UDPHandle> universal_handle;
 			std::shared_ptr<uvw::AsyncHandle> io_trigger;
             std::shared_ptr<uvw::Loop> ev_loop;
 
@@ -59,6 +62,7 @@ namespace oxen::quic
 
 			void 
 			make_server(std::string host, uint16_t port);
+
         private:
 			//	Maps client connections that are currently being managed by handler object
 			//		- key: Address{remote_addr}
@@ -333,5 +337,23 @@ double callback_wrapper(double a, double b, void* context)
     auto& callback = *static_cast<cpp_callback*>(context);
     return (double) callback(a, b);
 }
+
+
+API Usage Round 4:
+
+    Network net{loop};
+
+    auto c1 = net.client_connect(remote_addr{"127.0.0.1:4567"});
+    auto c1a = net.client_connect(remote_addr{"127.0.0.1:4567"});
+    auto c2 = net.client_connect(remote_addr{"127.0.0.2:2222"});
+
+None of these specify a local bind address, so on the first call (when constructing c1) we would create an "any" UDPHandle
+
+    auto c3 = net.client_connect(remote_addr{"127.0.0.3:5678"}, local_addr{"127.0.0.1:1111"});
+
+This specifies an explicit local addr that has not been bound yet, so we create a new UDPHandle for it.
+
+So somewhere in net we would have an unordered_map<local_addr, shared_ptr<UDPHandle>>, and when we need the UDPHandle we first 
+check if we already have one for that local_addr (or for the "any" addr) and, if so, reuse it, otherwise construct a new one.
 
 */

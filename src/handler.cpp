@@ -196,10 +196,15 @@ namespace oxen::quic
     }
 
 
-    Handler::Handler(std::shared_ptr<uvw::Loop> loop_ptr)
+    Handler::Handler(std::shared_ptr<uvw::Loop> loop_ptr, Network& net) : net{net}
     {
         ev_loop = loop_ptr;
-        
+        universal_handle = ev_loop->resource<uvw::UDPHandle>();
+        Address default_local{"127.0.0.1", 4433};
+
+        universal_handle->bind(default_local);
+        net.mapped_client_addrs.emplace(std::move(default_local), universal_handle);
+
         fprintf(stderr, "%s\n", (ev_loop) ? 
             "Event loop successfully created" : 
             "Error: event loop creation failed");
@@ -231,7 +236,7 @@ namespace oxen::quic
     void
     Handler::send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, std::string data)
     {
-        handle->send(destination, &data[0], data.length());
+        handle->send(destination, data.data(), data.length());
     }
 
     /*

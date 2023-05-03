@@ -7,7 +7,6 @@
 #include <uvw.hpp>
 
 #include <memory>
-
 #include <unordered_set>
 
 
@@ -33,12 +32,6 @@ namespace oxen::quic
             ConnectionID, 
             std::pair<std::shared_ptr<uvw::UDPHandle>, std::unique_ptr<TLSContext>>> udp_handles;
 
-        inline void
-        set_addrs(uvw::Addr& local_addr, uvw::Addr& remote_addr)
-        {
-            set_local(local_addr);
-            set_remote(remote_addr);
-        };
         inline void
         set_local(uvw::Addr& addr) { local = Address{addr}; };
         inline void
