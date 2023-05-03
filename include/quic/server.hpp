@@ -20,6 +20,12 @@
 
 namespace oxen::quic
 {
+    /*
+        TODO:
+            - revisit if connection linking in Server::accept_initial_connection is needed, as it is done
+              in the Connection constructor
+    */
+
 	using stream_open_cb = std::function<bool(Stream& stream, std::string remote_addr, uint16_t remote_port)>;
 	
 	class Server : public Endpoint

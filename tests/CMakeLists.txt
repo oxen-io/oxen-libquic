@@ -1,11 +1,15 @@
-add_executable(tcp_connect
-    tcp_connect.cpp)
-target_link_libraries(tcp_connect PUBLIC quic)
+add_subdirectory(Catch2)
 
-add_executable(tcp_listen
-    tcp_listen.cpp)
-target_link_libraries(tcp_listen PUBLIC quic)
+# example integration of Catch2 using provided main
+#add_executable(
+#    foo
+#    foo.cpp)
+#target_link_libraries(foo PRIVATE Catch2::Catch2WithMain)
 
-add_executable(test_oneshot_echo
-    oneshot_echo.cpp)
-target_link_libraries(test_oneshot_echo PUBLIC quic)
+# example integration of Catch2 using custom main
+#add_executable(
+#    foo-main
+#    foo.cpp
+#    foo-main.cpp)
+#target_link_libraries(foo-main PRIVATE Catch2::Catch2)
+

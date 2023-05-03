@@ -7,3 +7,6 @@
 [submodule "external/ngtcp2"]
 	path = external/ngtcp2
 	url = https://github.com/ngtcp2/ngtcp2.git
+[submodule "tests/Catch2"]
+	path = tests/Catch2
+	url = git@github.com:catchorg/Catch2.git

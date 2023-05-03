@@ -76,9 +76,9 @@ namespace oxen::quic
         client_callback client_cb;
         GNUTLS_verification_scheme scheme;
 
-        // when called by server: no client verification
-        explicit GNUTLSCert(std::string key, std::string cert) 
-            : keyfile{key}, certfile{cert} 
+        // when called by server for no client verification
+        explicit GNUTLSCert(std::string server_key, std::string server_cert) 
+            : keyfile{server_key}, certfile{server_cert} 
         {
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
@@ -87,9 +87,9 @@ namespace oxen::quic
             scheme = NO_VERIFY;
         };
 
-        // when called by server: client CA verification
-        explicit GNUTLSCert(std::string key, std::string cert, std::string client_CA)
-            : keyfile{key}, certfile{cert}, remotecafile{client_CA} 
+        // when called by server for client CA verification
+        explicit GNUTLSCert(std::string server_key, std::string server_cert, std::string client_CA)
+            : keyfile{server_key}, certfile{server_cert}, remotecafile{client_CA} 
         {
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
@@ -100,9 +100,9 @@ namespace oxen::quic
             scheme = CA_VERIFY;
         };
 
-        // when called by server: client callback verification
-        explicit GNUTLSCert(std::string key, std::string cert, server_callback server_callback)
-            : keyfile{key}, certfile{cert}, server_cb{server_callback} 
+        // when called by server for client callback verification
+        explicit GNUTLSCert(std::string server_key, std::string server_cert, server_callback server_callback)
+            : keyfile{server_key}, certfile{server_cert}, server_cb{server_callback} 
         {
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());

@@ -30,9 +30,9 @@ namespace oxen::quic
 
     class Endpoint
     {
+            friend class Connection;
 
         public:
-            friend class Connection;
             explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
             virtual ~Endpoint();
 

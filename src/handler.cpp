@@ -6,7 +6,6 @@
 #include "client.hpp"
 #include "endpoint.hpp"
 #include "connection.hpp"
-#include "utils.hpp"
 
 #include <uvw.hpp>
 
@@ -235,7 +234,7 @@ namespace oxen::quic
         handle->send(destination, &data[0], data.length());
     }
 
-
+    /*
     void
 	Handler::receive_packet(Address remote, const bstring& buf)
     {
@@ -254,6 +253,7 @@ namespace oxen::quic
         
         if (type == CLIENT_TO_SERVER)
         {
+            
             fprintf(stderr, "Packet is client->server\n");
             if (!server_ptr)
             {
@@ -261,6 +261,7 @@ namespace oxen::quic
                 return;
             }
             ep = server_ptr.get();
+            
         }
         else if (type == SERVER_TO_CLIENT)
         {
@@ -273,7 +274,7 @@ namespace oxen::quic
                 return;
             }
             
-            /*if (auto conn = ep->get_conn())
+            if (auto conn = ep->get_conn())
             {
                 assert(remote_port == conn->path.remote.port());
                 fprintf(stderr, "Remote port is %hu\n", remote_port);
@@ -282,7 +283,7 @@ namespace oxen::quic
             {
                 fprintf(stderr, "Invalid QUIC packet type; dropping packet\n");
                 return;
-            }*/
+            }
         }
         else
         {
@@ -299,6 +300,7 @@ namespace oxen::quic
 
         //ep->handle_packet(pkt);
     };
+    */
 
 
     void
@@ -306,9 +308,8 @@ namespace oxen::quic
     {
         for (auto& itr : clients)
         {
-            itr.second->udp_handles->udp_handle->close();
-            itr.second->udp_handle->data(nullptr);
-            itr.second.reset();
+            itr.reset();
+            delete &itr;
         }
 
         if (all and ev_loop)
@@ -322,109 +323,12 @@ namespace oxen::quic
     }
 
 
-    void
-    Handler::listen(std::string host, uint16_t port)
-    {
-        make_server(host, port);
-    }
-
-
-    int
-    Handler::udp_connect(Address& local, Address& remote, open_callback on_open, close_callback on_close)
-    {
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-
-        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
-        {
-            handle.close();
-            throw std::runtime_error{event.what()};
-        });
-
-        udp_handle->once<uvw::ConnectEvent>([](const uvw::ConnectEvent&, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Successfully connected to port:%u\n", udp.sock().port);
-        });
-
-        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Finished SendEvent\n");
-        });
-
-        udp_handle->connect(remote);
-
-        // create client manager object and set addresses/cbacks
-        auto client_manager = std::make_shared<ClientManager>();
-        client_manager->open_cb = std::move(on_open);
-        client_manager->close_cb = std::move(on_close);
-        client_manager->set_addrs(local, remote);
-
-        // emplace shared ptr inside client manager set
-        client_manager->udp_handles.emplace(udp_handle);
-
-        // make client object
-        auto ID = make_client(client_manager);
-
-        // emplace client manager in handler map
-        clients.emplace(remote.string_addr, client_manager);
-
-        return 0;
-    }
-
-
-    template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool>>
-    int
-    Handler::udp_connect(Address& local, Address& remote, T cert, open_callback on_open, close_callback on_close)
-    {
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-
-        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
-        {
-            handle.close();
-            throw std::runtime_error{event.what()};
-        });
-
-        udp_handle->once<uvw::ConnectEvent>([](const uvw::ConnectEvent&, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Successfully connected to port:%u\n", udp.sock().port);
-        });
-
-        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Finished SendEvent\n");
-        });
-
-        udp_handle->connect(remote);
-
-        // create client manager object and set addresses/cbacks/certs
-        auto client_manager = std::make_shared<ClientManager>();
-        client_manager->open_cb = std::move(on_open);
-        client_manager->close_cb = std::move(on_close);
-        client_manager->set_addrs(local, remote);
-
-        // emplace shared ptr inside client manager set
-        client_manager->udp_handles.emplace(udp_handle);
-
-        // make client object
-        auto ID = make_client(client_manager);
-
-        // emplace unique_ptr to cert for cert_manager
-        auto tls_context = std::move(cert).into_context();
-
-        // emplace cert manager into client manager indexed by ID
-        client_manager->cert_managers.emplace(ID, std::move(tls_context));
-
-        // emplace client manager in handler map
-        clients.emplace(remote.string_addr, client_manager);
-
-        return 0;
-    }
-
-
+    /*
     ConnectionID 
     Handler::make_client(std::shared_ptr<ClientManager> client_manager)
     {
         fprintf(stderr, "Making client endpoint...\n");
-
+        
         // create client endpoint inside client_manager object
         auto& client = client_manager->client;
         assert(not client);
@@ -468,10 +372,10 @@ namespace oxen::quic
         };
 
         fprintf(stderr, "Client endpoint successfully created\n");
-
-        return conn_ID;
+        
+        return ConnectionID::random();
     }
-
+    
 
     void 
     Handler::make_server(std::string host, uint16_t port)
@@ -493,99 +397,5 @@ namespace oxen::quic
 
         fprintf(stderr, "Server endpoint successfully created\n");
     }
-
-
-    /****** TEST FUNCTIONS ******/
-    
-    void 
-    Handler::echo_server_test(std::string host, uint16_t port)
-    {
-        fprintf(stderr, "Making server endpoint...\n");
-        server_ptr = std::make_unique<Server>(*this);
-
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-
-        udp_handle->once<uvw::UDPDataEvent>([](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Received data: %s\n", event.data.get());
-            fprintf(stderr, "Finished UDPDataEvent\n");
-            udp.close();
-        });
-
-        udp_handle->bind(host, port);
-        udp_handle->recv();
-
-        fprintf(stderr, "Server endpoint successfully created\n");
-    }
-
-    int
-    Handler::connect_oneshot_test(std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, std::string message)
-    {
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-        size_t msg_len = message.length();
-
-        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
-        {
-            handle.close();
-            throw std::runtime_error{event.what()};
-        });
-
-        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
-        {
-            udp.close();
-            fprintf(stderr, "Finished SendEvent\n");
-        });
-
-        fprintf(stderr, "Sending message via UDP...\n");
-        udp_handle->send(remote_host, remote_port, &message[0], msg_len);
-        return 0;
-    }
-
-    void
-    Handler::echo_server_nullcert_test(std::string host, uint16_t port, TLSCert cert)
-    {
-        fprintf(stderr, "Making server endpoint...\n");
-        server_ptr = std::make_unique<Server>(*this);
-
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-
-        udp_handle->once<uvw::UDPDataEvent>([](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)
-        {
-            fprintf(stderr, "Received data: %s\n", event.data.get());
-            fprintf(stderr, "Finished UDPDataEvent\n");
-            udp.close();
-        });
-
-        udp_handle->bind(host, port);
-        udp_handle->recv();
-
-        fprintf(stderr, "Server endpoint successfully created\n");
-    }
-
-    int
-    Handler::connect_oneshot_nullcert_test(
-        std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, TLSCert cert, std::string message)
-    {
-        auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
-        size_t msg_len = message.length();
-
-        udp_handle->on<uvw::ErrorEvent>([](const uvw::ErrorEvent& event, uvw::UDPHandle& handle)
-        {
-            handle.close();
-            throw std::runtime_error{event.what()};
-        });
-
-        udp_handle->once<uvw::SendEvent>([](const uvw::SendEvent& event, uvw::UDPHandle& udp)
-        {
-            udp.close();
-            fprintf(stderr, "Finished SendEvent\n");
-        });
-
-        fprintf(stderr, "Sending message via UDP...\n");
-        udp_handle->send(remote_host, remote_port, &message[0], msg_len);
-        return 0;
-    }
-
-    /****************************/
-    
+    */
 }   // namespace oxen::quic

@@ -45,7 +45,6 @@ namespace oxen::quic
             {
                 auto connptr = std::make_shared<Connection>(*this, handler, itr->first, hdr, std::move(pkt.path));
                 
-                // TOFIX: revisit if this is even needed
                 // link conn to gnutls context
                 //auto& gtx = dynamic_cast<GNUTLSContext&>(*context->tls_ctx);
                 //gtx.conn_link(*connptr);

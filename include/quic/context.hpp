@@ -3,10 +3,10 @@
 #include "utils.hpp"
 #include "crypto.hpp"
 #include "handler.hpp"
-#include "uvw/udp.h"
+
+#include <uvw.hpp>
 
 #include <memory>
-#include <uvw.hpp>
 
 #include <unordered_set>
 
@@ -20,10 +20,10 @@ namespace oxen::quic
 	{
 		// Client endpoint linked to this instance
 		std::shared_ptr<Client> client;
-		Address local, remote;
+		Address local, remote;                  // used and cleared in clientcontext creation
         client_callback client_cb;
         std::shared_ptr<Handler> quic_manager;
-        std::unique_ptr<TLSContext> temp_ctx;   // used for creating clientcontext, cleared immediately
+        std::unique_ptr<TLSContext> temp_ctx;   // used and cleared in clientcontext creation
 
         // Cert information for each connection is stored in a map indexed by ConnectionID.
         // As a result, each connection (also mapped in client->conns) can have its own

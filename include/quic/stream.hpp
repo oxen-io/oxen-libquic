@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utils.hpp"
-#include "uvw/tcp.h"
 
 #include <ngtcp2/ngtcp2.h>
 #include <uvw.hpp>
@@ -20,8 +19,7 @@ namespace oxen::quic
 {
 	class Connection;
 	class Stream;
-
-	using bstring = std::basic_string<std::byte>;
+    
 	using data_callback_t = std::function<void(Stream&, bstring)>;
 	using close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
 	using unblocked_callback_t = std::function<bool(Stream&)>;

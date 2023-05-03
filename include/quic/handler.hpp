@@ -6,7 +6,7 @@
 
 #include <uvw.hpp>
 
-#include <unordered_map>
+#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <memory>
@@ -45,8 +45,8 @@ namespace oxen::quic
 			std::shared_ptr<uvw::Loop>
     		loop();
 
-			void
-			receive_packet(Address remote, const bstring& buf);
+			//void
+			//receive_packet(Address remote, const bstring& buf);
 
 			//  Sends packet to 'destination' containing 'data'
             void
@@ -57,33 +57,8 @@ namespace oxen::quic
 			void
 			close(bool all=false);
 
-			void
-			listen(std::string host, uint16_t port);
-
-            template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
-            int
-            udp_connect(Address& local, Address& remote, T cert, open_callback on_open, close_callback on_close);
-
-			int
-			udp_connect(Address& local, Address& remote, open_callback on_open, close_callback on_close);
-
 			void 
 			make_server(std::string host, uint16_t port);
-
-            /****** TEST FUNCTIONS ******/
-            void
-            echo_server_test(std::string host, uint16_t port);
-			int
-			connect_oneshot_test(
-                std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, std::string message="");
-            // TOFIX: add cert verification to nullcert tests
-            void
-            echo_server_nullcert_test(std::string host, uint16_t port, TLSCert cert);
-            int
-			connect_oneshot_nullcert_test(
-                std::string local_host, uint16_t local_port, std::string remote_host, uint16_t remote_port, TLSCert cert, std::string message="");
-            /****************************/
-
         private:
 			//	Maps client connections that are currently being managed by handler object
 			//		- key: Address{remote_addr}
@@ -91,7 +66,7 @@ namespace oxen::quic
 			//
 			//	For example, when a user opens a connection to 127.0.0.1:5440, the ClientContext ptr
 			//	will be indexed to Address{"127.0.0.1", "5440"}
-            std::unordered_map<Address, std::shared_ptr<ClientContext>> clients;
+            std::vector<std::shared_ptr<ClientContext>> clients;
             //	Maps server connections that are currently being managed by handler object
 			//		- key: Address{local_addr}
 			//		- value: pointer to server context object

@@ -12,23 +12,6 @@
 
 namespace oxen::quic
 {
-    Client::Client(std::shared_ptr<Handler> quic_manager, const uint16_t remote_port, Address& remote, Address& local) 
-        : Endpoint{quic_manager}
-    {
-        default_stream_bufsize = 0;
-    
-        if (remote_port == 0)
-            throw std::logic_error{"Cannot tunnel to port 0"};
-
-        Path path{local, remote};
-
-        auto conn = std::make_shared<Connection>(*this, handler, ConnectionID::random(), std::move(path), remote_port);
-        
-        conn->io_ready();
-        conns.emplace(conn->source_cid, std::move(conn));
-    }
-
-
     Client::Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id) 
         : Endpoint{quic_manager}
     {
@@ -41,6 +24,12 @@ namespace oxen::quic
 
         conn->io_ready();
         conns.emplace(conn->source_cid, conn);
+    }
+
+
+    Client::~Client()
+    {
+        
     }
 
 
