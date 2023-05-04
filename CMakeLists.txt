@@ -32,7 +32,7 @@ endif()
 set(CMAKE_C_FLAGS_DEBUG "-g")
 set(CMAKE_C_FLAGS_RELEASE "-O3")
 
-option(WITH_LTO "enable lto on compile time" ON)
+option(WITH_LTO "enable lto on compile time" OFF)
 if(WITH_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT IPO_ENABLED OUTPUT ipo_error)
@@ -46,6 +46,7 @@ else()
     set(IPO_ENABLED OFF)
 endif()
 
+set(IPO_ENABLED OFF)
 if(IPO_ENABLED AND NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 endif()
@@ -57,6 +58,5 @@ include_directories(include)
 
 add_subdirectory(external)
 add_subdirectory(src)
-
 add_subdirectory(tests)
 

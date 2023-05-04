@@ -1,9 +1,8 @@
 #pragma once
 
+#include "context.hpp"
 #include "utils.hpp"
 
-#include <cstddef>
-#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
@@ -19,6 +18,8 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <cstddef>
+#include <netinet/in.h>
 #include <unordered_map>
 
 
@@ -37,6 +38,7 @@ namespace oxen::quic
             virtual ~Endpoint();
 
             std::shared_ptr<Handler> handler;
+            //std::shared_ptr<ContextBase<Endpoint>> context;
             std::array<std::byte, 1500> buf;
             size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
@@ -44,10 +46,10 @@ namespace oxen::quic
             get_loop();
 
             void
-            handle_packet(const Packet& pkt);
+            handle_packet(Packet& pkt);
 
             void
-    		close_connection(Connection& conn, int code, std::string_view msg = ""sv);
+    		close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = ""sv);
 
             void
             delete_connection(const ConnectionID &cid);
@@ -55,13 +57,22 @@ namespace oxen::quic
             std::shared_ptr<Connection> 
             get_conn(ConnectionID ID);
 
+            virtual std::shared_ptr<uvw::UDPHandle>
+            get_handle(Address& addr) = 0;
+
+            virtual std::shared_ptr<uvw::UDPHandle>
+            get_handle(Path& p) = 0;
+
+            // virtual void
+            // install_stream_forwarding(Stream& s, bstring_view data) = 0;
+
         protected:
 
             std::shared_ptr<uvw::TimerHandle> expiry_timer;
 
-            //  Data structures used to keep track of various types of connections
+            // Data structures used to keep track of various types of connections
             //
-            //  conns: 
+            // conns: 
             //      When a client establishes a new connection, it provides its own source CID (scid) and
             //      destination CID (dcid), which it sends to the server. The primary Connection instance is
             //      stored as a shared_ptr indexd by scid
@@ -78,7 +89,7 @@ namespace oxen::quic
             //              client.dcid == server.scid
             //          with each side randomizing their own scid
             //          
-            //  draining:
+            // draining:
             //      Stores all connections that are labeled as draining (duh). They are kept around for a short
             //      period of time allowing any lagging packets to be caught
             //  
@@ -88,41 +99,50 @@ namespace oxen::quic
             std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
             std::optional<ConnectionID>
-            handle_initial_packet(const Packet& pkt);
+            handle_initial_packet(Packet& pkt);
 
             void
-            handle_conn_packet(Connection& conn, const Packet& pkt);
+            handle_conn_packet(Connection& conn, Packet& pkt);
+
+            io_result
+            read_packet(Packet& pkt, Connection& conn);
+
+            io_result
+            send_packet(Address& remote, bstring_view data);
+
+            io_result
+            send_packet(Path& p, bstring_view data);
 
             void
-            send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source);
+            send_version_negotiation(const ngtcp2_version_cid& vid, Path& p);
 
             void
             check_timeouts();
 
-            //  Accepts new connection, returning either a ptr to the Connection
-            //  object or nullptr if error. Virtual function returns nothing -- 
-            //  overrided by Client and Server classes
-            inline virtual std::shared_ptr<Connection>
-            accept_initial_connection(const Packet& pkt) { return nullptr; }
+            // Accepts new connection, returning either a ptr to the Connection
+            // object or nullptr if error. Virtual function returns nothing -- 
+            // overrided by Client and Server classes
+            virtual std::shared_ptr<Connection>
+            accept_initial_connection(Packet& pkt) = 0;
 
-            //  TOFIX: this may not be necessary for a generalizable quic library,
+            // TOFIX: this may not be necessary for a generalizable quic library,
             //      as it is a lokinet-specific implementation. However, it may be
             //      useful in the future to be able to add our own headers to quic
             //      packets for whatever purpose
             //       
-            //  Writes packet header to the beginning of this.buf; this header is
-            //  prepended to quic packets to handle quic server routing, consists of:
-            //  - type [1 byte]: 1 for client->server packets; 2 for server->client packets 
+            // Writes packet header to the beginning of this.buf; this header is
+            // prepended to quic packets to handle quic server routing, consists of:
+            // - type [1 byte]: 1 for client->server packets; 2 for server->client packets 
             //      (other values reserved)
-            //  - port [2 bytes, network order]: client pseudoport (i.e. either a source or 
+            // - port [2 bytes, network order]: client pseudoport (i.e. either a source or 
             //      destination port depending on type)
-            //  - ecn value [1 byte]: provided by ngtcp2 (Only the lower 2 bits are actually used).
+            // - ecn value [1 byte]: provided by ngtcp2 (Only the lower 2 bits are actually used).
             //
-            //  \param psuedo_port - the remote's pseudo-port (will be 0 if the remote is a 
+            // \param psuedo_port - the remote's pseudo-port (will be 0 if the remote is a 
             //      server, > 0 for a client remote)
-            //  \param ecn - the ecn value from ngtcp2
+            // \param ecn - the ecn value from ngtcp2
             //
-            //  Returns the number of bytes written to buf
+            // Returns the number of bytes written to buf
             virtual size_t
             write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; };
     };

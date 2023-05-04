@@ -10,7 +10,7 @@ cmake .. -GNinja \
     -DCMAKE_CXX_COMPILER="clang++" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
-    -DWITH_LTO=ON \
+    -DWITH_LTO=OFF \
     -DCMAKE_POLICY_DEFAULT_CMP0069=NEW && \
 ninja -v
 

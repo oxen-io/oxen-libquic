@@ -1,13 +1,14 @@
 #pragma once
 
 #include "client.hpp"
+#include "server.hpp"
 #include "context.hpp"
 #include "handler.hpp"
 #include "crypto.hpp"
 #include "utils.hpp"
-#include "uvw/udp.h"
 
 #include <gnutls/gnutls.h>
+
 #include <uvw.hpp>
 
 #include <cstdint>
@@ -20,8 +21,6 @@ namespace oxen::quic
     /*
         TODO:
             - add methods for system CA verification to client_connect and server_listen pathways
-            - make Network::connect(...) a client method s.t. multiple connections can be opened
-              given that one already exists
     */
 
     class Network
@@ -37,31 +36,29 @@ namespace oxen::quic
             Handler*
             get_quic();
 
-            /****** NEW API ******/
-
             // Main client endpoint creation function. If a local address is passed, then a dedicated UDPHandle
             // is bound to that address. If not, the universal UDPHandle is used for I/O. To use this function
             // four parameter structs can be passed:
             //
-            //      local_addr                      OPTIONAL (if not, a random localhost:port
-            //      {                               will be assigned)
+            //      local_addr                          OPTIONAL (if not, a random localhost:port
+            //      {                                       will be assigned)
             //          std::string host,
             //          std::string port
             //      }
-            //      remote_addr                     REQUIRED
+            //      remote_addr                         REQUIRED
             //      {
             //          std::string host,
             //          std::string port
             //      }
-            //      client_tls                      REQUIRED
-            //      {                                  
-            //          std::string client_key,     OPTIONAL (required if using client certificate 
-            //          std::string client_cert     authentication by server)
+            //      client_tls                          REQUIRED
+            //      {
+            //          std::string client_key,         OPTIONAL (required if using client certificate 
+            //          std::string client_cert             authentication by server)
             //
-            //          std::string server_cert     (A) REQUIRED (pick ***one*** of options A/B/C)
-            //          std::string server_CA       (B)
+            //          std::string server_cert         (A) REQUIRED (pick ***one*** of options A/B/C)
+            //          std::string server_CA           (B)
             //      }
-            //      client_callback client_cb       (C)
+            //      client_tls_callback_t client_tls_cb (C)
             //  
             template <typename ... Opt>
             std::shared_ptr<Client>
@@ -70,58 +67,48 @@ namespace oxen::quic
                 // initialize client context and client tls context simultaneously
                 std::shared_ptr<ClientContext> client_ctx = std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
 
-                // Create UDP handle/conn_id's to use later for emplacing into maps
-                auto conn_id = ConnectionID::random();
-
-                std::shared_ptr<uvw::UDPHandle> udp_handle = nullptr;
-
                 if (client_ctx->local)
                 {
-                    udp_handle = handle_mapping(client_ctx->local);
-                    udp_handle->bind(client_ctx->local);
+                    client_ctx->udp_handle = handle_client_mapping(client_ctx->local);
                 }
                 else
                 {
-                    udp_handle = quic_manager->universal_handle;
-                    client_ctx->local = Address{udp_handle->peer()};
+                    client_ctx->udp_handle = quic_manager->universal_handle;
+                    client_ctx->local = quic_manager->default_local;
                 }
+
+                // ensure addresses stored correctly
+                fprintf(stderr, "Client local addr: %s:%u\n", client_ctx->local.ip.data(), client_ctx->local.port);
+                fprintf(stderr, "Client remote addr: %s:%u\n", client_ctx->remote.ip.data(), client_ctx->remote.port);
 
                 // create client and then copy assign it to the client context so we can return
                 // the shared ptr from this function
-                client_ctx->client = std::make_shared<Client>(quic_manager, client_ctx, &conn_id);
+                client_ctx->client = std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
+                auto client_ptr = client_ctx->client;
 
-                // fetch tls context stored in temp ptr in TLS creation; clear temp ptr
-                auto temp_ctx = std::move(client_ctx->temp_ctx);
-                client_ctx->temp_ctx.reset(nullptr);
-                
-                // emplace in client context
-                client_ctx->udp_handles.emplace(conn_id, std::make_pair(udp_handle, std::move(temp_ctx)));
-
-                // clear local and remote temp address members
-                client_ctx->local = Address{};
-                client_ctx->remote = Address{};
-
-                quic_manager->clients.push_back(client_ctx);
-
-                return client_ctx->client;
+                quic_manager->clients.emplace_back(std::move(client_ctx));
+                fprintf(stderr, "Client context emplaced\n");
+                return client_ptr;
             };
 
 
             // Main server endpoint creation function. Binds a dedicated UDPHandle to the binding address passed.
             // To use this function, two parameter structs can be passed:
             //
-            //      local_addr                          REQUIRED
+            //      local_addr                              REQUIRED
             //      {
             //          std::string host, 
             //          std::string port
             //      }
-            //      server_tls                          REQUIRED
+            //      server_tls                              REQUIRED
             //      {
-            //          std::string server_key,         REQUIRED
-            //          std::string server_cert,        REQUIRED
-            //          std::string client_ca_cert,     OPTIONAL (do not pass this and server_cb)
+            //          std::string server_key,             REQUIRED
+            //          std::string server_cert,            REQUIRED
+            //          std::string client_ca_cert,         OPTIONAL (do not pass this and server_tls_cb)
             //      }
-            //      server_callback server_cb           OPTIONAL (do not pass this and client_ca_cert)
+            //      server_tls_callback_t server_tls_cb     OPTIONAL (do not pass this and client_ca_cert)
+            //
+            //      server_data_callback_t server_data_cb   OPTIONAL (for test cases and error checking)
             //
             // If a client CA cert is passed, it will be used as the CA authority for the connections; if a server
             // callback is passed, then the user is expected to implement logic that will handle certificate verification
@@ -134,80 +121,57 @@ namespace oxen::quic
                 // initialize server context and server tls context simultaneously
                 std::shared_ptr<ServerContext> server_ctx = std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
 
+                // ensure address stored correctly
+                fprintf(stderr, "Server local addr: %s:%u\n", server_ctx->local.ip.data(), server_ctx->local.port);
+
+                // UDP mapping
+                auto udp_handle = handle_server_mapping(server_ctx->local);
+                if (server_ctx->server_data_cb)
+                    udp_handle->once<uvw::UDPDataEvent>(server_ctx->server_data_cb);
+
+                server_ctx->udp_handles[Address{server_ctx->local}] = std::make_pair(udp_handle, std::move(server_ctx->temp_ctx));
+                server_ctx->temp_ctx.reset();
+
                 // make server
                 server_ctx->server = std::make_shared<Server>(quic_manager, server_ctx);
+                auto server_ptr = server_ctx->server;
                 
                 // emplace server context in handler set
-                quic_manager->servers.emplace(Address{server_ctx->local}, server_ctx);
-
-                return server_ctx->server;
+                quic_manager->servers.emplace(server_ctx->local, server_ctx);
+                // quic_manager->servers[server_ctx->local] = server_ctx;
+                fprintf(stderr, "Server context emplaced\n");
+                return server_ptr;
             };
-
-            
-            std::shared_ptr<Client>
-            client(Address& bind_addr, TLSCert& cert);
-            std::shared_ptr<Server>
-            server(std::unique_ptr<Endpoint>);
-
-            std::shared_ptr<Client>
-            connect();
-
-            /*********************/
 
         protected:
 
         private:
             std::shared_ptr<Handler> quic_manager;
             std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_client_addrs;
+            std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_server_addrs;
 
             std::shared_ptr<uvw::UDPHandle>
-            handle_mapping(Address& addr);
+            handle_client_mapping(Address& local);
 
-        public:
-            /*
-            template <typename T, std::enable_if_t<std::is_base_of_v<TLSCert, T>, bool> = true>
+            std::shared_ptr<uvw::UDPHandle>
+            handle_server_mapping(Address& local);
+
             void
-            udp_connect(
-                Address& local, Address& remote, T cert, open_callback open_cb = NULL, close_callback close_cb = NULL)
-            {
-                auto ep = get_quic();
-                if (ep == nullptr)
-                {
-                    fprintf(stderr, "Error: Context was not initialized with tunnel manager object\n");
-                    return;
-                }
+            configure_client_handle(std::shared_ptr<uvw::UDPHandle> handle);
 
-                open_callback on_open = [open = std::move(open_cb)](bool success, void* user_data) 
-                {
-                    fprintf(stderr, "QUIC tunnel opened %s\n", (success) ? "successfully" : "unsuccessfully");
-
-                    if (open)
-                        open(success, user_data);
-                };
-
-                close_callback on_close = [&remote, close = std::move(close_cb)](int rv, void* user_data)
-                {
-                    fprintf(stderr, "QUIC tunnel closed to %s:%d\n", remote.ip.c_str(), remote.port);
-
-                    if (close)
-                        close(rv, user_data);
-                };
-
-                try 
-                {
-                    auto rv = ep->udp_connect(local, remote, std::move(cert), std::move(on_open), std::move(on_close));
-                }
-                catch (std::exception& e)
-                {
-                    fprintf(stderr, "Exception:%s\n", e.what());
-                }
-                catch (int err)
-                {
-                    fprintf(stderr, "Error: opening QUIC tunnel [code: %d]", err);
-                }
-            }
-            */
+            void
+            configure_server_handle(std::shared_ptr<uvw::UDPHandle> handle);
 
     };
 
 }   // namespace oxen::quic
+
+/*
+    May 8 ToDo:
+        - continue fleshing out read/send packet
+        - figure out how tf to implant the UDPHandle ptr in the connection
+
+    TOTRY:
+        - make tunnel from home to server
+        - try and see how much data to push over that tunnel
+*/

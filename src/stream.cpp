@@ -1,4 +1,6 @@
 #include "stream.hpp"
+#include "context.hpp"
+#include "endpoint.hpp"
 #include "connection.hpp"
 
 #include <ngtcp2/ngtcp2.h>
@@ -12,11 +14,11 @@ namespace oxen::quic
     size_t
     DatagramBuffer::write(const char* data, size_t nbits)
     {
-        /// ensure we have enough space to write to buffer
+        // ensure we have enough space to write to buffer
         assert(remaining >= nbits);
-        /// write to buffer
+        // write to buffer
         std::memcpy(&buf[nwrote], data, nbits);
-        /// update counters
+        // update counters
         nwrote += nbits;
         remaining -= nbits;
 
@@ -25,19 +27,33 @@ namespace oxen::quic
 
 
     Stream::Stream(
-        Connection& conn, data_callback_t data_cb, close_callback_t close_cb, size_t bufsize, int64_t stream_id) :
-        data_callback{std::move(data_cb)},
-        close_callback{std::move(close_cb)},
+        Connection& conn, size_t bufsize, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
         conn{conn},
         stream_id{stream_id},
-        buf{bufsize} 
+        max_bufsize{bufsize},
+        avail_trigger{conn.quic_manager->loop()->resource<uvw::AsyncHandle>()}
     {
+        data_callback = (data_cb) ? 
+            std::move(data_cb) : 
+            [](Stream& s, bstring_view data) {
+                auto handle = s.udp_handle;
+                Packet pkt{.path = Path{handle->sock(), handle->peer()}, .data = data};
+                s.conn.endpoint->handle_packet(pkt);};
+        close_callback = (close_cb) ? 
+            std::move(close_cb) : 
+            [](Stream& s, uint64_t error_code) {
+                fprintf(stderr, "Error: %lu", error_code);
+                s.close(error_code);};
+
+        fprintf(stderr, "Creating Stream object...\n");
         avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
+        udp_handle = conn.endpoint->get_handle(conn.local);
+        fprintf(stderr, "Stream object created\n");
     }
 
 
-    Stream::Stream(Connection& conn, int64_t stream_id, size_t bufsize) :
-        Stream{conn, nullptr, nullptr, bufsize, stream_id}
+    Stream::Stream(Connection& conn, size_t bufsize, int64_t stream_id) :
+        Stream{conn, bufsize, nullptr, nullptr, stream_id}
     {}
 
 
@@ -91,12 +107,12 @@ namespace oxen::quic
 
     auto
     get_buffer_it(
-        std::deque<std::pair<std::unique_ptr<const std::byte[]>, size_t>>& bufs, size_t offset)
+        std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
     {
         auto it = bufs.begin();
-        while (offset >= it->second)
+        while (offset >= sizeof(it->second))
         {
-            offset -= it->second;
+            offset -= sizeof(it->second);
             it++;
         }
         return std::make_pair(std::move(it), offset);
@@ -106,7 +122,6 @@ namespace oxen::quic
     void
     Stream::append_buffer(const std::byte* buffer, size_t length)
     {
-        assert(this->buf.empty());
         user_buffers.emplace_back(buffer, length);
         size += length;
         conn.io_ready();
@@ -122,9 +137,7 @@ namespace oxen::quic
 
         unacked_size -= bytes;
         size -= bytes;
-        if (!buf.empty())
-            start = size == 0 ? 0 : (start + bytes) % buf.size();  // reset start to 0 (to reduce wrapping buffers) if empty
-        else if (size == 0)
+        if (size == 0)
         {
             user_buffers.clear();
             start = 0;
@@ -134,8 +147,8 @@ namespace oxen::quic
             while (bytes)
             {
                 assert(!user_buffers.empty());
-                assert(start < user_buffers.front().second);
-                if (size_t remaining = user_buffers.front().second - start; bytes >= remaining)
+                assert(start < sizeof(user_buffers.front()));
+                if (size_t remaining = sizeof(user_buffers.front()) - start; bytes >= remaining)
                 {
                     user_buffers.pop_front();
                     start = 0;
@@ -164,11 +177,6 @@ namespace oxen::quic
     {
         if (is_closing)
             return;
-        if (buf.empty())
-        {
-            while (!unblocked_callbacks.empty() && unblocked_callbacks.front()(*this))
-                unblocked_callbacks.pop();
-        }
         while (!unblocked_callbacks.empty() && available() > 0)
         {
             if (unblocked_callbacks.front()(*this))
@@ -204,36 +212,22 @@ namespace oxen::quic
     }
 
 
-    std::vector<bstring>
+    std::vector<bstring_view>
     Stream::pending()
     {
-        std::vector<bstring> bufs;
+        std::vector<bstring_view> bufs;
         size_t rsize = unsent();
         if (!rsize)
             return bufs;
-        if (!buf.empty())
-        {
-            size_t rpos = (start + unacked_size) % buf.size();
-            if (size_t rend = rpos + rsize; rend <= buf.size())
-            {
-                bufs.emplace_back(buf.data() + rpos, rsize);
-            }
-            else
-            {  // wrapping
-                bufs.reserve(2);
-                bufs.emplace_back(buf.data() + rpos, buf.size() - rpos);
-                bufs.emplace_back(buf.data(), rend % buf.size());
-            }
-        }
         else
         {
             assert(!user_buffers.empty());  // If empty then unsent() should have been 0
             auto [it, offset] = get_buffer_it(user_buffers, start + unacked_size);
             bufs.reserve(std::distance(it, user_buffers.end()));
             assert(it != user_buffers.end());
-            bufs.emplace_back(it->first.get() + offset, it->second - offset);
+            bufs.emplace_back(it->first.begin() + offset, sizeof(it->second) - offset);
             for (++it; it != user_buffers.end(); ++it)
-                bufs.emplace_back(it->first.get(), it->second);
+                bufs.emplace_back(it->first.begin(), sizeof(it->second));
         }
 
         return bufs;
@@ -241,23 +235,18 @@ namespace oxen::quic
 
 
     void
+    Stream::send(bstring_view data, std::any keep_alive)
+    {
+        unacked_size += data.size();
+        
+        udp_handle->send(
+            conn.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
+    }
+
+
+    void
     Stream::set_user_data(std::shared_ptr<void> data)
     {
         user_data = std::move(data);
-    }
-
-
-    void quic_stream_destroy(Stream* stream) 
-    {
-        // Clean up the QUIC stream
-        // ...
-    }
-
-
-    int quic_stream_send(Stream* stream, const void *data, size_t data_len) 
-    {
-        // Send data through the QUIC stream
-        // ...
-        return 0;
     }
 }   // namespace oxen::quic

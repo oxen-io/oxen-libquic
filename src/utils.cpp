@@ -1,4 +1,5 @@
 #include "utils.hpp"
+#include "connection.hpp"
 
 #include <netinet/in.h>
 #include <string>
@@ -34,6 +35,13 @@ namespace oxen::quic
     }
 
 
+    static ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref *conn_ref) 
+    {
+        Connection *c = reinterpret_cast<Connection*>(conn_ref->user_data);
+        return c->conn.get();
+    }
+
+
     ConnectionID::ConnectionID(const uint8_t* cid, size_t length)
     {
         assert(length <= NGTCP2_MAX_CIDLEN);
@@ -54,39 +62,21 @@ namespace oxen::quic
 
     Address::Address(std::string addr, uint16_t port) : uvw::Addr{addr, port}
     {
-        string_addr = std::string{addr + static_cast<char>(port)};
+        string_addr = addr + ":"s + std::to_string(port);
+
         memset(&_sock_addr, 0, sizeof(_sock_addr));
         _sock_addr.sin_family = AF_INET;
         _sock_addr.sin_port = htons(port);
 
-        std::cout << "Constructing address..." << std::endl;
-        std::cout << "Before:\n\tAddress: " << addr << std::endl;
-        std::cout << "\tPort: " << port << "\n" << std::endl;
+        // std::cout << "Constructing address..." << std::endl;
+        // std::cout << "Before:\n\tAddress: " << addr << std::endl;
+        // std::cout << "\tPort: " << port << "\n" << std::endl;
 
         if (auto rv = inet_pton(AF_INET, addr.c_str(), &_sock_addr.sin_addr); rv != 1)
             throw std::runtime_error("Error: could not parse IPv4 address from string");
 
-        std::cout << "After:\n\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
-        std::cout << "\tPort: " << _sock_addr.sin_port << std::endl;
-        
-        _addr = ngtcp2_addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
+        // std::cout << "After:\n\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
+        // std::cout << "\tPort: " << _sock_addr.sin_port << std::endl;
     }
 
 }   // namespace oxen::quic
-
-
-
-/*
-    - Keep in host order, convert to network order only when needed
-        - Could also store inside Address as host order, then construct sockaddr when needed
-    
-    - Implementation should be agnostic to tcp vs udp
-
-    - Tunnel is more like "manager" or "handler"
-
-    - Could have connection/stream manager with multiple connections
-        - some are TCP, some are plain streams for IP transmission
-    
-    - get ngtcp2 debug printing working
-
-*/

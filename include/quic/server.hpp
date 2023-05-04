@@ -20,30 +20,33 @@
 
 namespace oxen::quic
 {
-    /*
-        TODO:
-            - revisit if connection linking in Server::accept_initial_connection is needed, as it is done
-              in the Connection constructor
-    */
-
-	using stream_open_cb = std::function<bool(Stream& stream, std::string remote_addr, uint16_t remote_port)>;
+    // TODO: do i need this...?
+	//using stream_open_cb = std::function<bool(Stream& stream, std::string remote_addr, uint16_t remote_port)>;
 	
 	class Server : public Endpoint
 	{
 		public:
             std::shared_ptr<ServerContext> context;
+			//stream_open_cb stream_open_callback;
 
-			Server(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ServerContext> ctx) : Endpoint{quic_manager}
+			Server(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ServerContext> ctx) : 
+                Endpoint{quic_manager},
+                context{ctx}
 			{
                 default_stream_bufsize = 0;
-                context = ctx;
+
+                fprintf(stderr, "Successfully created Server endpoint\n");
             }
 
-			stream_open_cb stream_open_callback;
+            std::shared_ptr<uvw::UDPHandle>
+            get_handle(Address& addr) override;
 
-		private:
+            std::shared_ptr<uvw::UDPHandle>
+            get_handle(Path& p) override;
+
+		protected:
 			std::shared_ptr<Connection>
-			accept_initial_connection(const Packet& pkt) override;
+			accept_initial_connection(Packet& pkt) override;
 
 	};
 

@@ -1,2 +1,8 @@
 build/
 .cache/
+.vscode/
+.DS_Store
+*.pem
+*.PEM
+*.der
+*.DER

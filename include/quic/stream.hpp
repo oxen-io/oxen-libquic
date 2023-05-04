@@ -3,9 +3,12 @@
 #include "utils.hpp"
 
 #include <ngtcp2/ngtcp2.h>
+
 #include <uvw.hpp>
 
 #include <queue>
+#include <any>
+#include <variant>
 #include <functional>
 #include <cassert>
 #include <memory>
@@ -20,18 +23,18 @@ namespace oxen::quic
 	class Connection;
 	class Stream;
     
-	using data_callback_t = std::function<void(Stream&, bstring)>;
-	using close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+	using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
+	using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
 	using unblocked_callback_t = std::function<bool(Stream&)>;
 
-	///	One-shot datagram sent inside a quic connection
+	// One-shot datagram sent inside a quic connection
 	struct DatagramBuffer
 	{
 		public:
-			///	Write buffer for outgoing packets
+			// Write buffer for outgoing packets
 			std::vector<std::byte> buf;
 
-            /// Returns number of bits written to buffer
+            // Returns number of bits written to buffer
 			size_t
 			size() const { return buf.size(); }
 
@@ -69,21 +72,21 @@ namespace oxen::quic
 	class Stream : public std::enable_shared_from_this<Stream>
 	{
 		public:
-			Stream(Connection& conn, data_callback_t data_cb, close_callback_t close_cb, size_t bufsize, int64_t stream_id = -1);
-			Stream(Connection& conn, int64_t stream_id, size_t bufsize);
+			explicit Stream(Connection& conn, size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
+			explicit Stream(Connection& conn, size_t bufsize, int64_t stream_id = -1);
 			~Stream();
 
-			data_callback_t data_callback;
-			close_callback_t close_callback;
+			stream_data_callback_t data_callback;
+			stream_close_callback_t close_callback;
+			Connection& conn;
 
-			int64_t stream_id;
-			std::shared_ptr<uvw::TCPHandle> tcp_handle;
+			int64_t stream_id{-1};
+			std::shared_ptr<uvw::UDPHandle> udp_handle;
 			std::vector<uint8_t> data;
 			size_t datalen;
 			size_t nwrite;
 			
-			std::vector<std::byte> buf{65536};
-			std::deque<std::pair<std::unique_ptr<const std::byte[]>, size_t>> user_buffers;
+            std::deque<std::pair<bstring_view, std::any>> user_buffers;
 
 			Connection&
 			get_conn();
@@ -111,7 +114,7 @@ namespace oxen::quic
 
 			inline size_t
 			available() const
-			{ return is_closing || buf.empty() ? 0 : buf.size() - size; }
+			{ return is_closing || user_buffers.empty() ? 0 : user_buffers.size() - size; }
 
 			inline size_t
 			used() const
@@ -133,6 +136,27 @@ namespace oxen::quic
 
 			void
 			set_user_data(std::shared_ptr<void> data);
+
+            void 
+            send(bstring_view data, std::any keep_alive);
+
+            template <
+                typename CharType, 
+                std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
+            void 
+            send(std::basic_string_view<CharType> data, std::any keep_alive) 
+            {
+                return send(convert_sv<std::byte>(data), std::move(keep_alive));
+            }
+
+            template <
+                typename Char, 
+                std::enable_if_t<sizeof(Char) == 1, int> = 0>
+            void 
+            send(std::vector<Char>&& buf) 
+            {
+                return send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
+            }
 		
 		private:
 			friend class Connection;
@@ -142,14 +166,14 @@ namespace oxen::quic
 			void
 			handle_unblocked();  // Processes the above if space is available
 
-			Connection& conn;
 
-			std::vector<bstring>
+			std::vector<bstring_view>
 			pending();
 
 			size_t size{0};
 			size_t start{0};
 			size_t unacked_size{0};
+            size_t max_bufsize{0};
 
 			bool is_new{false};
 			bool is_closing{false};
@@ -159,10 +183,7 @@ namespace oxen::quic
 			// Async trigger for batch scheduling callbacks
 			std::shared_ptr<uvw::AsyncHandle> avail_trigger;
 
+            // TOTHINK: maybe should store a ptr to network or handler here?
 			std::shared_ptr<void> user_data;
 	};
-
-	void quic_stream_destroy(Stream* stream);
-	int quic_stream_send(Stream* stream, const void *data, size_t data_len);
-
 }	// namespace oxen::quic

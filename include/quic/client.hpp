@@ -2,6 +2,7 @@
 
 #include "endpoint.hpp"
 #include "handler.hpp"
+#include "stream.hpp"
 #include "utils.hpp"
 
 #include <cstddef>
@@ -27,35 +28,27 @@ namespace oxen::quic
         public:
             std::shared_ptr<ClientContext> context;
 
-            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id);
+            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id, std::shared_ptr<uvw::UDPHandle> handle);
             ~Client();
 
-            std::pair<ConnectionID&, std::shared_ptr<Connection>>
-            make_conn(Address& remote, Address& local);
+            std::shared_ptr<Stream>
+            open_stream(size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
-            // Writes 'data' to the connection specified by 'conn_id' or 'destination', depending on which overload
-            // is being used. Returns the number of bytes successfully written.
-            //
-            size_t
-            write(const char* data, ConnectionID conn_id);
-            size_t
-            write(const char* data, Address& destination);
+            std::shared_ptr<uvw::UDPHandle>
+            get_handle(Address& addr) override;
 
-            // Main client method for creating a new outbound connection. A dedicated UDPHandle will be bound to the
-            // local address passed to this function; if not, UVW will pick a random local port to bind to. The creation
-            // of a new outbound connection necessitates the creation of a new TLS context as well. The following 
-            // three parameter structs can be passed to use this:
-            // 
-            //      local_addr
-            // 
-            // 
-            // 
-            template <typename ... Opt>
-            void
-            connect(Opt&&... opts)
+            std::shared_ptr<uvw::UDPHandle>
+            get_handle(Path& p) override;
+
+            // void
+            // install_stream_forwarding(Stream& s, bstring_view data) override;
+
+            inline std::shared_ptr<Connection>
+            accept_initial_connection(Packet& pkt) override 
             {
-                //
-            };
+                fprintf(stderr, "%s called (this should probably not be called)\n", __PRETTY_FUNCTION__); 
+                return nullptr;
+            }
 
         private:
 

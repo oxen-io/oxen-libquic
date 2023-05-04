@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utils.hpp"
-#include "client.hpp"
 #include "crypto.hpp"
 
 #include <uvw.hpp>
@@ -25,6 +24,7 @@ namespace oxen::quic
 {
 	//class Client;
 	class Stream;
+    class Client;
 	class Server;
 	class Network;
 	class Connection;
@@ -42,47 +42,29 @@ namespace oxen::quic
             Network& net;
 
             std::shared_ptr<uvw::UDPHandle> universal_handle;
+            Address default_local{"127.0.0.1", 4433};
 			std::shared_ptr<uvw::AsyncHandle> io_trigger;
             std::shared_ptr<uvw::Loop> ev_loop;
 
 			std::shared_ptr<uvw::Loop>
     		loop();
 
-			//void
-			//receive_packet(Address remote, const bstring& buf);
-
-			//  Sends packet to 'destination' containing 'data'
-            void
-            send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, char* data, size_t datalen);
-            void
-            send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, std::string data);
-
 			void
 			close(bool all=false);
 
-			void 
-			make_server(std::string host, uint16_t port);
-
         private:
-			//	Maps client connections that are currently being managed by handler object
-			//		- key: Address{remote_addr}
-			//		- value: pointer to client context object
-			//
-			//	For example, when a user opens a connection to 127.0.0.1:5440, the ClientContext ptr
-			//	will be indexed to Address{"127.0.0.1", "5440"}
+			// Tracks client endpoints that are currently being managed by handler object
             std::vector<std::shared_ptr<ClientContext>> clients;
-            //	Maps server connections that are currently being managed by handler object
-			//		- key: Address{local_addr}
-			//		- value: pointer to server context object
+            // Maps server endpoints that are currently being managed by handler object
+			//  - key: Address{local_addr}
+			//  - value: pointer to server context object
 			//
-			//	For example, when a user listens to 127.0.0.1:4433, the ClientManager ptr
-			//	will be indexed to Address{"127.0.0.1", "5440"}
+			// For example, when a user listens to 127.0.0.1:4433, the ClientManager ptr
+			// will be indexed to Address{"127.0.0.1", "5440"}
             std::unordered_map<Address, std::shared_ptr<ServerContext>> servers;
 
 			///	keep ev loop open for cleanup
 			std::shared_ptr<int> keep_alive = std::make_shared<int>(0); 
-
-        public:
 
 	};
 }	// namespace oxen::quic
@@ -355,5 +337,62 @@ This specifies an explicit local addr that has not been bound yet, so we create 
 
 So somewhere in net we would have an unordered_map<local_addr, shared_ptr<UDPHandle>>, and when we need the UDPHandle we first 
 check if we already have one for that local_addr (or for the "any" addr) and, if so, reuse it, otherwise construct a new one.
+
+
+
+Just looking ahead a little bit: we're very likely going to want to support other types of buffers, too; we could make that generic 
+by taking a const char* buf, size_t length, buf_free where buf_free is some callback we can call to free the associated buffer when 
+done with it.  So then, for instance, if you had a std::vector<std::byte> on hand you could pass that using:
+open_stream
+    std::vector<std::byte> stuff = ...;
+    {
+        auto* buf = stuff.data();
+        auto size = stuff.size();
+        stream.send(buf, size, [stuff=std::move(stuff)] {});
+    }
+
+A better alternative to that lambda would be a std::any; so then there's nothing to call, libquiciness just 
+destroys the any when it's done with the buffer. With bstring_view
+
+    stream.send(bstring_view{stuff.data(), stuff.size()}, std::move(stuff));
+    void send(bstring_view data, std::any keep_alive);
+
+
+But yeah, ideally we would accept any old std::basic_string_view<Char> there
+i.e. with something like:
+
+    void send(bstring_view data, std::any keep_alive);
+    template <typename Char, std::enable_if_t<sizeof(Char) == 1 && !std::is_same_v<Char, std::byte>, int> = 0>
+    void send(std::basic_string_view<Char> data, std::any keep_alive) {
+        return send(convert_sv<std::byte>(data), std::move(keep_alive));
+    }
+
+And maybe even some other options like:
+
+    template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
+    void send(std::vector<Char>&& buf) {
+        return send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
+    }
+
+So try_send would respect the buffer and refuse if it would get too big; send would be limit-ignoring.
+    template <typename... Args>
+    bool try_send(Args&&... data) {
+        if (bytes_in_flight >= max_bytes_in_flight) return false;
+        send(std::forward<Args>(args)...);
+        return true;
+    }
+
+
+- implement something similar to blocked/unblocked s.t. we an signal a stream's local buffer is full.
+    this is a parameter we can pass in stream creation, like "max_bytes_in_flight" or something
+- use bstring_views with template logic to convert from the likely user types
+
+
+- udppacket comes in, goes to handler
+handler:
+- decode's DCID from packet
+- gets `net` out of user context
+- calls net->consume(dcid, packet_data)
+
 
 */

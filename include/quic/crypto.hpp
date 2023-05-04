@@ -25,7 +25,11 @@ namespace oxen::quic
     // wrap system's root CA trust
     struct TLSContext
     {
+        ngtcp2_crypto_conn_ref conn_ref;
+        gnutls_session_t session;
         virtual ~TLSContext() = default;
+        virtual int 
+        conn_link(Connection& conn) = 0;
     };
 
 
@@ -33,7 +37,7 @@ namespace oxen::quic
     struct TLSCert
     {
         virtual ~TLSCert() = default;
-        virtual std::unique_ptr<TLSContext> into_context() && = 0;
+        virtual std::shared_ptr<TLSContext> into_context() && = 0;
     };
 
 
@@ -41,7 +45,7 @@ namespace oxen::quic
     // Fulfills TLSCert_t type constraint
     struct Pinned_TLSCert : TLSCert
     {
-        std::unique_ptr<TLSContext> into_context() && override;
+        std::shared_ptr<TLSContext> into_context() && override;
     };
     
 
@@ -50,20 +54,21 @@ namespace oxen::quic
     // Fulfills TLSCert_t type constraint
     struct x509_TLSCert : TLSCert
     {
-        std::unique_ptr<TLSContext> into_context() && override;
+        std::shared_ptr<TLSContext> into_context() && override;
     };
 
 
     // Null certificate for unsecured connections
     struct NullCert : TLSCert
     { 
-        std::unique_ptr<TLSContext> into_context() && override;
+        std::shared_ptr<TLSContext> into_context() && override;
     };
 
 
     // GNUTlS specific TLS certificate
     struct GNUTLSCert : TLSCert
     {
+        int type;
         std::string keyfile;
         std::string certfile;
         std::string remotecert;     // if client, this is server cert and vice versa
@@ -72,14 +77,15 @@ namespace oxen::quic
         gnutls_x509_crt_fmt_t cert_type;
         gnutls_x509_crt_fmt_t remotecert_type;
         gnutls_x509_crt_fmt_t remoteca_type;
-        server_callback server_cb;
-        client_callback client_cb;
+        server_tls_callback_t server_tls_cb;
+        client_tls_callback_t client_tls_cb;
         GNUTLS_verification_scheme scheme;
 
         // when called by server for no client verification
         explicit GNUTLSCert(std::string server_key, std::string server_cert) 
             : keyfile{server_key}, certfile{server_cert} 
         {
+            fprintf(stderr, "GNUTLSCert constructor A\n");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             key_type = (key_ext == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
@@ -88,9 +94,10 @@ namespace oxen::quic
         };
 
         // when called by server for client CA verification
-        explicit GNUTLSCert(std::string server_key, std::string server_cert, std::string client_CA)
-            : keyfile{server_key}, certfile{server_cert}, remotecafile{client_CA} 
+        explicit GNUTLSCert(std::string server_key, std::string server_cert, std::string client_CA, int type = 1)
+            : keyfile{server_key}, certfile{server_cert}, remotecafile{client_CA}
         {
+            fprintf(stderr, "GNUTLSCert constructor B\n");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             auto clientca_ext = str_tolower(std::filesystem::path(remotecafile).extension());
@@ -101,9 +108,10 @@ namespace oxen::quic
         };
 
         // when called by server for client callback verification
-        explicit GNUTLSCert(std::string server_key, std::string server_cert, server_callback server_callback)
-            : keyfile{server_key}, certfile{server_cert}, server_cb{server_callback} 
+        explicit GNUTLSCert(std::string server_key, std::string server_cert, server_tls_callback_t server_callback)
+            : keyfile{server_key}, certfile{server_cert}, server_tls_cb{server_callback} 
         {
+            fprintf(stderr, "GNUTLSCert constructor C\n");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             key_type = (key_ext == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
@@ -113,17 +121,19 @@ namespace oxen::quic
 
         // when called by client
         explicit GNUTLSCert(
+            int type = 0,
             std::string client_key = "", 
             std::string client_cert = "", 
             std::string server_cert = "", 
             std::string server_CA = "", 
-            client_callback client_cb = nullptr) : 
+            client_tls_callback_t client_cb = nullptr) : 
             keyfile{client_key}, 
             certfile{client_cert}, 
             remotecert{server_cert}, 
-            remotecafile{server_cert},
-            client_cb{client_cb}
+            remotecafile{server_CA},
+            client_tls_cb{client_cb}
         {
+            fprintf(stderr, "GNUTLSCert constructor D\n");
             if (!keyfile.empty())
             {
                 auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
@@ -153,8 +163,8 @@ namespace oxen::quic
                 scheme = CALLBACK;
         };
 
-        std::unique_ptr<TLSContext>
-        into_context() && override;
+        //std::shared_ptr<TLSContext>
+        //into_context() && override;
     };
 
 
@@ -162,31 +172,48 @@ namespace oxen::quic
     {
         struct remote_tls : public GNUTLSCert { using GNUTLSCert::GNUTLSCert; };
         struct local_tls : public GNUTLSCert { using GNUTLSCert::GNUTLSCert; };
-        struct server_tls : public GNUTLSCert { using GNUTLSCert::GNUTLSCert; };
-        struct client_tls : public GNUTLSCert { using GNUTLSCert::GNUTLSCert; };
+        struct server_tls : public GNUTLSCert 
+        { 
+            using GNUTLSCert::GNUTLSCert; 
+            std::shared_ptr<TLSContext>
+            into_context() && override;
+        };
+        struct client_tls : public GNUTLSCert 
+        { 
+            using GNUTLSCert::GNUTLSCert; 
+            std::shared_ptr<TLSContext>
+            into_context() && override;
+        };
     }   // namespace oxen::quic::opt
 
 
     // GnuTLS certificate context
     struct GNUTLSContext : TLSContext
     {
-        explicit GNUTLSContext(GNUTLSCert cert);
+        /*
+        explicit GNUTLSContext(GNUTLSCert cert) 
+        {
+            fprintf(stderr, "GNUTLSContext constructor A\n");
+            if (cert.system)
+                client_sysinit();
+        };
+        */
 
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::server_tls>, bool> = true>
-        explicit GNUTLSContext(T* cert)
+        explicit GNUTLSContext(T& cert)
         {
-            if (cert->server_cb)
-                server_cb = std::move(cert->server_cb);
-
+            fprintf(stderr, "GNUTLSContext constructor A\n");
+            if (cert.server_tls_cb)
+                server_tls_cb = std::move(cert.server_tls_cb);
             server_init(cert);
         };
 
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::client_tls>, bool> = true>
-        explicit GNUTLSContext(T* cert)
+        explicit GNUTLSContext(T& cert)
         {
-            if (cert->client_cb)
-                client_cb = std::move(cert->client_cb);
-
+            fprintf(stderr, "GNUTLSContext constructor B\n");
+            if (cert.client_tls_cb)
+                client_tls_cb = std::move(cert.client_tls_cb);
             client_init(cert);
         };
 
@@ -195,9 +222,9 @@ namespace oxen::quic
         gnutls_certificate_credentials_t cred;
         gnutls_priority_t priority;
         gnutls_x509_crt_int* cert;
-        gnutls_session_t session;
-        server_callback server_cb;
-        client_callback client_cb;
+        // gnutls_session_t session;
+        server_tls_callback_t server_tls_cb;
+        client_tls_callback_t client_tls_cb;
         
         int
         client_init(GNUTLSCert& cert);
@@ -213,8 +240,6 @@ namespace oxen::quic
         config_server_certs(GNUTLSCert& cert);
         int
         config_client_certs(GNUTLSCert& cert);
-        int
-        config_certs(std::string pkeyfile, std::string certfile, gnutls_x509_crt_fmt_t type);
 
     };
 
@@ -256,11 +281,24 @@ namespace oxen::quic
             
     };
 
-
+    /*
     inline std::unique_ptr<TLSContext>
     GNUTLSCert::into_context() &&
     {
-        return std::make_unique<GNUTLSContext>(std::move(*this));
+        return std::make_unique<GNUTLSContext>(*this);
+    }
+    */
+
+    inline std::shared_ptr<TLSContext>
+    opt::server_tls::into_context() &&
+    {
+        return std::make_shared<GNUTLSContext>(*this);
+    }
+
+    inline std::shared_ptr<TLSContext>
+    opt::client_tls::into_context() &&
+    {
+        return std::make_shared<GNUTLSContext>(*this);
     }
 
 

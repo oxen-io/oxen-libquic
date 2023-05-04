@@ -7,44 +7,42 @@
 #include <uvw.hpp>
 
 #include <memory>
-#include <unordered_set>
+#include <unordered_map>
 
 
 namespace oxen::quic
 {
     class Server;
     class Client;
+    class Endpoint;
 
-    struct ClientContext
-	{
-		// Client endpoint linked to this instance
-		std::shared_ptr<Client> client;
-		Address local, remote;                  // used and cleared in clientcontext creation
-        client_callback client_cb;
+    struct ContextBase
+    {
+        Address local, remote;
         std::shared_ptr<Handler> quic_manager;
-        std::unique_ptr<TLSContext> temp_ctx;   // used and cleared in clientcontext creation
 
+        virtual ~ContextBase() = default;
+
+        virtual std::shared_ptr<Endpoint> 
+        endpoint() = 0;
+    };
+
+
+    struct ClientContext : ContextBase
+	{
         // Cert information for each connection is stored in a map indexed by ConnectionID.
         // As a result, each connection (also mapped in client->conns) can have its own
         // TLS cert info. Each connection also stores within it the gnutls_session_t and
         // gnutls_certificate_credentials_t objects used to initialize its ngtcp2 things
-        std::unordered_map<
-            ConnectionID, 
-            std::pair<std::shared_ptr<uvw::UDPHandle>, std::unique_ptr<TLSContext>>> udp_handles;
+        std::shared_ptr<TLSContext> tls_ctx;
+        std::shared_ptr<Client> client;
+        std::shared_ptr<uvw::UDPHandle> udp_handle;
+        ConnectionID conn_id;
+        client_tls_callback_t client_cb;
 
-        inline void
-        set_local(uvw::Addr& addr) { local = Address{addr}; };
-        inline void
-        set_remote(uvw::Addr& addr) { remote = Address{addr}; };
-
-        void
-        handle_clientctx_opt(opt::local_addr& addr);
-        void
-        handle_clientctx_opt(opt::remote_addr& addr);
-        void
-        handle_clientctx_opt(opt::client_tls& tls);
-        void
-        handle_clientctx_opt(client_callback& func);
+		// Client endpoint linked to this instance
+		std::shared_ptr<Endpoint> 
+        endpoint() override;
 
         template <typename ... Opt>
         ClientContext(std::shared_ptr<Handler> quic_ep, Opt&&... opts)
@@ -54,37 +52,44 @@ namespace oxen::quic
             // copy assign handler shared_ptr
             quic_manager = quic_ep;
             // parse all options
-            handle_clientctx_opt(std::forward<Opt>(opts)...);
-            // ensure remote_addr was passed
-            assert(remote);
+            ((void) handle_clientctx_opt(std::forward<Opt>(opts)), ...);
+
+            conn_id = ConnectionID::random();
 
             fprintf(stderr, "Client context successfully created\n");
         }
 
 		~ClientContext();
+
+      private:
+        void
+        handle_clientctx_opt(opt::local_addr& addr);
+        void
+        handle_clientctx_opt(opt::remote_addr& addr);
+        void
+        handle_clientctx_opt(opt::client_tls& tls);
+        void
+        handle_clientctx_opt(client_tls_callback_t func);
+
+        inline void
+        set_local(Address& addr) { local = Address{addr}; };
+        inline void
+        set_remote(Address& addr) { remote = Address{addr}; };
 	};
 
 
-    struct ServerContext
+    struct ServerContext : ContextBase
     {
-        // Server endpoint linked to this instance
         std::shared_ptr<Server> server;
-        Address local;
-        server_callback server_cb;
-        std::shared_ptr<uvw::UDPHandle> udp_handle;
-        std::unique_ptr<TLSContext> tls_ctx;
-        std::shared_ptr<Handler> quic_manager;
+        std::unordered_map<Address, std::pair<std::shared_ptr<uvw::UDPHandle>, std::shared_ptr<TLSContext>>> udp_handles;
+        std::shared_ptr<TLSContext> temp_ctx;
+        server_tls_callback_t server_tls_cb;
+        server_data_callback_t server_data_cb;
 
-        inline void
-        set_addr(uvw::Addr& addr) { local = Address{addr}; };
-
-        void 
-        handle_serverctx_opt(opt::local_addr& addr);
-        void 
-        handle_serverctx_opt(opt::server_tls& tls);
-        void
-        handle_serverctx_opt(server_callback& func);
-
+        // Server endpoint linked to this instance
+		std::shared_ptr<Endpoint> 
+        endpoint() override;
+        
         template <typename ... Opt>
         ServerContext(std::shared_ptr<Handler> quic_ep, Opt&&... opts)
         {
@@ -93,17 +98,26 @@ namespace oxen::quic
             // copy assign handler shared_ptr
             quic_manager = quic_ep;
             // parse all options
-            handle_serverctx_opt(std::forward<Opt>(opts)...);
-            // make UDP handle
-            udp_handle = quic_manager->ev_loop->resource<uvw::UDPHandle>();
-            udp_handle->bind(local);
-            udp_handle->recv();
+            ((void) handle_serverctx_opt(std::forward<Opt>(opts)), ...);
 
             fprintf(stderr, "Server context successfully created\n");
         }
-
+      
         ~ServerContext();
+        
+      private:
+        void 
+        handle_serverctx_opt(opt::local_addr& addr);
+        void 
+        handle_serverctx_opt(Address& addr);
+        void 
+        handle_serverctx_opt(opt::server_tls& tls);
+        void
+        handle_serverctx_opt(server_tls_callback_t& func);
+        void
+        handle_serverctx_opt(server_data_callback_t& func);
+        inline void
+        set_addr(Address& addr) { local = Address{addr}; };
     };
-
 
 }   // namespac oxen::quic

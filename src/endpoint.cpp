@@ -3,10 +3,10 @@
 #include "handler.hpp"
 #include "utils.hpp"
 
-#include <ngtcp2/version.h>
-#include <uvw/timer.h>
-#include <ev.h>
 #include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/version.h>
+
+#include <uvw.hpp>
 
 #include <optional>
 #include <cstddef>
@@ -40,7 +40,7 @@ namespace oxen::quic
 
 
     void
-    Endpoint::handle_packet(const Packet& pkt)
+    Endpoint::handle_packet(Packet& pkt)
     {
         auto dcid_opt = handle_initial_packet(pkt);
 
@@ -53,12 +53,13 @@ namespace oxen::quic
         auto& dcid = *dcid_opt;
 
         // check existing conns
-        fprintf(stderr, "Incoming connection ID: {%s}\n", dcid.data);
+        fprintf(stderr, "Incoming connection ID: {%p}\n", dcid.data);
         auto cptr = get_conn(dcid);
 
         if (!cptr)
         {
             cptr = accept_initial_connection(pkt);
+            
             if (!cptr)
             {
                 fprintf(stderr, "Error: connection could not be created\n");
@@ -125,16 +126,13 @@ namespace oxen::quic
         // ensure we have enough write space
         assert(written <= (long)conn.conn_buffer.size());
 
-        /*
-        if (auto rv = handler.send_data(conn.path.remote, conn.conn_buffer, 0); not rv)
+        if (auto rv = send_packet(conn.path.remote, conn.conn_buffer); not rv)
         {
             fprintf(stderr, 
-                "Error: failed to send close packet [code: %s]; removing connection (CID: %s)\n", 
+                "Error: failed to send close packet [code: %s]; removing connection [CID: %s]\n", 
                 strerror(rv.error_code), conn.source_cid.data);
             delete_connection(conn.source_cid);
         }
-        */
-
     }
 
 
@@ -161,14 +159,14 @@ namespace oxen::quic
 
 
     std::optional<ConnectionID>
-    Endpoint::handle_initial_packet(const Packet& pkt)
+    Endpoint::handle_initial_packet(Packet& pkt)
     {
         ngtcp2_version_cid vid;
         auto rv = ngtcp2_pkt_decode_version_cid(&vid, u8data(pkt.data), pkt.data.size(), NGTCP2_MAX_CIDLEN);
 
         if (rv == NGTCP2_ERR_VERSION_NEGOTIATION)
         {   // version negotiation has not been sent yet, ignore packet
-            send_version_negotiation(vid, pkt.path.remote);
+            send_version_negotiation(vid, pkt.path);
             return std::nullopt;
         }
         if (rv != 0)
@@ -188,7 +186,7 @@ namespace oxen::quic
 
 
     void
-    Endpoint::handle_conn_packet(Connection& conn, const Packet& pkt)
+    Endpoint::handle_conn_packet(Connection& conn, Packet& pkt)
     {
         if (auto rv = ngtcp2_conn_is_in_closing_period(conn); rv != 0)
         {
@@ -201,35 +199,103 @@ namespace oxen::quic
         {
             fprintf(stderr, "Error: connection is already draining; dropping\n");
         }
+
+        (read_packet(pkt, conn)) ? 
+            fprintf(stderr, "Done with incoming packet\n") :
+            fprintf(stderr, "Read packet failed\n");
+    }
+
+
+    io_result
+    Endpoint::read_packet(Packet& pkt, Connection& conn)
+    {
+        auto rv = 
+            ngtcp2_conn_read_pkt(conn, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), get_timestamp());
+
+        switch (rv) 
+        {
+            case 0:
+                conn.io_ready();
+                break;
+            case NGTCP2_ERR_DRAINING:
+                fprintf(stderr, "Draining connection %s\n", conn.source_cid.data);
+                break;
+            case NGTCP2_ERR_PROTO:
+                fprintf(stderr, "Closing connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                close_connection(conn, rv, "ERR_PROTO"sv);
+                break;
+            case NGTCP2_ERR_DROP_CONN:
+                // drop connection without calling ngtcp2_conn_write_connection_close()
+                fprintf(stderr, "Dropping connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                delete_connection(conn.source_cid);
+                break;
+            default:
+                fprintf(stderr, "Closing connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                close_connection(conn, rv, ngtcp2_strerror(rv));
+                break;
+        }
+
+        return {rv};
+    }
+
+
+    io_result
+    Endpoint::send_packet(Address& remote, bstring_view data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        auto handle = get_handle(remote);
+
+        assert(handle != nullptr);
+
+        fprintf(stderr, "Sending udp to %s:%u...\n", remote.ip.c_str(), remote.port);
+        handle->send(remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
+
+        return io_result{0};
+    }
+
+
+    io_result
+    Endpoint::send_packet(Path& p, bstring_view data)
+    {
+        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        auto handle = get_handle(p);
+
+        assert(handle != nullptr);
+        
+        fprintf(stderr, "Sending udp to %s:%u...\n", p.remote.ip.c_str(), p.remote.port);
+        handle->send(p.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
+
+        return io_result{0};
     }
 
 
     void
-    Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Address& source)
+    Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, Path& p)
     {
+        auto randgen = make_mt19937();
         std::array<std::byte, max_pkt_size_v4> _buf;
         std::array<uint32_t, NGTCP2_PROTO_VER_MAX - NGTCP2_PROTO_VER_MIN + 2> versions;
         std::iota(versions.begin() + 1, versions.end(), NGTCP2_PROTO_VER_MIN);
         // we're supposed to send some 0x?a?a?a?a version to trigger version negotiation
         versions[0] = 0x1a2a3a4au;
 
-        auto rv = ngtcp2_pkt_write_version_negotiation(
+        auto nwrite = ngtcp2_pkt_write_version_negotiation(
             u8data(_buf),
             _buf.size(),
-            0xfe,//std::uniform_int_distribution<uint8_t>(0, 255)(make_mt19937),
+            std::uniform_int_distribution<uint8_t>()(randgen),
             vid.dcid,
             vid.dcidlen,
             vid.scid,
             vid.scidlen,
             versions.data(),
             versions.size());
-        if (rv <= 0)
+        if (nwrite <= 0)
         {
-            fprintf(stderr, "Error: Failed to construct version negotiation packet: %s\n", ngtcp2_strerror(rv));
+            fprintf(stderr, "Error: Failed to construct version negotiation packet: %s\n", ngtcp2_strerror(nwrite));
             return;
         }
 
-        //handler.send_data(source, bstring{_buf.data(), static_cast<size_t>(rv)}, 0);
+        send_packet(p, bstring_view{_buf.data(), static_cast<size_t>(nwrite)});
     }
 
 

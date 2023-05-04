@@ -18,7 +18,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <string.h>
-#include <linux/if_tun.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <arpa/inet.h>
@@ -26,9 +25,9 @@
 
 namespace oxen::quic
 {
-    // Takes data from the tcp connection and pushes it down the quic tunnel
+    // Takes data from the UDP connection and pushes it down the quic tunnel
     void
-    on_outgoing_data(uvw::DataEvent& event, uvw::TCPHandle& client)
+    on_outgoing_data(uvw::DataEvent& event, uvw::UDPHandle& client)
     {
         auto stream = client.data<Stream>();
         assert(stream);
@@ -40,15 +39,16 @@ namespace oxen::quic
         stream->append_buffer(reinterpret_cast<const std::byte*>(event.data.release()), event.length);
         if (stream->used() >= PAUSE_SIZE)
         {
-            fprintf(stderr, "QUIC tunnel is congested (have %lu bytes in flight); pausing local tcp connection reading\n",
+            fprintf(stderr, "QUIC tunnel is congested (have %lu bytes in flight); pausing local udp connection reading\n",
                 stream->used());
             client.stop();
             stream->when_available([](Stream& s) {
-                auto client = s.get_user_data<uvw::TCPHandle>();
+                auto client = s.get_user_data<uvw::UDPHandle>();
                 if (s.used() < PAUSE_SIZE)
                 {
-                    fprintf(stderr, "QUIC tunnel is no longer congested; resuming tcp connection reading\n");
-                    client->read();
+                    fprintf(stderr, "QUIC tunnel is no longer congested; resuming udp connection reading\n");
+                    // TODO: think about this
+                    client->recv();
                     return true;
                 }
                 return false;
@@ -61,61 +61,75 @@ namespace oxen::quic
     }
 
 
-    // Received data from the quic tunnel and sends it to the TCP connection
+    // TOFIX: THIS DUDE
+    // Received data from the quic tunnel and sends it to the udp connection
     void
-    on_incoming_data(Stream& stream, bstring bdata)
+    on_incoming_data(Stream& stream, bstring_view bdata)
     {
-      auto tcp = stream.get_user_data<uvw::TCPHandle>();
-      if (!tcp)
-        return;  // TCP connection is gone, which would have already sent a stream close, so just
-                 // drop it.
+        auto udp = stream.udp_handle;
 
-      std::string data{reinterpret_cast<const char*>(bdata.data()), bdata.size()};
-      auto peer = tcp->peer();
-      fprintf(stderr, "%s:%u ← lokinet %s\n", peer.ip.c_str(), peer.port, data.c_str());
+        if (!udp)
+            return;
+        
+        std::string_view data{reinterpret_cast<const char*>(bdata.data(), bdata.size())};
+        if (data.empty())
+            return;
 
-      if (data.empty())
-        return;
+        auto peer = udp->peer();
 
-      // Try first to write immediately from the existing buffer to avoid needing an
-      // allocation and copy:
-      auto written = tcp->tryWrite(const_cast<char*>(data.data()), data.size());
-      if (written < (int)data.size())
-      {
-        data.erase(0, written);
+        /*
+        auto udp = stream.get_user_data<uvw::UDPHandle>();
+        if (!udp)
+            return;  // TCP connection is gone, which would have already sent a stream close, so just
+                    // drop it.
 
-        auto wdata = std::make_unique<char[]>(data.size());
-        std::copy(data.begin(), data.end(), wdata.get());
-        tcp->write(std::move(wdata), data.size());
-      }
+        std::string data{reinterpret_cast<const char*>(bdata.data()), bdata.size()};
+        auto peer = udp->peer();
+        fprintf(stderr, "%s:%u ← lokinet %s\n", peer.ip.c_str(), peer.port, data.c_str());
+
+        if (data.empty())
+            return;
+
+        // Try first to write immediately from the existing buffer to avoid needing an
+        // allocation and copy:
+        auto written = udp->tryWrite(const_cast<char*>(data.data()), data.size());
+        if (written < (int)data.size())
+        {
+            data.erase(0, written);
+
+            auto wdata = std::make_unique<char[]>(data.size());
+            std::copy(data.begin(), data.end(), wdata.get());
+            udp->write(std::move(wdata), data.size());
+        }
+        */
     }
 
 
     void
-    close_tcp_pair(Stream& st, std::optional<uint64_t>)
+    close_udp_pair(Stream& st, std::optional<uint64_t>)
     {
-        if (auto tcp = st.get_user_data<uvw::UDPHandle>())
+        if (auto udp = st.udp_handle)
         {
-            fprintf(stderr, "Closing TCP connection");
-            tcp->close();
+            fprintf(stderr, "Closing UDP connection\n");
+            udp->close();
         }
     };
 
 
     void
-    install_stream_forwarding(uvw::TCPHandle& tcp, Stream& stream)
+    install_stream_forwarding(uvw::UDPHandle& udp, Stream& stream)
     {
-        tcp.data(stream.shared_from_this());
+        udp.data(stream.shared_from_this());
         auto weak_conn = stream.get_conn().weak_from_this();
 
-        tcp.clear();  // Clear any existing initial event handlers
+        udp.clear();  // Clear any existing initial event handlers
 
-        tcp.on<uvw::CloseEvent>([weak_conn = std::move(weak_conn)](auto&, uvw::TCPHandle& c) 
+        udp.on<uvw::CloseEvent>([weak_conn = std::move(weak_conn)](auto&, uvw::UDPHandle& c) 
         {
             // This fires sometime after we call `close()` to signal that the close is done.
             if (auto stream = c.data<Stream>())
             {
-                fprintf(stderr, "Local TCP connection closed, closing associated quic stream %lu", stream->stream_id);
+                fprintf(stderr, "Local UDP connection closed, closing associated quic stream %lu\n", stream->stream_id);
 
                 // There is an awkwardness with Stream ownership, so make sure the Connection
                 // which it holds a reference to still exists, as stream->close will segfault
@@ -126,40 +140,40 @@ namespace oxen::quic
             }
             c.data(nullptr);
         });
-        tcp.on<uvw::EndEvent>([](auto&, uvw::TCPHandle& c) {
+        udp.on<uvw::EndEvent>([](auto&, uvw::UDPHandle& c) {
             // This fires on eof, most likely because the other side of the TCP connection closed it.
             fprintf(stderr, "Error: EOF on connection to %s:%u\n", c.peer().ip.c_str(), c.peer().port);
             c.close();
         });
-        tcp.on<uvw::ErrorEvent>([](const uvw::ErrorEvent& e, uvw::TCPHandle& tcp) {
+        udp.on<uvw::ErrorEvent>([](const uvw::ErrorEvent& e, uvw::UDPHandle& udp) {
             fprintf(stderr, "ErrorEvent[%s:%s] on connection with %s:%u, shutting down quic stream\n",
                 e.name(),
                 e.what(),
-                tcp.peer().ip.c_str(),
-                tcp.peer().port);
+                udp.peer().ip.c_str(),
+                udp.peer().port);
 
-            if (auto stream = tcp.data<Stream>())
+            if (auto stream = udp.data<Stream>())
             {
-                stream->close(ERROR_TCP);
+                stream->close(-1);
                 stream->set_user_data(nullptr);
-                tcp.data(nullptr);
+                udp.data(nullptr);
             }
         });
-        tcp.on<uvw::DataEvent>(on_outgoing_data);
+        udp.on<uvw::DataEvent>(on_outgoing_data);
         stream.data_callback = on_incoming_data;
-        stream.close_callback = close_tcp_pair;
+        stream.close_callback = close_udp_pair;
     }
 
 
     void
-    initial_client_data_handler(uvw::TCPHandle& client, Stream& stream, bstring data)
+    initial_client_data_handler(uvw::UDPHandle& client, Stream& stream, bstring data)
     {
         if (data.empty())
             return;
         client.clear();
         if (auto b0 = data[0]; b0 == CONNECT_INIT)
         {
-            client.read();
+            client.recv();
             install_stream_forwarding(client, stream);
 
             if (data.size() > 1)
@@ -180,12 +194,12 @@ namespace oxen::quic
 
 
     void
-    initial_client_close_handler(uvw::TCPHandle& client, Stream& stream, std::optional<uint64_t> error_code)
+    initial_client_close_handler(uvw::UDPHandle& client, Stream& stream, std::optional<uint64_t> error_code)
     {
         if (error_code && *error_code == ERROR_CONNECT)
-            fprintf(stderr, "Error: Remote TCP connection failed, closing local connection\n");
+            fprintf(stderr, "Error: Remote UDP connection failed, closing local connection\n");
         else
-            fprintf(stderr, "Stream connection closed; closing local TCP connection with error [%s]\n", 
+            fprintf(stderr, "Stream connection closed; closing local UDP connection with error [%s]\n", 
                 (error_code) ? std::to_string(*error_code).c_str() : "NONE");
 
         auto peer = client.peer();
@@ -200,10 +214,9 @@ namespace oxen::quic
     {
         ev_loop = loop_ptr;
         universal_handle = ev_loop->resource<uvw::UDPHandle>();
-        Address default_local{"127.0.0.1", 4433};
 
         universal_handle->bind(default_local);
-        net.mapped_client_addrs.emplace(std::move(default_local), universal_handle);
+        net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
 
         fprintf(stderr, "%s\n", (ev_loop) ? 
             "Event loop successfully created" : 
@@ -224,88 +237,6 @@ namespace oxen::quic
     {
         return (ev_loop) ? ev_loop : nullptr;
     }
-    
-
-    void
-    Handler::send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, char* data, size_t datalen)
-    {
-        handle->send(destination, data, datalen);
-    }
-
-
-    void
-    Handler::send_datagram(std::shared_ptr<uvw::UDPHandle> handle, Address& destination, std::string data)
-    {
-        handle->send(destination, data.data(), data.length());
-    }
-
-    /*
-    void
-	Handler::receive_packet(Address remote, const bstring& buf)
-    {
-        if (buf.size() <= 4)
-        {
-            fprintf(stderr, "Invalid QUIC packet: packet size too small\n");
-            return;
-        }
-
-        std::byte type = buf[0];
-        auto ecn = static_cast<uint8_t>(buf[3]);
-        uint16_t remote_port_n, remote_port;
-        std::memcpy(&remote_port_n, &buf[1], 2);
-        remote_port = ntohs(remote_port_n);
-        Endpoint* ep = nullptr;
-        
-        if (type == CLIENT_TO_SERVER)
-        {
-            
-            fprintf(stderr, "Packet is client->server\n");
-            if (!server_ptr)
-            {
-                fprintf(stderr, "Error: no listeners for incoming client -> server QUIC packet; dropping packet\n");
-                return;
-            }
-            ep = server_ptr.get();
-            
-        }
-        else if (type == SERVER_TO_CLIENT)
-        {
-            fprintf(stderr, "Packet is server->client\n");
-            //ep = client_tunnel->client.get();
-
-            if (!ep)
-            {
-                fprintf(stderr, "Error: incoming QUIC packet addressed to invalid/closed client; dropping packet\n");
-                return;
-            }
-            
-            if (auto conn = ep->get_conn())
-            {
-                assert(remote_port == conn->path.remote.port());
-                fprintf(stderr, "Remote port is %hu\n", remote_port);
-            }
-            else
-            {
-                fprintf(stderr, "Invalid QUIC packet type; dropping packet\n");
-                return;
-            }
-        }
-        else
-        {
-            fprintf(stderr, "Invalid incoming QUIC packet type; dropping packet\n");
-            return;
-        }
-
-        //Packet pkt{
-        //    Path{Address{reinterpret_cast<const sockaddr_in&>(in6addr_loopback), remote_port}, 
-        //        std::move(remote_addr)},
-        //    buf,
-        //    ngtcp2_pkt_info{.ecn=ecn}
-        //};
-
-        //ep->handle_packet(pkt);
-    };
-    */
 
 
     void
@@ -324,7 +255,7 @@ namespace oxen::quic
             ev_loop->close();
         }
 
-        fprintf(stderr, "TCP handles closed...\n");
+        fprintf(stderr, "UDP handles closed...\n");
     }
 
 
