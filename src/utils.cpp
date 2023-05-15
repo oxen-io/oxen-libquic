@@ -7,6 +7,14 @@
 
 namespace oxen::quic
 {
+    void
+    logger_config(std::string out, log::Type type, log::Level reset)
+    {
+        oxen::log::add_sink(type, out);
+        oxen::log::reset_level(reset);
+    }
+
+
     uint64_t
     get_timestamp()
     {
@@ -14,12 +22,13 @@ namespace oxen::quic
 
         if (clock_gettime(CLOCK_MONOTONIC, &tp) != 0) 
         {
-            fprintf(stderr, "clock_gettime: %s\n", ngtcp2_strerror(errno));
+            log::trace(log_cat, "clock_gettime: {}", ngtcp2_strerror(errno));
             exit(EXIT_FAILURE);
         }
 
         return (uint64_t)tp.tv_sec * NGTCP2_SECONDS + (uint64_t)tp.tv_nsec;
     }
+
 
     std::string
     str_tolower(std::string s)
@@ -27,18 +36,12 @@ namespace oxen::quic
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
         return s;
     }
+    
 
     std::mt19937 make_mt19937()
     {
         std::random_device rd;
         return std::mt19937(rd());
-    }
-
-
-    static ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref *conn_ref) 
-    {
-        Connection *c = reinterpret_cast<Connection*>(conn_ref->user_data);
-        return c->conn.get();
     }
 
 
@@ -69,13 +72,13 @@ namespace oxen::quic
         _sock_addr.sin_port = htons(port);
 
         // std::cout << "Constructing address..." << std::endl;
-        // std::cout << "Before:\n\tAddress: " << addr << std::endl;
-        // std::cout << "\tPort: " << port << "\n" << std::endl;
+        // std::cout << "Before:\tAddress: " << addr << std::endl;
+        // std::cout << "\tPort: " << port << "" << std::endl;
 
         if (auto rv = inet_pton(AF_INET, addr.c_str(), &_sock_addr.sin_addr); rv != 1)
             throw std::runtime_error("Error: could not parse IPv4 address from string");
 
-        // std::cout << "After:\n\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
+        // std::cout << "After:\tAddress: " << _sock_addr.sin_addr.s_addr << std::endl;
         // std::cout << "\tPort: " << _sock_addr.sin_port << std::endl;
     }
 

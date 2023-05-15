@@ -24,6 +24,6 @@ target_link_libraries(quic
     ngtcp2::crypto
     gnutls
     uvw::uvw-static
+    oxen::logging
     common
 )
-

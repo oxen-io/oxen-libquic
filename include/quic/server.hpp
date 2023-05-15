@@ -19,24 +19,20 @@
 
 
 namespace oxen::quic
-{
-    // TODO: do i need this...?
-	//using stream_open_cb = std::function<bool(Stream& stream, std::string remote_addr, uint16_t remote_port)>;
-	
+{	
 	class Server : public Endpoint
 	{
 		public:
             std::shared_ptr<ServerContext> context;
-			//stream_open_cb stream_open_callback;
 
 			Server(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ServerContext> ctx) : 
                 Endpoint{quic_manager},
                 context{ctx}
 			{
-                default_stream_bufsize = 0;
-
-                fprintf(stderr, "Successfully created Server endpoint\n");
+                log::trace(log_cat, "Successfully created Server endpoint");
             }
+
+            ~Server();
 
             std::shared_ptr<uvw::UDPHandle>
             get_handle(Address& addr) override;
@@ -46,7 +42,7 @@ namespace oxen::quic
 
 		protected:
 			std::shared_ptr<Connection>
-			accept_initial_connection(Packet& pkt) override;
+			accept_initial_connection(Packet& pkt, ConnectionID& dcid) override;
 
 	};
 

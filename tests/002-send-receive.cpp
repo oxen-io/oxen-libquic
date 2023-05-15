@@ -6,31 +6,18 @@
 namespace oxen::quic::test
 {
     using namespace std::literals;
+
+    /*  TODO:
+        - pass server data cb into server_listen call
+        - create method "call_async"
+    */
     
     TEST_CASE("Simple client to server transmission")
     {
-        fprintf(stderr, "\nBeginning test of simple client to server transmission\n");
+        fprintf(stderr, "\nBeginning test of send/receive...\n");
 
         Network test_net{};
         auto message = "Good morning"_bsv;
-
-        stream_data_callback_t stream_data_cb = [](Stream& s, bstring_view data) {
-            fprintf(stderr, "Stream opened\n");
-            auto handle = s.udp_handle;
-            Packet pkt{.path = Path{handle->sock(), handle->peer()}, .data = data};
-            s.conn.endpoint->handle_packet(pkt);
-        };
-        stream_close_callback_t stream_close_cb = [](Stream& s, uint64_t error_code) {
-            s.close(error_code);
-        };
-
-        client_tls_callback_t client_tls_cb = [](
-            gnutls_session_t session, 
-            unsigned int htype, unsigned int when, 
-            unsigned int incoming, 
-            const gnutls_datum_t* msg) {
-                return 0;
-        };
 
         server_data_callback_t server_data_cb = [msg = reinterpret_cast<const char*>(message.data())](
             const uvw::UDPDataEvent& event, uvw::UDPHandle& udp) {
@@ -67,9 +54,9 @@ namespace oxen::quic::test
         fprintf(stderr, "Starting event loop...\n");
         test_net.ev_loop->run();
         
-        fprintf(stderr, "Calling 'client.open_stream'...\n");
-        auto stream = client->open_stream(static_cast<uint16_t>(1500), stream_data_cb, stream_close_cb);
-        fprintf(stderr, "Calling 'stream.send'...\n");
-        stream->send(message, message.length());
+        // fprintf(stderr, "\n\n\n\n\nCalling 'client.open_stream'...\n");
+        // auto stream = client->open_stream(static_cast<uint16_t>(1500), stream_data_cb, stream_close_cb);
+        // fprintf(stderr, "Calling 'stream.send'...\n");
+        // stream->send(message, message.length());
     };
 }

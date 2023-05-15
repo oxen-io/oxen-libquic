@@ -24,6 +24,7 @@ if(GIT_FOUND)
     check_submodule(ngtcp2)
     check_submodule(libuv)
     check_submodule(uvw)
+    check_submodule(oxen-logging fmt spdlog)
 endif()
 
 find_package(PkgConfig REQUIRED)
@@ -57,3 +58,6 @@ add_subdirectory(uvw)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
 add_subdirectory(libuv)
 
+# oxen-logging
+set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
+add_subdirectory(oxen-logging)

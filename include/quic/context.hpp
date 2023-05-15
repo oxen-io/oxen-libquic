@@ -38,7 +38,7 @@ namespace oxen::quic
         std::shared_ptr<Client> client;
         std::shared_ptr<uvw::UDPHandle> udp_handle;
         ConnectionID conn_id;
-        client_tls_callback_t client_cb;
+        client_tls_callback_t client_tls_cb;
 
 		// Client endpoint linked to this instance
 		std::shared_ptr<Endpoint> 
@@ -47,16 +47,17 @@ namespace oxen::quic
         template <typename ... Opt>
         ClientContext(std::shared_ptr<Handler> quic_ep, Opt&&... opts)
         {
-            fprintf(stderr, "Making client context...\n");
+            log::trace(log_cat, "Making client context...");
 
             // copy assign handler shared_ptr
             quic_manager = quic_ep;
             // parse all options
             ((void) handle_clientctx_opt(std::forward<Opt>(opts)), ...);
+            // handle_callbacks();
 
             conn_id = ConnectionID::random();
 
-            fprintf(stderr, "Client context successfully created\n");
+            log::debug(log_cat, "Client context successfully created");
         }
 
 		~ClientContext();
@@ -70,6 +71,8 @@ namespace oxen::quic
         handle_clientctx_opt(opt::client_tls& tls);
         void
         handle_clientctx_opt(client_tls_callback_t func);
+        void
+        handle_callbacks();
 
         inline void
         set_local(Address& addr) { local = Address{addr}; };
@@ -93,14 +96,14 @@ namespace oxen::quic
         template <typename ... Opt>
         ServerContext(std::shared_ptr<Handler> quic_ep, Opt&&... opts)
         {
-            fprintf(stderr, "Making server context...\n");
+            log::trace(log_cat, "Making server context...");
 
             // copy assign handler shared_ptr
             quic_manager = quic_ep;
             // parse all options
             ((void) handle_serverctx_opt(std::forward<Opt>(opts)), ...);
 
-            fprintf(stderr, "Server context successfully created\n");
+            log::debug(log_cat, "Server context successfully created");
         }
       
         ~ServerContext();

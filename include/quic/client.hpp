@@ -28,7 +28,9 @@ namespace oxen::quic
         public:
             std::shared_ptr<ClientContext> context;
 
-            Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id, std::shared_ptr<uvw::UDPHandle> handle);
+            Client(
+                std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id, std::shared_ptr<uvw::UDPHandle> handle);
+
             ~Client();
 
             std::shared_ptr<Stream>
@@ -40,13 +42,10 @@ namespace oxen::quic
             std::shared_ptr<uvw::UDPHandle>
             get_handle(Path& p) override;
 
-            // void
-            // install_stream_forwarding(Stream& s, bstring_view data) override;
-
             inline std::shared_ptr<Connection>
-            accept_initial_connection(Packet& pkt) override 
+            accept_initial_connection(Packet& pkt, ConnectionID& dcid) override 
             {
-                fprintf(stderr, "%s called (this should probably not be called)\n", __PRETTY_FUNCTION__); 
+                log::warning(log_cat, "{} called (this should probably not be called)", __PRETTY_FUNCTION__); 
                 return nullptr;
             }
 

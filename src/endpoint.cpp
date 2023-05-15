@@ -22,13 +22,37 @@ namespace oxen::quic
         expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&){ check_timeouts(); });
         expiry_timer->start(250ms, 250ms);
 
-        fprintf(stderr, "Successfully created QUIC endpoint\n");
+        log::info(log_cat, "Successfully created QUIC endpoint");
     };
 
-    Endpoint::~Endpoint()
+    // Endpoint::~Endpoint()
+    // {
+    //     log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+    //     shutdown();
+
+    //     if (expiry_timer)
+    //         expiry_timer->close();
+    // }
+
+    // adds async_cb to all connections; intended use is async shutdown of connections
+    void
+    Endpoint::call_async_all(async_callback_t async_cb)
     {
-        if (expiry_timer)
-            expiry_timer->close();
+        for (const auto& c : conns)
+            c.second->io_trigger->on<uvw::AsyncEvent>(async_cb);
+        
+        // for (const auto& c : conns)
+        //     c.second->io_ready();
+    }
+
+
+    void
+    Endpoint::client_close()
+    {
+        for (const auto& c : conns)
+        {
+            close_connection(*c.second.get());
+        }
     }
 
 
@@ -46,23 +70,23 @@ namespace oxen::quic
 
         if (!dcid_opt)
         {
-            fprintf(stderr, "Error: initial packet handling failed\n");
+            log::warning(log_cat, "Error: initial packet handling failed");
             return;
         }
 
         auto& dcid = *dcid_opt;
 
         // check existing conns
-        fprintf(stderr, "Incoming connection ID: {%p}\n", dcid.data);
+        log::debug(log_cat, "Incoming connection ID: {}", *dcid.data);
         auto cptr = get_conn(dcid);
 
         if (!cptr)
         {
-            cptr = accept_initial_connection(pkt);
+            cptr = accept_initial_connection(pkt, dcid);
             
             if (!cptr)
             {
-                fprintf(stderr, "Error: connection could not be created\n");
+                log::warning(log_cat, "Error: connection could not be created");
                 return;
             }
         }
@@ -75,16 +99,16 @@ namespace oxen::quic
     void
     Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
     {
-        fprintf(stderr, "Closing connection (CID: %s)\n", conn.source_cid.data);
+        log::debug(log_cat, "Closing connection (CID: {})", *conn.source_cid.data);
 
         if (!conn || conn.closing || conn.draining)
             return;
         
         if (code == NGTCP2_ERR_IDLE_CLOSE)
         {
-            fprintf(stderr, 
-                "Connection (CID: %s) passed idle expiry timer; closing now without close packet\n", 
-                conn.source_cid.data);
+            log::info(log_cat, 
+                "Connection (CID: {}) passed idle expiry timer; closing now without close packet", 
+                *conn.source_cid.data);
             delete_connection(conn.source_cid);
             return;
         }
@@ -94,9 +118,8 @@ namespace oxen::quic
         //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
         if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
-            fprintf(stderr, 
-            "Connection (CID: %s) passed idle expiry timer; closing now with close packet\n", 
-            conn.source_cid.data);
+            log::info(log_cat, "Connection (CID: {}) passed idle expiry timer; closing now with close packet", 
+                *conn.source_cid.data);
         }
 
         ngtcp2_connection_close_error err;
@@ -115,10 +138,8 @@ namespace oxen::quic
 
         if (written <= 0)
         {
-            fprintf(stderr, "Error: Failed to write connection close packet: ");
-            fprintf(stderr, "[%s]\n", (written < 0) ? 
-                strerror(written) : 
-                "[Error Unknown: closing pkt is 0 bytes?]");
+            log::warning(log_cat, "Error: Failed to write connection close packet: {}", (written < 0) ? 
+                strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
             
             delete_connection(conn.source_cid);
             return;
@@ -126,11 +147,10 @@ namespace oxen::quic
         // ensure we have enough write space
         assert(written <= (long)conn.conn_buffer.size());
 
-        if (auto rv = send_packet(conn.path.remote, conn.conn_buffer); not rv)
+        if (auto rv = send_packet(conn.path, conn.conn_buffer); not rv)
         {
-            fprintf(stderr, 
-                "Error: failed to send close packet [code: %s]; removing connection [CID: %s]\n", 
-                strerror(rv.error_code), conn.source_cid.data);
+            log::warning(log_cat, "Error: failed to send close packet [code: {}]; removing connection [CID: {}]", 
+                strerror(rv.error_code), *conn.source_cid.data);
             delete_connection(conn.source_cid);
         }
     }
@@ -142,7 +162,7 @@ namespace oxen::quic
         auto target = conns.find(cid);
         if (target == conns.end())
         {
-            fprintf(stderr, "Error: could not delete connection [ID: %s]; could not find \n", cid.data);
+            log::warning(log_cat, "Error: could not delete connection [ID: {}]; could not find", *cid.data);
             return;
         }
 
@@ -171,13 +191,13 @@ namespace oxen::quic
         }
         if (rv != 0)
         {
-            fprintf(stderr, "Error: failed to decode QUIC packet header [code: %s]", ngtcp2_strerror(rv));
+            log::debug(log_cat, "Error: failed to decode QUIC packet header [code: {}]", ngtcp2_strerror(rv));
             return std::nullopt;
         }
 
         if (vid.dcidlen > NGTCP2_MAX_CIDLEN)
         {
-            fprintf(stderr, "Error: destination ID is longer than NGTCP2_MAX_CIDLEN\n");
+            log::debug(log_cat, "Error: destination ID is longer than NGTCP2_MAX_CIDLEN");
             return std::nullopt;
         }
 
@@ -190,19 +210,19 @@ namespace oxen::quic
     {
         if (auto rv = ngtcp2_conn_is_in_closing_period(conn); rv != 0)
         {
-            fprintf(stderr, "Error: connection (CID: %s) is in closing period; dropping connection\n", conn.source_cid.data);
-            close_connection(conn, rv);
+            log::debug(log_cat, "Error: connection (CID: {}) is in closing period; dropping connection", *conn.source_cid.data);
+            delete_connection(conn.source_cid);
             return;
         }
 
         if (conn.draining)
         {
-            fprintf(stderr, "Error: connection is already draining; dropping\n");
+            log::debug(log_cat, "Error: connection is already draining; dropping");
         }
 
-        (read_packet(pkt, conn)) ? 
-            fprintf(stderr, "Done with incoming packet\n") :
-            fprintf(stderr, "Read packet failed\n");
+        log::trace(log_cat, "{}", (read_packet(pkt, conn)) ? 
+            "Done with incoming packet"s :
+            "Read packet failed"s);
     }
 
 
@@ -218,19 +238,24 @@ namespace oxen::quic
                 conn.io_ready();
                 break;
             case NGTCP2_ERR_DRAINING:
-                fprintf(stderr, "Draining connection %s\n", conn.source_cid.data);
+                log::debug(log_cat, "Draining connection {}", *conn.source_cid.data);
                 break;
             case NGTCP2_ERR_PROTO:
-                fprintf(stderr, "Closing connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                log::debug(log_cat, "Closing connection {} due to error {}", *conn.source_cid.data, ngtcp2_strerror(rv));
                 close_connection(conn, rv, "ERR_PROTO"sv);
                 break;
             case NGTCP2_ERR_DROP_CONN:
                 // drop connection without calling ngtcp2_conn_write_connection_close()
-                fprintf(stderr, "Dropping connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                log::debug(log_cat, "Dropping connection {} due to error {}", *conn.source_cid.data, ngtcp2_strerror(rv));
+                delete_connection(conn.source_cid);
+                break;
+            case NGTCP2_ERR_CRYPTO:
+                // drop conn without calling ngtcp2_conn_write_connection_close()
+                log::debug(log_cat, "Dropping connection {} due to error {}", *conn.source_cid.data, ngtcp2_conn_get_tls_alert(conn));
                 delete_connection(conn.source_cid);
                 break;
             default:
-                fprintf(stderr, "Closing connection %s due to error %s\n", conn.source_cid.data, ngtcp2_strerror(rv));
+                log::debug(log_cat, "Closing connection {} due to error {}", *conn.source_cid.data, ngtcp2_strerror(rv));
                 close_connection(conn, rv, ngtcp2_strerror(rv));
                 break;
         }
@@ -242,12 +267,13 @@ namespace oxen::quic
     io_result
     Endpoint::send_packet(Address& remote, bstring_view data)
     {
-        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto handle = get_handle(remote);
 
-        assert(handle != nullptr);
+        if (!handle)
+            throw std::invalid_argument("Error: could not query UDP handle for packet transmission");
 
-        fprintf(stderr, "Sending udp to %s:%u...\n", remote.ip.c_str(), remote.port);
+        log::info(log_cat, "Sending udp to {}:{}...", remote.ip.c_str(), remote.port);
         handle->send(remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
 
         return io_result{0};
@@ -257,12 +283,12 @@ namespace oxen::quic
     io_result
     Endpoint::send_packet(Path& p, bstring_view data)
     {
-        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto handle = get_handle(p);
 
         assert(handle != nullptr);
         
-        fprintf(stderr, "Sending udp to %s:%u...\n", p.remote.ip.c_str(), p.remote.port);
+        log::info(log_cat, "Sending udp to {}:{}...", p.remote.ip.c_str(), p.remote.port);
         handle->send(p.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
 
         return io_result{0};
@@ -291,7 +317,7 @@ namespace oxen::quic
             versions.size());
         if (nwrite <= 0)
         {
-            fprintf(stderr, "Error: Failed to construct version negotiation packet: %s\n", ngtcp2_strerror(nwrite));
+            log::warning(log_cat, "Error: Failed to construct version negotiation packet: {}", ngtcp2_strerror(nwrite));
             return;
         }
 
@@ -308,7 +334,7 @@ namespace oxen::quic
         {
             if (auto it = conns.find(draining.front().first); it != conns.end())
             {
-                fprintf(stderr, "Deleting connection %s\n", it->first.data);
+                log::debug(log_cat, "Deleting connection {}", *it->first.data);
                 conns.erase(it);
             }
             draining.pop();

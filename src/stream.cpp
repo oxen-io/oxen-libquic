@@ -11,21 +11,6 @@
 
 namespace oxen::quic
 {
-    size_t
-    DatagramBuffer::write(const char* data, size_t nbits)
-    {
-        // ensure we have enough space to write to buffer
-        assert(remaining >= nbits);
-        // write to buffer
-        std::memcpy(&buf[nwrote], data, nbits);
-        // update counters
-        nwrote += nbits;
-        remaining -= nbits;
-
-        return nbits;
-    }
-
-
     Stream::Stream(
         Connection& conn, size_t bufsize, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
         conn{conn},
@@ -42,13 +27,22 @@ namespace oxen::quic
         close_callback = (close_cb) ? 
             std::move(close_cb) : 
             [](Stream& s, uint64_t error_code) {
-                fprintf(stderr, "Error: %lu", error_code);
+                log::warning(log_cat, "Error: {}", error_code);
                 s.close(error_code);};
+        when_available([](Stream& s) {
+            if (s.used() < 65536)
+            {
+                log::info(log_cat, "Quic stream {} no longer congested, resuming", s.stream_id);
+                s.udp_handle->recv();
+                return true;
+            }
+            return false;
+        });
 
-        fprintf(stderr, "Creating Stream object...\n");
+        log::trace(log_cat, "Creating Stream object...");
         avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
-        udp_handle = conn.endpoint->get_handle(conn.local);
-        fprintf(stderr, "Stream object created\n");
+        udp_handle = conn.udp_handle;
+        log::trace(log_cat, "Stream object created");
     }
 
 
@@ -59,7 +53,7 @@ namespace oxen::quic
 
     Stream::~Stream()
     {
-        fprintf(stderr, "Destroying stream %lu\n", stream_id);
+        log::debug(log_cat, "Destroying stream %lu", stream_id);
         if (avail_trigger)
         {
             avail_trigger->close();
@@ -82,16 +76,13 @@ namespace oxen::quic
 	void
 	Stream::close(uint64_t error_code)
     {
-        fprintf(stderr, "Closing stream (ID: %li) with error code ", stream_id);
-        fprintf(stderr, "%s\n", (error_code != 0) ? 
-            std::to_string(error_code).c_str() : 
-            "[NONE]");
+        log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
 
         if (is_shutdown || is_closing)
         {
-            fprintf(stderr, "Stream is already: ");
-            fprintf(stderr, "%s", (is_closing) ? "[closing]" : "[not closing]");
-            fprintf(stderr, " and %s\n", (is_shutdown) ? "[shutdown]" : "[not shutdown]");;
+            log::info(log_cat, "Stream is already: {} and {}", 
+                (is_closing) ? "[closing]" : "[not closing]",
+                (is_shutdown) ? "[shutdown]" : "[not shutdown]");
         }
         if (error_code)
         {
@@ -133,7 +124,7 @@ namespace oxen::quic
     {
         assert(bytes <= unacked_size && unacked_size <= size);
 
-        fprintf(stderr, "Acked %lu bytes of %lu/%lu unacked/total\n", bytes, unacked_size, size);
+        log::info(log_cat, "Acked {} bytes of {}/{} unacked/total", bytes, unacked_size, size);
 
         unacked_size -= bytes;
         size -= bytes;
@@ -161,6 +152,9 @@ namespace oxen::quic
                 }
             }
         }
+
+        if (!unblocked_callbacks.empty())
+            available_ready();
     }
 
 
@@ -238,9 +232,11 @@ namespace oxen::quic
     Stream::send(bstring_view data, std::any keep_alive)
     {
         unacked_size += data.size();
+
+        append_buffer(data.data(), data.size());
         
-        udp_handle->send(
-            conn.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
+        // udp_handle->send(
+        //     conn.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
     }
 
 

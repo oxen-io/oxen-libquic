@@ -85,7 +85,7 @@ namespace oxen::quic
         explicit GNUTLSCert(std::string server_key, std::string server_cert) 
             : keyfile{server_key}, certfile{server_cert} 
         {
-            fprintf(stderr, "GNUTLSCert constructor A\n");
+            log::trace(log_cat, "GNUTLSCert constructor A");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             key_type = (key_ext == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
@@ -97,7 +97,7 @@ namespace oxen::quic
         explicit GNUTLSCert(std::string server_key, std::string server_cert, std::string client_CA, int type = 1)
             : keyfile{server_key}, certfile{server_cert}, remotecafile{client_CA}
         {
-            fprintf(stderr, "GNUTLSCert constructor B\n");
+            log::trace(log_cat, "GNUTLSCert constructor B");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             auto clientca_ext = str_tolower(std::filesystem::path(remotecafile).extension());
@@ -111,7 +111,7 @@ namespace oxen::quic
         explicit GNUTLSCert(std::string server_key, std::string server_cert, server_tls_callback_t server_callback)
             : keyfile{server_key}, certfile{server_cert}, server_tls_cb{server_callback} 
         {
-            fprintf(stderr, "GNUTLSCert constructor C\n");
+            log::trace(log_cat, "GNUTLSCert constructor C");
             auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
             auto cert_ext = str_tolower(std::filesystem::path(certfile).extension());
             key_type = (key_ext == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
@@ -133,7 +133,7 @@ namespace oxen::quic
             remotecafile{server_CA},
             client_tls_cb{client_cb}
         {
-            fprintf(stderr, "GNUTLSCert constructor D\n");
+            log::trace(log_cat, "GNUTLSCert constructor D");
             if (!keyfile.empty())
             {
                 auto key_ext = str_tolower(std::filesystem::path(keyfile).extension());
@@ -193,7 +193,7 @@ namespace oxen::quic
         /*
         explicit GNUTLSContext(GNUTLSCert cert) 
         {
-            fprintf(stderr, "GNUTLSContext constructor A\n");
+            log::trace(log_cat, "GNUTLSContext constructor A");
             if (cert.system)
                 client_sysinit();
         };
@@ -202,7 +202,7 @@ namespace oxen::quic
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::server_tls>, bool> = true>
         explicit GNUTLSContext(T& cert)
         {
-            fprintf(stderr, "GNUTLSContext constructor A\n");
+            log::trace(log_cat, "GNUTLSContext constructor A");
             if (cert.server_tls_cb)
                 server_tls_cb = std::move(cert.server_tls_cb);
             server_init(cert);
@@ -211,9 +211,12 @@ namespace oxen::quic
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::client_tls>, bool> = true>
         explicit GNUTLSContext(T& cert)
         {
-            fprintf(stderr, "GNUTLSContext constructor B\n");
+            log::trace(log_cat, "GNUTLSContext constructor B");
             if (cert.client_tls_cb)
+            {
+                log::trace(log_cat, "Copying client tls callback...");
                 client_tls_cb = std::move(cert.client_tls_cb);
+            }
             client_init(cert);
         };
 
@@ -278,7 +281,6 @@ namespace oxen::quic
 
         private:
             TLSCert_t cert;
-            
     };
 
     /*

@@ -27,52 +27,11 @@ namespace oxen::quic
 	using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
 	using unblocked_callback_t = std::function<bool(Stream&)>;
 
-	// One-shot datagram sent inside a quic connection
-	struct DatagramBuffer
-	{
-		public:
-			// Write buffer for outgoing packets
-			std::vector<std::byte> buf;
-
-            // Returns number of bits written to buffer
-			size_t
-			size() const { return buf.size(); }
-
-			explicit DatagramBuffer(size_t size = 1200)
-			{
-				buf.reserve(size);
-                nwrote = 0;
-                remaining = size;
-			}
-
-			~DatagramBuffer()
-			{
-				std::memset(&buf, 0, buf.size());
-                buf.clear();
-			}
-
-			DatagramBuffer&
-			operator=(const DatagramBuffer& d)
-			{
-                assert(d.size() <= size());
-                std::memcpy(buf.data(), d.buf.data(), d.size());
-                return *this;
-			}
-
-            size_t
-            write(const char* data, size_t nbits);
-
-		private:
-			///	Bits written to buffer
-			size_t nwrote;
-            size_t remaining;
-	};
-
-
 	class Stream : public std::enable_shared_from_this<Stream>
 	{
 		public:
-			explicit Stream(Connection& conn, size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
+			explicit Stream(
+				Connection& conn, size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
 			explicit Stream(Connection& conn, size_t bufsize, int64_t stream_id = -1);
 			~Stream();
 
@@ -165,7 +124,6 @@ namespace oxen::quic
 			std::queue<unblocked_callback_t> unblocked_callbacks;
 			void
 			handle_unblocked();  // Processes the above if space is available
-
 
 			std::vector<bstring_view>
 			pending();

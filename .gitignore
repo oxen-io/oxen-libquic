@@ -2,7 +2,10 @@ build/
 .cache/
 .vscode/
 .DS_Store
+.gdb_history
 *.pem
 *.PEM
 *.der
 *.DER
+rebuild.sh
+full_rebuild.sh

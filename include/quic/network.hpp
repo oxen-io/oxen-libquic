@@ -36,6 +36,9 @@ namespace oxen::quic
             Handler*
             get_quic();
 
+            void
+            run();
+
             // Main client endpoint creation function. If a local address is passed, then a dedicated UDPHandle
             // is bound to that address. If not, the universal UDPHandle is used for I/O. To use this function
             // four parameter structs can be passed:
@@ -78,16 +81,16 @@ namespace oxen::quic
                 }
 
                 // ensure addresses stored correctly
-                fprintf(stderr, "Client local addr: %s:%u\n", client_ctx->local.ip.data(), client_ctx->local.port);
-                fprintf(stderr, "Client remote addr: %s:%u\n", client_ctx->remote.ip.data(), client_ctx->remote.port);
+                log::trace(log_cat, "Client local addr: {}:{}", client_ctx->local.ip.data(), client_ctx->local.port);
+                log::trace(log_cat, "Client remote addr: {}:{}", client_ctx->remote.ip.data(), client_ctx->remote.port);
 
                 // create client and then copy assign it to the client context so we can return
                 // the shared ptr from this function
-                client_ctx->client = std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
-                auto client_ptr = client_ctx->client;
+                auto client_ptr = std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
+                client_ctx->client = client_ptr;
 
                 quic_manager->clients.emplace_back(std::move(client_ctx));
-                fprintf(stderr, "Client context emplaced\n");
+                log::trace(log_cat, "Client context emplaced");
                 return client_ptr;
             };
 
@@ -122,7 +125,7 @@ namespace oxen::quic
                 std::shared_ptr<ServerContext> server_ctx = std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
 
                 // ensure address stored correctly
-                fprintf(stderr, "Server local addr: %s:%u\n", server_ctx->local.ip.data(), server_ctx->local.port);
+                log::trace(log_cat, "Server local addr: {}:{}", server_ctx->local.ip.data(), server_ctx->local.port);
 
                 // UDP mapping
                 auto udp_handle = handle_server_mapping(server_ctx->local);
@@ -139,11 +142,9 @@ namespace oxen::quic
                 // emplace server context in handler set
                 quic_manager->servers.emplace(server_ctx->local, server_ctx);
                 // quic_manager->servers[server_ctx->local] = server_ctx;
-                fprintf(stderr, "Server context emplaced\n");
+                log::trace(log_cat, "Server context emplaced");
                 return server_ptr;
             };
-
-        protected:
 
         private:
             std::shared_ptr<Handler> quic_manager;
@@ -167,10 +168,6 @@ namespace oxen::quic
 }   // namespace oxen::quic
 
 /*
-    May 8 ToDo:
-        - continue fleshing out read/send packet
-        - figure out how tf to implant the UDPHandle ptr in the connection
-
     TOTRY:
         - make tunnel from home to server
         - try and see how much data to push over that tunnel

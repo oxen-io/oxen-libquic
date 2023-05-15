@@ -34,19 +34,19 @@ namespace oxen::quic
         std::string data{event.data.get(), event.length};
         auto peer = client.peer();
 
-        fprintf(stderr, "%s:%u → %s", peer.ip.c_str(), peer.port, data.c_str());
+       log::trace(log_cat, "%s:%u → %s", peer.ip.c_str(), peer.port, data.c_str());
         // Steal the buffer from the DataEvent's unique_ptr<char[]>
         stream->append_buffer(reinterpret_cast<const std::byte*>(event.data.release()), event.length);
         if (stream->used() >= PAUSE_SIZE)
         {
-            fprintf(stderr, "QUIC tunnel is congested (have %lu bytes in flight); pausing local udp connection reading\n",
+            log::debug(log_cat, "QUIC tunnel is congested (have {} bytes in flight); pausing local udp connection reading",
                 stream->used());
             client.stop();
             stream->when_available([](Stream& s) {
                 auto client = s.get_user_data<uvw::UDPHandle>();
                 if (s.used() < PAUSE_SIZE)
                 {
-                    fprintf(stderr, "QUIC tunnel is no longer congested; resuming udp connection reading\n");
+                    log::debug(log_cat, "QUIC tunnel is no longer congested; resuming udp connection reading");
                     // TODO: think about this
                     client->recv();
                     return true;
@@ -56,7 +56,7 @@ namespace oxen::quic
         }
         else
         {
-            fprintf(stderr, "Queued %lu bytes", event.length);
+            log::debug(log_cat, "Queued {} bytes", event.length);
         }
     }
 
@@ -85,7 +85,7 @@ namespace oxen::quic
 
         std::string data{reinterpret_cast<const char*>(bdata.data()), bdata.size()};
         auto peer = udp->peer();
-        fprintf(stderr, "%s:%u ← lokinet %s\n", peer.ip.c_str(), peer.port, data.c_str());
+       log::trace(log_cat, "%s:%u ← lokinet %s", peer.ip.c_str(), peer.port, data.c_str());
 
         if (data.empty())
             return;
@@ -110,7 +110,7 @@ namespace oxen::quic
     {
         if (auto udp = st.udp_handle)
         {
-            fprintf(stderr, "Closing UDP connection\n");
+            log::debug(log_cat, "Closing UDP connection");
             udp->close();
         }
     };
@@ -129,7 +129,7 @@ namespace oxen::quic
             // This fires sometime after we call `close()` to signal that the close is done.
             if (auto stream = c.data<Stream>())
             {
-                fprintf(stderr, "Local UDP connection closed, closing associated quic stream %lu\n", stream->stream_id);
+                log::info(log_cat, "Local UDP connection closed, closing associated quic stream {}", stream->stream_id);
 
                 // There is an awkwardness with Stream ownership, so make sure the Connection
                 // which it holds a reference to still exists, as stream->close will segfault
@@ -142,15 +142,12 @@ namespace oxen::quic
         });
         udp.on<uvw::EndEvent>([](auto&, uvw::UDPHandle& c) {
             // This fires on eof, most likely because the other side of the TCP connection closed it.
-            fprintf(stderr, "Error: EOF on connection to %s:%u\n", c.peer().ip.c_str(), c.peer().port);
+            log::warning(log_cat, "Error: EOF on connection to {}:{}", c.peer().ip.c_str(), c.peer().port);
             c.close();
         });
         udp.on<uvw::ErrorEvent>([](const uvw::ErrorEvent& e, uvw::UDPHandle& udp) {
-            fprintf(stderr, "ErrorEvent[%s:%s] on connection with %s:%u, shutting down quic stream\n",
-                e.name(),
-                e.what(),
-                udp.peer().ip.c_str(),
-                udp.peer().port);
+            log::warning(log_cat, "ErrorEvent[{}:{}] on connection with {}:{}, shutting down quic stream",
+                e.name(), e.what(), udp.peer().ip.c_str(), udp.peer().port);
 
             if (auto stream = udp.data<Stream>())
             {
@@ -184,7 +181,7 @@ namespace oxen::quic
         }
         else
         {
-            fprintf(stderr, "Error: remote connection returned invalid initial byte; dropping\n");
+            log::debug(log_cat, "Error: remote connection returned invalid initial byte; dropping");
             stream.close(ERROR_BAD_INIT);
             client.close();
         }
@@ -197,13 +194,13 @@ namespace oxen::quic
     initial_client_close_handler(uvw::UDPHandle& client, Stream& stream, std::optional<uint64_t> error_code)
     {
         if (error_code && *error_code == ERROR_CONNECT)
-            fprintf(stderr, "Error: Remote UDP connection failed, closing local connection\n");
+            log::warning(log_cat, "Error: Remote UDP connection failed, closing local connection");
         else
-            fprintf(stderr, "Stream connection closed; closing local UDP connection with error [%s]\n", 
+            log::info(log_cat, "Stream connection closed; closing local UDP connection with error [{}]", 
                 (error_code) ? std::to_string(*error_code).c_str() : "NONE");
 
         auto peer = client.peer();
-        fprintf(stderr, "Closing connection to %s:%u\n", peer.ip.c_str(), peer.port);
+        log::info(log_cat, "Closing connection to {}:{}", peer.ip.c_str(), peer.port);
 
         client.clear();
         client.close();
@@ -218,7 +215,7 @@ namespace oxen::quic
         universal_handle->bind(default_local);
         net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
 
-        fprintf(stderr, "%s\n", (ev_loop) ? 
+        log::info(log_cat, "{}", (ev_loop) ? 
             "Event loop successfully created" : 
             "Error: event loop creation failed");
     }
@@ -226,9 +223,24 @@ namespace oxen::quic
 
     Handler::~Handler()
     {
-        fprintf(stderr, "Shutting down tunnel manager...\n");
-        close(true);
-        fprintf(stderr, "Event loop shut down...\n");
+        log::debug(log_cat, "Shutting down tunnel manager...");
+
+        for (const auto& itr : clients)
+            itr->client->~Client();
+
+        for (const auto& itr : servers)
+            itr.second->server->~Server();
+        
+        if (ev_loop)
+        {
+            ev_loop->clear();
+            ev_loop->stop();
+            ev_loop->close();
+            log::debug(log_cat, "Event loop shut down...");
+        }
+
+        clients.clear();
+        servers.clear();
     }
 
 
@@ -240,22 +252,22 @@ namespace oxen::quic
 
 
     void
-    Handler::close(bool all)
+    Handler::client_call_async(async_callback_t async_cb)
     {
-        for (auto& itr : clients)
+        for (const auto& itr : clients)
         {
-            itr.reset();
-            delete &itr;
+            itr->client->call_async_all(async_cb);
         }
+    }
 
-        if (all and ev_loop)
+
+    void
+    Handler::client_close()
+    {
+        for (const auto& c : clients)
         {
-            ev_loop->clear();
-            ev_loop->stop();
-            ev_loop->close();
+            
         }
-
-        fprintf(stderr, "UDP handles closed...\n");
     }
 
 
@@ -263,7 +275,7 @@ namespace oxen::quic
     ConnectionID 
     Handler::make_client(std::shared_ptr<ClientManager> client_manager)
     {
-        fprintf(stderr, "Making client endpoint...\n");
+       log::trace(log_cat, "Making client endpoint...");
         
         // create client endpoint inside client_manager object
         auto& client = client_manager->client;
@@ -277,37 +289,37 @@ namespace oxen::quic
 
         conn_ptr->on_stream_available = [&client_manager](Connection&)
         {
-            fprintf(stderr, "QUIC connection established; streams now available\n");
+           log::trace(log_cat, "QUIC connection established; streams now available");
             
             if (client_manager->open_cb)
             {
-                fprintf(stderr, "Calling client tunnel open callback\n");
+               log::trace(log_cat, "Calling client tunnel open callback");
                 client_manager->open_cb(true, nullptr);
                 // only call once; always clear after calling
                 client_manager->open_cb = nullptr;
             }
             else
-                fprintf(stderr, 
-                    "Error: Connection::on_stream_available fired with no associated client tunnel object\n");
+               log::trace(log_cat, 
+                    "Error: Connection::on_stream_available fired with no associated client tunnel object");
         };
 
         conn_ptr->on_closing = [&client_manager](Connection&)
         {
-            fprintf(stderr, "QUIC connection closing; shutting down tunnel\n");
+           log::trace(log_cat, "QUIC connection closing; shutting down tunnel");
 
             if (client_manager->close_cb)
             {
-                fprintf(stderr, "Calling client tunnel close callback\n");
+               log::trace(log_cat, "Calling client tunnel close callback");
                 client_manager->close_cb(0, nullptr);
             }
             else
-                fprintf(stderr, 
-                    "Error: Connection::on_closing fired with no associated client tunnel object\n");
+               log::trace(log_cat, 
+                    "Error: Connection::on_closing fired with no associated client tunnel object");
 
             client_manager->udp_handle->close();
         };
 
-        fprintf(stderr, "Client endpoint successfully created\n");
+       log::trace(log_cat, "Client endpoint successfully created");
         
         return ConnectionID::random();
     }
@@ -316,14 +328,14 @@ namespace oxen::quic
     void 
     Handler::make_server(std::string host, uint16_t port)
     {
-        fprintf(stderr, "Making server endpoint...\n");
+       log::trace(log_cat, "Making server endpoint...");
 
         auto udp_handle = ev_loop->resource<uvw::UDPHandle>();
 
         udp_handle->once<uvw::UDPDataEvent>([](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)
         {
-            fprintf(stderr, "Received data: %s\n", event.data.get());
-            fprintf(stderr, "Finished UDPDataEvent\n");
+           log::trace(log_cat, "Received data: %s", event.data.get());
+           log::trace(log_cat, "Finished UDPDataEvent");
         });
 
         udp_handle->bind(host, port);
@@ -331,7 +343,7 @@ namespace oxen::quic
 
         //ev_loop->run();
 
-        fprintf(stderr, "Server endpoint successfully created\n");
+       log::trace(log_cat, "Server endpoint successfully created");
     }
     */
 }   // namespace oxen::quic

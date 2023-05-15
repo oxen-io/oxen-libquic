@@ -50,7 +50,10 @@ namespace oxen::quic
     		loop();
 
 			void
-			close(bool all=false);
+			client_call_async(async_callback_t async_cb);
+
+            void
+            client_close();
 
         private:
 			// Tracks client endpoints that are currently being managed by handler object

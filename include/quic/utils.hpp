@@ -1,5 +1,7 @@
 #pragma once
 
+#include <oxen/log.hpp>
+
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
@@ -33,14 +35,19 @@
  * and undefine MESSAGE macro.
  */
 
- #define MESSAGE "GET /\r\n"
+#define MESSAGE "GET /\r\n"
+
+static auto log_cat = oxen::log::Cat("dev");
 
 namespace oxen::quic
 {
     using namespace std::literals;
     using bstring = std::basic_string<std::byte>;
     using bstring_view = std::basic_string_view<std::byte>;
+    namespace log = oxen::log;
 
+    // Callbacks for async calls
+    using async_callback_t = std::function<void(const uvw::AsyncEvent& event, uvw::AsyncHandle &udp)>;
     // Callbacks for opening quic connections and closing tunnels
     using open_callback = std::function<void(bool success, void* user_data)>;
     using close_callback = std::function<void(int rv, void* user_data)>;
@@ -81,10 +88,10 @@ namespace oxen::quic
     // Error code we send to a stream close callback if the stream's connection expires
     inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
-    // bstring_view literalls baby
-    inline constexpr std::basic_string_view<std::byte>
+    // bstring_view literals baby
+    inline std::basic_string_view<std::byte>
     operator""_bsv(const char* __str, size_t __len) noexcept
-    { return std::basic_string_view<std::byte>((std::byte*)__str, __len); }
+    { return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len); }
 
     // We pause reading from the local TCP socket if we have more than this amount of outstanding
     // unacked data in the quic tunnel, then resume once it drops below this.
@@ -107,6 +114,10 @@ namespace oxen::quic
         "+GROUP-SECP384R1:"
         "+GROUP-SECP521R1:%DISABLE_TLS13_COMPAT_MODE";
     
+    void
+    logger_config(
+        std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
+
     uint64_t
     get_timestamp();
 
@@ -115,12 +126,10 @@ namespace oxen::quic
 
     std::mt19937 make_mt19937();
 
-    static ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref *conn_ref);
-
     inline int 
     numeric_host_family(const char *hostname, int family) 
     {
-        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 		uint8_t dst[sizeof(struct in6_addr)];
 		return inet_pton(family, hostname, dst) == 1;
 	}
@@ -128,7 +137,7 @@ namespace oxen::quic
 	inline int 
     numeric_host(const char *hostname) 
     {
-        fprintf(stderr, "%s called\n", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 		return numeric_host_family(hostname, AF_INET) ||
 			numeric_host_family(hostname, AF_INET6);
     }

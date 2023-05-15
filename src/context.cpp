@@ -30,18 +30,18 @@ namespace oxen::quic
     void
     ClientContext::handle_clientctx_opt(opt::local_addr& addr)
     {
-        fprintf(stderr, "Client passed local address: %s:%u\n", addr.ip.data(), addr.port);
+        log::trace(log_cat, "Client passed local address: {}:{}", addr.ip.data(), addr.port);
         local = addr;
-        fprintf(stderr, "Client stored local address: %s:%u\n", local.ip.data(), local.port);
+        log::trace(log_cat, "Client stored local address: {}:{}", local.ip.data(), local.port);
     }
 
 
     void
     ClientContext::handle_clientctx_opt(opt::remote_addr& addr)
     {
-        fprintf(stderr, "Client passed remote address: %s:%u\n", addr.ip.data(), addr.port);
+        log::trace(log_cat, "Client passed remote address: {}:{}", addr.ip.data(), addr.port);
         remote = addr;
-        fprintf(stderr, "Client stored remote address: %s:%u\n", remote.ip.data(), remote.port);
+        log::trace(log_cat, "Client stored remote address: {}:{}", remote.ip.data(), remote.port);
     }
 
 
@@ -55,32 +55,41 @@ namespace oxen::quic
     void
     ClientContext::handle_clientctx_opt(client_tls_callback_t func)
     {
-        fprintf(stderr, "Client given server certification callback\n");
-        client_cb = std::move(func);
+        log::trace(log_cat, "Client given server certification callback");
+        client_tls_cb = std::move(func);
+    }
+
+    
+    void
+    ClientContext::handle_callbacks()
+    {
+        auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(tls_ctx);
+        if (client_tls_cb)
+            ctx->client_tls_cb = std::move(client_tls_cb);
     }
 
     void 
     ServerContext::handle_serverctx_opt(opt::local_addr& addr)
     {
-        fprintf(stderr, "Server passed bind address: %s:%u\n", addr.ip.data(), addr.port);
+        log::trace(log_cat, "Server passed bind address: {}:{}", addr.ip.data(), addr.port);
         local = addr;
-        fprintf(stderr, "Server stored bind address: %s:%u\n", local.ip.data(), local.port);
+        log::trace(log_cat, "Server stored bind address: {}:{}", local.ip.data(), local.port);
     }
 
 
     void 
     ServerContext::handle_serverctx_opt(Address& addr)
     {
-        fprintf(stderr, "Server passed bind address: %s:%u\n", addr.ip.data(), addr.port);
+        log::trace(log_cat, "Server passed bind address: {}:{}", addr.ip.data(), addr.port);
         local = addr;
-        fprintf(stderr, "Server stored bind address: %s:%u\n", local.ip.data(), local.port);
+        log::trace(log_cat, "Server stored bind address: {}:{}", local.ip.data(), local.port);
     }
 
 
     void
     ServerContext::handle_serverctx_opt(server_tls_callback_t& func)
     {
-        fprintf(stderr, "Server given client certification callback\n");
+        log::trace(log_cat, "Server given client certification callback");
         server_tls_cb = std::move(func);
     }
 
@@ -95,7 +104,7 @@ namespace oxen::quic
     void
     ServerContext::handle_serverctx_opt(server_data_callback_t& func)
     {
-        fprintf(stderr, "Server given data callback\n");
+        log::trace(log_cat, "Server given data callback");
         server_data_cb = std::move(func);
     }
 

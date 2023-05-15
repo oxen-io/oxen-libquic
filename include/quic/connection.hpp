@@ -157,7 +157,13 @@ namespace oxen::quic
             { return conn.get(); }
             operator ngtcp2_conn&()
             { return *conn.get(); }
-
     };
+
+
+    extern "C"
+    {
+        ngtcp2_conn* 
+        get_conn(ngtcp2_crypto_conn_ref *conn_ref);
+    }
 
 }   // namespace oxen::quic

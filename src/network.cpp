@@ -3,6 +3,8 @@
 #include "handler.hpp"
 #include "utils.hpp"
 
+#include <oxen/log.hpp>
+
 #include <uvw.hpp>
 
 #include <stdexcept>
@@ -14,7 +16,7 @@ namespace oxen::quic
 {
     Network::Network(std::shared_ptr<uvw::Loop> loop_ptr)
     {
-        fprintf(stderr, "Beginning context creation\n");
+        log::trace(log_cat, "Beginning context creation");
         ev_loop = (loop_ptr) ? loop_ptr : uvw::Loop::create();
         quic_manager = std::make_shared<Handler>(ev_loop, *this);
     }
@@ -22,7 +24,17 @@ namespace oxen::quic
 
     Network::~Network()
     {
-        fprintf(stderr, "Shutting down context...\n");
+        log::info(log_cat, "Shutting down context...");
+    }
+
+
+    void
+    Network::run()
+    {
+        if (!ev_loop->alive())
+            ev_loop->run();
+        else
+            log::info(log_cat, "Event loop already alive");
     }
 
 
@@ -36,15 +48,15 @@ namespace oxen::quic
 
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
 
-            fprintf(stderr, "Client received packet from sender %s:%u\n", pkt.path.remote.ip.data(), pkt.path.remote.port);
-            fprintf(stderr, "Searching client mapping for local address %s:%u\n", pkt.path.local.ip.data(), pkt.path.local.port);
+            log::trace(log_cat, "Client received packet from sender {}:{}", pkt.path.remote.ip.data(), pkt.path.remote.port);
+            log::trace(log_cat, "Searching client mapping for local address {}:{}", pkt.path.local.ip.data(), pkt.path.local.port);
             
             for (auto ctx : quic_manager->clients)
             {
                 if (ctx->local == handle.sock())
                     ctx->client->handle_packet(pkt);
                 else
-                    fprintf(stderr, "Client handle forwarding unsuccessful\n");
+                    log::warning(log_cat, "Client handle forwarding unsuccessful");
             }
         });
     }
@@ -60,15 +72,15 @@ namespace oxen::quic
             
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
 
-            fprintf(stderr, "Server received packet from sender %s:%u\n", pkt.path.remote.ip.data(), pkt.path.remote.port);
-            fprintf(stderr, "Searching server mapping for local address %s:%u\n", pkt.path.local.ip.data(), pkt.path.local.port);
+            log::trace(log_cat, "Server received packet from sender {}:{}", pkt.path.remote.ip.data(), pkt.path.remote.port);
+            log::trace(log_cat, "Searching server mapping for local address {}:{}", pkt.path.local.ip.data(), pkt.path.local.port);
 
             auto itr = quic_manager->servers.find(pkt.path.local);
 
             if (itr != quic_manager->servers.end())
                 itr->second->server->handle_packet(pkt);
             else
-                fprintf(stderr, "Server handle forwarding unsuccessful\n");
+                log::warning(log_cat, "Server handle forwarding unsuccessful");
         });
     }
 
@@ -80,7 +92,7 @@ namespace oxen::quic
 
         if (q == mapped_client_addrs.end())
         {
-            fprintf(stderr, "Creating dedicated client udp_handle...\n");
+            log::trace(log_cat, "Creating dedicated client udp_handle...");
             auto handle = quic_manager->loop()->resource<uvw::UDPHandle>();
             configure_client_handle(handle);
             // binding is done here rather than after returning, so an already bound
@@ -102,7 +114,7 @@ namespace oxen::quic
 
         if (q == mapped_server_addrs.end())
         {
-            fprintf(stderr, "Creating dedicated server udp_handle...\n");
+            log::trace(log_cat, "Creating dedicated server udp_handle...");
             auto handle = quic_manager->loop()->resource<uvw::UDPHandle>();
             configure_server_handle(handle);
             handle->bind(local);

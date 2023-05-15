@@ -18,7 +18,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 project(libquicinet 
-    VERSION 0.0.1
+    VERSION 0.0.5
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 

@@ -27,7 +27,6 @@ namespace oxen::quic
 {
     class Connection;
     class Handler;
-    using conn_ptr = std::shared_ptr<Connection>;
 
     class Endpoint
     {
@@ -35,10 +34,9 @@ namespace oxen::quic
 
         public:
             explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
-            virtual ~Endpoint();
+            virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
 
             std::shared_ptr<Handler> handler;
-            //std::shared_ptr<ContextBase<Endpoint>> context;
             std::array<std::byte, 1500> buf;
             size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
@@ -49,7 +47,7 @@ namespace oxen::quic
             handle_packet(Packet& pkt);
 
             void
-    		close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = ""sv);
+    		close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
             void
             delete_connection(const ConnectionID &cid);
@@ -57,17 +55,19 @@ namespace oxen::quic
             std::shared_ptr<Connection> 
             get_conn(ConnectionID ID);
 
+            void
+            call_async_all(async_callback_t async_cb);
+
+            void
+            client_close();
+
             virtual std::shared_ptr<uvw::UDPHandle>
             get_handle(Address& addr) = 0;
 
             virtual std::shared_ptr<uvw::UDPHandle>
             get_handle(Path& p) = 0;
 
-            // virtual void
-            // install_stream_forwarding(Stream& s, bstring_view data) = 0;
-
         protected:
-
             std::shared_ptr<uvw::TimerHandle> expiry_timer;
 
             // Data structures used to keep track of various types of connections
@@ -123,9 +123,9 @@ namespace oxen::quic
             // object or nullptr if error. Virtual function returns nothing -- 
             // overrided by Client and Server classes
             virtual std::shared_ptr<Connection>
-            accept_initial_connection(Packet& pkt) = 0;
+            accept_initial_connection(Packet& pkt, ConnectionID& dcid) = 0;
 
-            // TOFIX: this may not be necessary for a generalizable quic library,
+            // NOTE: this may not be necessary for a generalizable quic library,
             //      as it is a lokinet-specific implementation. However, it may be
             //      useful in the future to be able to add our own headers to quic
             //      packets for whatever purpose
