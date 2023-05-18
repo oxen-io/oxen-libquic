@@ -53,64 +53,40 @@ namespace oxen::quic
 
         auto rv = ngtcp2_accept(&hdr, u8data(pkt.data), pkt.data.size());
 
-        if (rv == NGTCP2_ERR_VERSION_NEGOTIATION)
-        {
-            log::debug(log_cat, "Server sending version negotiation...");
-            send_version_negotiation(
-                ngtcp2_version_cid{hdr.version, hdr.dcid.data, hdr.dcid.datalen, hdr.scid.data, hdr.scid.datalen}, 
-                pkt.path);
-            return nullptr;
-        }
         if (rv < 0) // catches all other possible ngtcp2 errors
         {
-            log::warning(log_cat, "Error: invalid packet received, length=%ld", pkt.data.size());
+            log::warning(log_cat, "Error: invalid packet received, length=%{}", pkt.data.size());
             return nullptr;
         }
-
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
             log::warning(log_cat, "Error: 0RTT is currently not utilized in this implementation; dropping packet");
             return nullptr;
         }
-
         if (hdr.type == NGTCP2_PKT_INITIAL && hdr.tokenlen)
         {
             log::warning(log_cat, "Error: Unexpected token in initial packet");
             return nullptr;
         }
 
+        // when receiving a packet from a client, the remote address (server local address) will
+        // be the index of the udp_handle in the server context
+        auto result = context->udp_handles.find(pkt.path.local);
+        if (result == context->udp_handles.end())
+            return nullptr;
+        
+        auto ctx = result->second.second;
+        auto handle = result->second.first;
+
         for (;;)
         {
-            // when receiving a packet from a client, the remote address (server local address) will
-            // be the index of the udp_handle in the server context
-            auto result = context->udp_handles.find(pkt.path.local);
-            if (result == context->udp_handles.end())
-                return nullptr;
-            
-            auto ctx = result->second.second;
-            auto handle = result->second.first;
-
-            auto conn = std::make_shared<Connection>(this, handler, dcid, hdr, pkt.path, ctx);
-
-            log::debug(log_cat, "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})", *conn->source_cid.data, *conn->dest_cid.data);
-
-            conn->on_stream_available = [](Connection& conn) 
+            if (auto [itr, res] = conns.emplace(ConnectionID::random(), std::shared_ptr<Connection>{}); res)
             {
-                log::info(log_cat, "QUIC connection established, streams now available");
-                try 
-                {
-                    conn.open_stream();
-                }
-                catch (const std::exception& e)
-                {
-                    log::warning(log_cat, "{}", e.what());
-                }
-            };
-
-            conns[dcid] = conn;
-            //conn->io_ready();
-
-            return conn;
+                auto conn = std::make_shared<Connection>(this, handler, itr->first, hdr, pkt.path, ctx);
+                log::debug(log_cat, "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})", *conn->source_cid.data, *conn->dest_cid.data);
+                itr->second = conn;
+                return conn;
+            }
         }
     }
 }   // namespace oxen::quic

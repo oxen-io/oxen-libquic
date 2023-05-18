@@ -12,25 +12,34 @@
 namespace oxen::quic
 {
     Stream::Stream(
-        Connection& conn, size_t bufsize, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
+        Connection& conn, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
         conn{conn},
         stream_id{stream_id},
-        max_bufsize{bufsize},
         avail_trigger{conn.quic_manager->loop()->resource<uvw::AsyncHandle>()}
     {
+        log::trace(log_cat, "Creating Stream object...");
+        avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
+
+        // user_data = std::move(conn.udp_handle->weak_from_this());
+        udp_handle = conn.udp_handle;
+
         data_callback = (data_cb) ? 
             std::move(data_cb) : 
             [](Stream& s, bstring_view data) {
                 auto handle = s.udp_handle;
                 Packet pkt{.path = Path{handle->sock(), handle->peer()}, .data = data};
-                s.conn.endpoint->handle_packet(pkt);};
+                s.conn.endpoint->handle_packet(pkt);
+            };
+
         close_callback = (close_cb) ? 
             std::move(close_cb) : 
             [](Stream& s, uint64_t error_code) {
-                log::warning(log_cat, "Error: {}", error_code);
-                s.close(error_code);};
+                log::warning(log_cat, "Closing UDP paired to stream (error code: {})", error_code);
+                s.udp_handle->close();
+            };
+
         when_available([](Stream& s) {
-            if (s.used() < 65536)
+            if (s.size() < 65536)
             {
                 log::info(log_cat, "Quic stream {} no longer congested, resuming", s.stream_id);
                 s.udp_handle->recv();
@@ -39,28 +48,28 @@ namespace oxen::quic
             return false;
         });
 
-        log::trace(log_cat, "Creating Stream object...");
-        avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
-        udp_handle = conn.udp_handle;
         log::trace(log_cat, "Stream object created");
     }
 
 
-    Stream::Stream(Connection& conn, size_t bufsize, int64_t stream_id) :
-        Stream{conn, bufsize, nullptr, nullptr, stream_id}
+    Stream::Stream(Connection& conn, int64_t stream_id) :
+        Stream{conn, nullptr, nullptr, stream_id}
     {}
 
 
     Stream::~Stream()
     {
-        log::debug(log_cat, "Destroying stream %lu", stream_id);
+        log::debug(log_cat, "Destroying stream {}", stream_id);
+
         if (avail_trigger)
         {
             avail_trigger->close();
             avail_trigger.reset();
         }
+
         bool was_closing = is_closing;
         is_closing = is_shutdown = true;
+
         if (!was_closing && close_callback)
             close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
     }
@@ -76,15 +85,14 @@ namespace oxen::quic
 	void
 	Stream::close(uint64_t error_code)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
 
-        if (is_shutdown || is_closing)
-        {
-            log::info(log_cat, "Stream is already: {} and {}", 
-                (is_closing) ? "[closing]" : "[not closing]",
-                (is_shutdown) ? "[shutdown]" : "[not shutdown]");
-        }
-        if (error_code)
+        if (is_shutdown)
+            log::info(log_cat, "Stream is already shutting down");
+        else if (is_closing)
+            log::debug(log_cat, "Stream is already closing");
+        else if (error_code && error_code != 0)
         {
             is_closing = is_shutdown = true;
             ngtcp2_conn_shutdown_stream(conn, stream_id, error_code);
@@ -96,25 +104,11 @@ namespace oxen::quic
     }
 
 
-    auto
-    get_buffer_it(
-        std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
-    {
-        auto it = bufs.begin();
-        while (offset >= sizeof(it->second))
-        {
-            offset -= sizeof(it->second);
-            it++;
-        }
-        return std::make_pair(std::move(it), offset);
-    }
-
-
     void
-    Stream::append_buffer(const std::byte* buffer, size_t length)
+    Stream::append_buffer(bstring_view buffer, std::any keep_alive)
     {
-        user_buffers.emplace_back(buffer, length);
-        size += length;
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        user_buffers.emplace_back(buffer, keep_alive);
         conn.io_ready();
     }
 
@@ -122,46 +116,32 @@ namespace oxen::quic
     void
     Stream::acknowledge(size_t bytes)
     {
-        assert(bytes <= unacked_size && unacked_size <= size);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        log::info(log_cat, "Acked {} bytes of {}/{} unacked/total", bytes, unacked_size, size);
+        assert(bytes <= size());
+        size_t _bytes = bytes;
 
-        unacked_size -= bytes;
-        size -= bytes;
-        if (size == 0)
+        log::info(log_cat, "Acking {} bytes of {} unacked", bytes, unacked_size, size());
+
+        // drop all acked user_buffers, as they are unneeded
+        while (_bytes >= user_buffers.front().first.size())
         {
-            user_buffers.clear();
-            start = 0;
-        }
-        else
-        {
-            while (bytes)
-            {
-                assert(!user_buffers.empty());
-                assert(start < sizeof(user_buffers.front()));
-                if (size_t remaining = sizeof(user_buffers.front()) - start; bytes >= remaining)
-                {
-                    user_buffers.pop_front();
-                    start = 0;
-                    bytes -= remaining;
-                }
-                else
-                {
-                    start += bytes;
-                    bytes = 0;
-                }
-            }
+            _bytes -= user_buffers.front().first.size();
+            user_buffers.pop_front();
         }
 
-        if (!unblocked_callbacks.empty())
-            available_ready();
+        // advance bsv pointer to cover any remaining acked data
+        if (_bytes)
+            user_buffers.front().first.remove_prefix(_bytes);
+
+        log::trace(log_cat, "{} bytes acked, {} unacked remaining", bytes, size());
     }
 
 
     void
     Stream::when_available(unblocked_callback_t unblocked_cb)
     {
-        assert(available() == 0);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         unblocked_callbacks.push(std::move(unblocked_cb));
     }
 
@@ -169,14 +149,13 @@ namespace oxen::quic
     void
     Stream::handle_unblocked()
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         if (is_closing)
             return;
-        while (!unblocked_callbacks.empty() && available() > 0)
+        while (!unblocked_callbacks.empty() && available())
         {
             if (unblocked_callbacks.front()(*this))
                 unblocked_callbacks.pop();
-            else
-                assert(available() == 0);
         }
 
         conn.io_ready();
@@ -193,6 +172,7 @@ namespace oxen::quic
     void
     Stream::available_ready()
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         if (avail_trigger)
             avail_trigger->send();
     }
@@ -201,30 +181,54 @@ namespace oxen::quic
     void
     Stream::wrote(size_t bytes)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(bytes <= unsent());
         unacked_size += bytes;
     }
 
 
-    std::vector<bstring_view>
-    Stream::pending()
+    static auto
+    get_buffer_it(
+        std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
     {
-        std::vector<bstring_view> bufs;
-        size_t rsize = unsent();
-        if (!rsize)
-            return bufs;
-        else
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        auto it = bufs.begin();
+
+        while (offset >= it->first.size())
         {
-            assert(!user_buffers.empty());  // If empty then unsent() should have been 0
-            auto [it, offset] = get_buffer_it(user_buffers, start + unacked_size);
-            bufs.reserve(std::distance(it, user_buffers.end()));
-            assert(it != user_buffers.end());
-            bufs.emplace_back(it->first.begin() + offset, sizeof(it->second) - offset);
-            for (++it; it != user_buffers.end(); ++it)
-                bufs.emplace_back(it->first.begin(), sizeof(it->second));
+            offset -= it->first.size();
+            it++;
         }
 
-        return bufs;
+        return std::make_pair(std::move(it), offset);
+    }
+
+
+    std::vector<ngtcp2_vec>
+    Stream::pending()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        std::vector<ngtcp2_vec> nbufs{};
+
+        if (unsent() != 0 or user_buffers.empty())
+            return nbufs;
+
+        auto [it, offset] = get_buffer_it(user_buffers, unacked_size);
+        nbufs.reserve(std::distance(it, user_buffers.end()));
+
+        auto& temp = nbufs.emplace_back();
+        temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
+        temp.len = it->first.size() - offset;
+
+        for (++it; it != user_buffers.end(); ++it)
+        {
+            auto& temp = nbufs.emplace_back();
+            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
+            temp.len = it->first.size();
+        }
+
+        return nbufs;
     }
 
 
@@ -233,10 +237,7 @@ namespace oxen::quic
     {
         unacked_size += data.size();
 
-        append_buffer(data.data(), data.size());
-        
-        // udp_handle->send(
-        //     conn.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
+        append_buffer(data, keep_alive);
     }
 
 
@@ -246,3 +247,30 @@ namespace oxen::quic
         user_data = std::move(data);
     }
 }   // namespace oxen::quic
+
+
+
+/*
+struct pending_buffers {
+    // Store our list of buffers we've been given in here:
+    std::deque<std::pair<std::string_view, std::any>> buff;
+
+    // This is how many bytes have been acknowledged from buff[0]
+    size_t first_finished = 0;
+
+    // called when ngtcp2 tells us it is done with N bytes
+    void discard(size_t N) {
+        while (N > 0) {
+            auto first_avail = pending_buffers.front().first.size() - first_finished;
+            if (N >= first_avail) {
+                pending_buffers.pop_front();
+                first_finished = 0;
+                N -= first_avail;
+            } else {
+                first_finished += N;
+                N = 0;
+            }
+        }
+    }
+};
+*/

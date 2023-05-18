@@ -18,6 +18,8 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Beginning context creation");
         ev_loop = (loop_ptr) ? loop_ptr : uvw::Loop::create();
+        signal_config();
+
         quic_manager = std::make_shared<Handler>(ev_loop, *this);
     }
 
@@ -25,6 +27,42 @@ namespace oxen::quic
     Network::~Network()
     {
         log::info(log_cat, "Shutting down context...");
+
+        if (ev_loop)
+        {
+            ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle &&h){ h.close(); }, [](auto&&){}});
+            ev_loop->clear();
+            ev_loop->stop();
+            ev_loop->close();
+            log::debug(log_cat, "Event loop shut down...");
+        }
+    }
+
+
+    void
+    Network::signal_config()
+    {
+        auto signal = ev_loop->resource<uvw::SignalHandle>();
+        signal->on<uvw::ErrorEvent>([](const auto&, auto&){
+            log::warning(log_cat, "Error event in signal handle");
+        });
+        signal->on<uvw::SignalEvent>([&](const auto&, auto&){
+            log::debug(log_cat, "Signal event triggered in signal handle");
+            ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle &&h){ 
+                    h.close();
+                    h.stop();}, 
+                [](uvw::AsyncHandle&& h){ h.close(); }, 
+                [](auto&&){}});
+
+            signal->stop();
+
+            ev_loop->clear();
+            ev_loop->stop();
+            ev_loop->close();
+        });
+
+        if (signal->init())
+            signal->start(2);
     }
 
 
@@ -54,10 +92,12 @@ namespace oxen::quic
             for (auto ctx : quic_manager->clients)
             {
                 if (ctx->local == handle.sock())
+                {
                     ctx->client->handle_packet(pkt);
-                else
-                    log::warning(log_cat, "Client handle forwarding unsuccessful");
+                    return;
+                }
             }
+            log::warning(log_cat, "Client handle forwarding unsuccessful");
         });
     }
 

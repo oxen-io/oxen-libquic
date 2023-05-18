@@ -38,6 +38,18 @@ namespace oxen::quic
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return static_cast<Connection*>(conn_ref->user_data)->conn.get();
         }
+
+        void 
+        log_printer(void *user_data, const char *fmt, ...) 
+        {
+            std::array<char, 2048> buf{};
+            va_list ap;
+            va_start(ap, fmt);
+            if (vsnprintf(buf.data(), buf.size(), fmt, ap) >= 0)
+                log::debug(log_cat, "{}", buf.data());
+            va_end(ap);
+        }
+
     }
 
     auto
@@ -59,19 +71,6 @@ namespace oxen::quic
 
 		return 0;
 	}
-
-
-    extern "C" void 
-    log_printer(void *user_data, const char *fmt, ...) 
-    {
-        std::array<char, 2048> buf{};
-        va_list ap;
-        va_start(ap, fmt);
-        if (vsnprintf(buf.data(), buf.size(), fmt, ap) >= 0)
-            log::debug(log_cat, "{}", buf.data());
-        va_end(ap);
-    }
-
 
     int
     recv_stream_data(
@@ -106,14 +105,14 @@ namespace oxen::quic
     }
 
     int
-    stream_open(ngtcp2_conn* conn, int64_t stream_id, void* user_data)
+    on_stream_open(ngtcp2_conn* conn, int64_t stream_id, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return static_cast<Connection*>(user_data)->stream_opened(stream_id);
     }
 
     int
-    stream_close_cb(
+    on_stream_close(
         ngtcp2_conn* conn,
         uint32_t flags,
         int64_t stream_id,
@@ -127,7 +126,7 @@ namespace oxen::quic
     }
 
     int
-    stream_reset_cb(
+    on_stream_reset(
         ngtcp2_conn* conn,
         int64_t stream_id,
         uint64_t final_size,
@@ -221,7 +220,7 @@ namespace oxen::quic
     Connection::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        auto stream = std::make_shared<Stream>(*this, endpoint->default_stream_bufsize, std::move(data_cb), std::move(close_cb));
+        auto stream = std::make_shared<Stream>(*this, std::move(data_cb), std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
             throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
@@ -262,7 +261,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         // Maximum number of stream data packets to send out at once; if we reach this then we'll
-        // schedule another event loop call of ourselves (so that we don't starve the loop).
+        // schedule another event loop call of ourselves (so that we don't starve the loop)
         auto max_udp_payload_size = ngtcp2_conn_get_max_tx_udp_payload_size(conn.get());
         auto max_stream_packets = ngtcp2_conn_get_send_quantum(conn.get()) / max_udp_payload_size;
         ngtcp2_ssize ndatalen;
@@ -322,22 +321,26 @@ namespace oxen::quic
                 auto& stream = **it;
                 auto bufs = stream.pending();
 
-                std::vector<ngtcp2_vec> vecs;
-                vecs.reserve(bufs.size());
-                std::transform(bufs.begin(), bufs.end(), std::back_inserter(vecs), [](const auto& buf) {
-                    return ngtcp2_vec{const_cast<uint8_t*>(u8data(buf)), buf.size()};
-                });
-
                 if (stream.is_closing && !stream.sent_fin && stream.unsent() == 0)
                 {
                     log::trace(log_cat, "Sending FIN");
                     flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
                     stream.sent_fin = true;
                 }
-                else if (stream.is_new)
+                else if (bufs.empty())
                 {
-                    stream.is_new = false;
+                    log::debug(log_cat, "pending() returned empty buffer, moving on");
+                    it = strs.erase(it);
+                    continue;
                 }
+
+                /*
+                in "for each stream" loop, keep track of whether or not we're in the middle of a packet, 
+                i.e. when we call write_v stream we are starting (or continuing) a packet, and if we call send_packet we finished one.
+
+                then in the next loop (for(;;)), call writev_stream differently based on that, and if we send_packet 
+                there we're also no longer in the middle of a packet
+                */
 
                 auto nwrite = ngtcp2_conn_writev_stream(
                     conn.get(),
@@ -348,8 +351,8 @@ namespace oxen::quic
                     &ndatalen,
                     flags,
                     stream.stream_id,
-                    reinterpret_cast<const ngtcp2_vec*>(vecs.data()),
-                    vecs.size(),
+                    bufs.data(),
+                    bufs.size(),
                     (!ts) ? get_timestamp() : ts);
 
                 log::debug(log_cat, "add_stream_data for stream {} returned [{},{}]",
@@ -486,6 +489,7 @@ namespace oxen::quic
         log::info(log_cat, "Exiting flush_streams()");
     }
 
+
     void
     Connection::schedule_retransmit()
     {
@@ -494,7 +498,6 @@ namespace oxen::quic
         auto expiry = std::chrono::nanoseconds{static_cast<std::chrono::nanoseconds::rep>(exp)};
         auto ngtcp2_expiry_delta = std::chrono::duration_cast<std::chrono::milliseconds>(
             expiry - get_time().time_since_epoch());
-
 
         if (exp == std::numeric_limits<decltype(exp)>::max())
         {
@@ -510,6 +513,7 @@ namespace oxen::quic
         retransmit_timer->start(expires_in, 0ms);
     }
 
+
     const std::shared_ptr<Stream>&
     Connection::get_stream(int64_t ID) const
     {
@@ -523,7 +527,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, endpoint->default_stream_bufsize, id);
+        auto stream = std::make_shared<Stream>(*this, id);
         
         stream->stream_id = id;
         bool good = true;
@@ -548,6 +552,7 @@ namespace oxen::quic
     void
     Connection::stream_closed(int64_t id, uint64_t app_code)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(ngtcp2_is_bidi_stream(id));
         log::info(log_cat, "Stream {} closed with code {}", id, app_code);
         auto it = streams.find(id);
@@ -558,9 +563,10 @@ namespace oxen::quic
         auto& stream = *it->second;
         const bool was_closing = stream.is_closing;
         stream.is_closing = stream.is_shutdown = true;
+
         if (!was_closing && stream.close_callback)
         {
-            log::trace(log_cat, "Invoke stream close callback");
+            log::trace(log_cat, "Invoking stream close callback");
             std::optional<uint64_t> code;
             if (app_code != 0)
                 code = app_code;
@@ -587,7 +593,7 @@ namespace oxen::quic
         }
         return NGTCP2_ERR_CALLBACK_FAILURE;
     }
-
+ 
 
     int
     Connection::stream_receive(int64_t id, bstring_view data, bool fin)
@@ -669,69 +675,24 @@ namespace oxen::quic
 
         retransmit_timer->start(0ms, 0ms);
 
-        // NOTE: this is commented out to keep a visual record of the callbacks, delete this when unneeded
-        //
-        // callbacks = {
-        //     NULL,               /* client_initial */
-        //     NULL,               /* recv_client_initial */
-        //     ngtcp2_crypto_recv_crypto_data_cb,
-        //     NULL,               /* handshake_completed */
-        //     NULL,               /* recv_version_negotiation */
-        //     ngtcp2_crypto_encrypt_cb,
-        //     ngtcp2_crypto_decrypt_cb,
-        //     ngtcp2_crypto_hp_mask_cb,
-        //     recv_stream_data,
-        //     acked_stream_data_offset,
-        //     NULL,               /* stream_open */
-        //     stream_close_cb,
-        //     NULL,               /* recv_stateless_reset */
-        //     NULL,               /* recv_retry */
-        //     extend_max_local_streams_bidi,
-        //     NULL,               /* extend_max_local_streams_uni */
-        //     rand_cb,
-        //     get_new_connection_id_cb,
-        //     NULL,               /* remove_connection_id */
-        //     ngtcp2_crypto_update_key_cb,
-        //     NULL,               /* path_validation */
-        //     NULL,               /* select_preferred_address */
-        //     stream_reset_cb,
-        //     NULL,               /* extend_max_remote_streams_bidi */
-        //     NULL,               /* extend_max_remote_streams_uni */
-        //     NULL,               /* extend_max_stream_data */
-        //     NULL,               /* dcid_status */
-        //     NULL,               /* handshake_confirmed */
-        //     NULL,               /* recv_new_token */
-        //     ngtcp2_crypto_delete_crypto_aead_ctx_cb,
-        //     ngtcp2_crypto_delete_crypto_cipher_ctx_cb,
-        //     NULL,               /* recv_datagram */
-        //     NULL,               /* ack_datagram */
-        //     NULL,               /* lost_datagram */
-        //     ngtcp2_crypto_get_path_challenge_data_cb,
-        //     NULL,               /* stream_stop_sending */
-        //     ngtcp2_crypto_version_negotiation_cb,
-        //     recv_rx_key,
-        //     recv_tx_key,
-        //     NULL                /* early_data_rejected */
-        // };
-
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
         callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
         callbacks.recv_stream_data = recv_stream_data;
         callbacks.acked_stream_data_offset = acked_stream_data_offset;
-        callbacks.stream_close = stream_close_cb;
+        callbacks.stream_close = on_stream_close;
         callbacks.extend_max_local_streams_bidi = extend_max_local_streams_bidi;
         callbacks.rand = rand_cb;
         callbacks.get_new_connection_id = get_new_connection_id_cb;
         callbacks.update_key = ngtcp2_crypto_update_key_cb;
-        callbacks.stream_reset = stream_reset_cb;
+        callbacks.stream_reset = on_stream_reset;
         callbacks.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
         callbacks.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
-        callbacks.recv_rx_key = recv_rx_key;
-        callbacks.recv_tx_key = recv_tx_key;
+        // callbacks.recv_rx_key = recv_rx_key;
+        // callbacks.recv_tx_key = recv_tx_key;
         // callbacks.dcid_status = NULL;
         // callbacks.handshake_completed = NULL;
         // callbacks.handshake_confirmed = NULL;
@@ -748,7 +709,7 @@ namespace oxen::quic
         // Connection flow level control window
         params.initial_max_data = 1024 * 1024;
         // Max concurrent streams supported on one connection
-        params.initial_max_stream_data_uni = 0;
+        params.initial_max_streams_uni = 0;
         params.initial_max_streams_bidi = 32;
         // Max send buffer for streams (local = streams we initiate, remote = streams initiated to us)
         params.initial_max_stream_data_bidi_local = 64 * 1024;
@@ -756,7 +717,6 @@ namespace oxen::quic
         params.max_idle_timeout = std::chrono::nanoseconds(5min).count();
         params.active_connection_id_limit = 8;
         
-
         return 0;
     }
 
@@ -819,7 +779,7 @@ namespace oxen::quic
     Connection::Connection(
         Server* server, std::shared_ptr<Handler> ep, const ConnectionID& cid, ngtcp2_pkt_hd& hdr, const Path& path, std::shared_ptr<TLSContext> ctx) : 
         quic_manager{ep}, 
-        source_cid{cid}, 
+        source_cid{cid},
         dest_cid{hdr.scid}, 
         path{path},
         local{server->context->local},
@@ -838,7 +798,7 @@ namespace oxen::quic
             log::warning(log_cat, "Error: Server-based connection not created");
 
         callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
-        callbacks.stream_open = stream_open;
+        callbacks.stream_open = on_stream_open;
 
         params.original_dcid = hdr.dcid;
         params.original_dcid_present = 1;

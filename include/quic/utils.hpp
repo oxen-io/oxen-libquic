@@ -37,7 +37,7 @@
 
 #define MESSAGE "GET /\r\n"
 
-static auto log_cat = oxen::log::Cat("dev");
+static auto log_cat = oxen::log::Cat("quic");
 
 namespace oxen::quic
 {
@@ -165,7 +165,7 @@ namespace oxen::quic
             return !(*this == other);
         }
         static ConnectionID
-        random(size_t size = NGTCP2_MAX_CIDLEN);
+        random();
     };
 
 

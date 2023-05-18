@@ -31,8 +31,8 @@ namespace oxen::quic
 	{
 		public:
 			explicit Stream(
-				Connection& conn, size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
-			explicit Stream(Connection& conn, size_t bufsize, int64_t stream_id = -1);
+				Connection& conn, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
+			explicit Stream(Connection& conn, int64_t stream_id = -1);
 			~Stream();
 
 			stream_data_callback_t data_callback;
@@ -66,18 +66,23 @@ namespace oxen::quic
 			when_available(unblocked_callback_t unblocked_cb);
 
 			void
-			append_buffer(const std::byte* buffer, size_t length);
+			append_buffer(bstring_view buffer, std::any keep_alive);
 
 			void
 			acknowledge(size_t bytes);
 
-			inline size_t
+			inline bool
 			available() const
-			{ return is_closing || user_buffers.empty() ? 0 : user_buffers.size() - size; }
+			{ return !(is_closing || is_shutdown || sent_fin); }
 
 			inline size_t
-			used() const
-			{ return size; }
+			size() const
+			{
+				size_t sum{0};
+				for (const auto& [data, store] : user_buffers)
+					sum += data.size();
+				return sum;
+			}
 
 			inline size_t
 			unacked() const
@@ -85,7 +90,7 @@ namespace oxen::quic
 
 			inline size_t
 			unsent() const
-			{ return used() - unacked(); }
+			{ return size() - unacked(); }
 
 			// Retrieve stashed data with static cast to desired type
 			template <typename T>
@@ -122,18 +127,16 @@ namespace oxen::quic
 
 			// Callback(s) to invoke once we have the requested amount of space available in the buffer.
 			std::queue<unblocked_callback_t> unblocked_callbacks;
+
 			void
 			handle_unblocked();  // Processes the above if space is available
 
-			std::vector<bstring_view>
+			std::vector<ngtcp2_vec>
 			pending();
 
-			size_t size{0};
-			size_t start{0};
+			// amount of unacked bytes
 			size_t unacked_size{0};
-            size_t max_bufsize{0};
 
-			bool is_new{false};
 			bool is_closing{false};
 			bool is_shutdown{false};
 			bool sent_fin{false};
@@ -142,6 +145,7 @@ namespace oxen::quic
 			std::shared_ptr<uvw::AsyncHandle> avail_trigger;
 
             // TOTHINK: maybe should store a ptr to network or handler here?
-			std::shared_ptr<void> user_data;
+			std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;
 	};
 }	// namespace oxen::quic
+

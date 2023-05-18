@@ -54,11 +54,11 @@ namespace oxen::quic
 
 
     ConnectionID
-    ConnectionID::random(size_t size)
+    ConnectionID::random()
     {
         ConnectionID cid;
-        cid.datalen = std::min(size, static_cast<size_t>(NGTCP2_MAX_CIDLEN));
-        std::generate(cid.data, (cid.data + cid.datalen), rand);
+        cid.datalen = static_cast<size_t>(NGTCP2_MAX_CIDLEN);
+        gnutls_rnd(GNUTLS_RND_RANDOM, cid.data, cid.datalen);
         return cid;
     }
 

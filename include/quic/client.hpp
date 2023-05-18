@@ -34,7 +34,7 @@ namespace oxen::quic
             ~Client();
 
             std::shared_ptr<Stream>
-            open_stream(size_t bufsize, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+            open_stream(stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
             std::shared_ptr<uvw::UDPHandle>
             get_handle(Address& addr) override;

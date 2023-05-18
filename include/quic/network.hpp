@@ -163,12 +163,10 @@ namespace oxen::quic
             void
             configure_server_handle(std::shared_ptr<uvw::UDPHandle> handle);
 
+            void
+            signal_config();
+
     };
 
 }   // namespace oxen::quic
 
-/*
-    TOTRY:
-        - make tunnel from home to server
-        - try and see how much data to push over that tunnel
-*/

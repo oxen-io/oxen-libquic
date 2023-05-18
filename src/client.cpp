@@ -55,20 +55,24 @@ namespace oxen::quic
 
 
     std::shared_ptr<Stream>
-    Client::open_stream(size_t bufsize, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "Opening client stream...");
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
 
         auto conn = get_conn(ctx->conn_id);
-        auto str = std::make_shared<Stream>(*conn, bufsize, std::move(data_cb), std::move(close_cb));
+        auto stream = std::make_shared<Stream>(*conn, std::move(data_cb), std::move(close_cb));
 
-        if (int rv = ngtcp2_conn_open_bidi_stream(*conn.get(), &str->stream_id, str.get()); rv != 0)
+        if (int rv = ngtcp2_conn_open_bidi_stream(*conn.get(), &stream->stream_id, stream.get()); rv != 0)
             throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
 
-        conn->streams.emplace(str->stream_id, str);
+        auto& str = conn->streams[stream->stream_id];
 
-        return str;
+        str = std::move(stream);
+
+        conn->streams.emplace(stream->stream_id, stream);
+
+        return stream;
     }
 
 

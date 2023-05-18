@@ -27,6 +27,7 @@ int main(int argc, char* argv[])
     logger_config();
 
     Network client_net{};
+    auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
     opt::client_tls client_tls{
         0, 
@@ -45,11 +46,14 @@ int main(int argc, char* argv[])
     log::debug(log_cat, "Starting event loop...");
     client_net.ev_loop->run();
 
-    do
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds{100});
-    } while (run);
-
     return 0;
 }
 
+/*
+    TODO:
+        - start event loop in a separate thread
+            std::thread ev_thread{[&] { run_event_loop(); }};
+        - make other calls in another thread
+        - join threads
+            ev_thread.join
+*/

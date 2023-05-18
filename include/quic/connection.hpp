@@ -164,6 +164,9 @@ namespace oxen::quic
     {
         ngtcp2_conn* 
         get_conn(ngtcp2_crypto_conn_ref *conn_ref);
+
+        void 
+        log_printer(void *user_data, const char *fmt, ...);
     }
 
 }   // namespace oxen::quic
