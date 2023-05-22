@@ -99,7 +99,11 @@ namespace oxen::quic
 
     // For templated parameter strict type checking
     template <typename Base, typename T>
-    inline constexpr bool is_strict_base_of_v = std::is_base_of_v<Base, T> && !std::is_same_v<Base, T>;
+    constexpr bool is_strict_base_of_v = std::is_base_of_v<Base, T> && !std::is_same_v<Base, T>;
+
+    // Types can opt-in to being formatting via .ToString() by specializing this to true
+    template <typename T>
+    constexpr bool IsToStringFormattable = false;
 
     // We send and verify this in the initial connection and handshake; this is designed to allow
     // future changes (by either breaking or handling backwards compat).
@@ -330,8 +334,80 @@ namespace oxen::quic
         struct remote_addr : public Address { using Address::Address; };
     }   // namespace oxen::quic::opt
 
-}   // namespace oxen::quic
 
+      struct buffer_printer
+    {
+        std::basic_string_view<std::byte> buf;
+
+        // Constructed from any type of string_view<T> for a single-byte T (char, std::byte, uint8_t,
+        // etc.)
+        template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
+        explicit buffer_printer(std::basic_string_view<T> buf)
+            : buf{reinterpret_cast<const std::byte*>(buf.data()), buf.size()}
+        {}
+
+        // Constructed from any type of lvalue string<T> for a single-byte T (char, std::byte, uint8_t,
+        // etc.)
+        template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
+        explicit buffer_printer(const std::basic_string<T>& buf)
+            : buffer_printer(std::basic_string_view<T>{buf})
+        {}
+
+        // *Not* constructable from a string<T> rvalue (because we only hold a view and do not take
+        // ownership).
+        template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
+        explicit buffer_printer(std::basic_string<T>&& buf) = delete;
+
+        // Constructable from a (T*, size) argument pair, for byte-sized T's.
+        template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
+        explicit buffer_printer(const T* data, size_t size)
+            : buffer_printer(std::basic_string_view<T>{data, size})
+        {}
+
+        inline std::string
+        ToString() const
+        {
+            auto& b = buf;
+            std::string out;
+            auto ins = std::back_inserter(out);
+            fmt::format_to(ins, "Buffer[{}/{:#x} bytes]:", b.size(), b.size());
+
+            for (size_t i = 0; i < b.size(); i += 32)
+            {
+                fmt::format_to(ins, "\n{:04x} ", i);
+
+                size_t stop = std::min(b.size(), i + 32);
+                for (size_t j = 0; j < 32; j++)
+                {
+                    auto k = i + j;
+                    if (j % 4 == 0)
+                        out.push_back(' ');
+                    if (k >= stop)
+                        out.append("  ");
+                    else
+                        fmt::format_to(ins, "{:02x}", std::to_integer<uint_fast16_t>(b[k]));
+                }
+                out.append(u8"  ┃");
+                for (size_t j = i; j < stop; j++)
+                {
+                    auto c = std::to_integer<char>(b[j]);
+                    if (c == 0x00)
+                        out.append(u8"∅");
+                    else if (c < 0x20 || c > 0x7e)
+                        out.append(u8"·");
+                    else
+                        out.push_back(c);
+                }
+                out.append(u8"┃");
+            }
+            return out;
+        };
+    };
+
+    template <>
+    constexpr inline bool IsToStringFormattable<buffer_printer> = true;
+
+}   // namespace oxen::quic
 
 namespace std
 {
@@ -360,3 +436,19 @@ namespace std
         }
     };
 }   // namespace std
+
+
+namespace fmt
+{
+    template <typename T>
+    struct formatter<T, char, std::enable_if_t<oxen::quic::IsToStringFormattable<T>>> : formatter<std::string_view>
+    {
+        template <typename FormatContext>
+        auto
+        format(const T& val, FormatContext& ctx) const
+        {
+            return formatter<std::string_view>::format(val.ToString(), ctx);
+        }
+    };
+
+}  // namespace fmt

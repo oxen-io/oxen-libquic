@@ -42,6 +42,14 @@ int main(int argc, char* argv[])
     log::debug(log_cat, "Starting event loop...");
     server_net.ev_loop->run();
 
+    size_t counter = 0;
+    do
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        if (++counter % 30 == 0)
+            std::cout << "waiting..." << "\n";
+    } while (run);
+
     return 0;
 }
 

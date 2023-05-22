@@ -7,6 +7,7 @@
 #include "endpoint.hpp"
 #include "connection.hpp"
 
+#include <thread>
 #include <uvw.hpp>
 
 #include <cstdio>
@@ -86,6 +87,17 @@ namespace oxen::quic
         for (const auto& c : clients)
         {
             
+        }
+    }
+
+
+    void
+    Handler::close_all()
+    {
+        if (!clients.empty())
+        {
+            for (const auto& ctx : clients)
+                ctx->client->close_conns();
         }
     }
 

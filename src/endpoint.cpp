@@ -47,7 +47,7 @@ namespace oxen::quic
 
 
     void
-    Endpoint::client_close()
+    Endpoint::close_conns()
     {
         for (const auto& c : conns)
         {

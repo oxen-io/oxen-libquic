@@ -55,17 +55,18 @@ namespace oxen::quic
 
         if (rv < 0) // catches all other possible ngtcp2 errors
         {
-            log::warning(log_cat, "Error: invalid packet received, length=%{}", pkt.data.size());
+            log::warning(log_cat, "Warning: unexpected packet received, length={}, code={}, continuing...", 
+                pkt.data.size(), ngtcp2_strerror(rv));
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
-            log::warning(log_cat, "Error: 0RTT is currently not utilized in this implementation; dropping packet");
+            log::error(log_cat, "Error: 0RTT is currently not utilized in this implementation; dropping packet");
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_INITIAL && hdr.tokenlen)
         {
-            log::warning(log_cat, "Error: Unexpected token in initial packet");
+            log::warning(log_cat, "Warning: Unexpected token in initial packet");
             return nullptr;
         }
 

@@ -70,9 +70,8 @@ namespace oxen::quic
 
         str = std::move(stream);
 
-        conn->streams.emplace(stream->stream_id, stream);
-
-        return stream;
+        log::debug(log_cat, "Client stream opened");
+        return str;
     }
 
 

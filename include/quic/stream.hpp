@@ -79,6 +79,8 @@ namespace oxen::quic
 			size() const
 			{
 				size_t sum{0};
+				if (user_buffers.empty())
+					return sum;
 				for (const auto& [data, store] : user_buffers)
 					sum += data.size();
 				return sum;
@@ -90,19 +92,32 @@ namespace oxen::quic
 
 			inline size_t
 			unsent() const
-			{ return size() - unacked(); }
+			{ 
+				log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+				return size() - unacked(); 
+			}
 
 			// Retrieve stashed data with static cast to desired type
 			template <typename T>
 			std::shared_ptr<T>
 			get_user_data() const
-			{ return std::static_pointer_cast<T>(user_data); }
+			{ return std::static_pointer_cast<T>(std::holds_alternative<std::shared_ptr<void>>(user_data) ? 
+					std::get<std::shared_ptr<void>>(user_data) : 
+					std::get<std::weak_ptr<void>>(user_data).lock()); 
+			}
 
 			void
 			set_user_data(std::shared_ptr<void> data);
 
             void 
             send(bstring_view data, std::any keep_alive);
+
+
+			inline void
+			send(bstring_view data)
+			{
+				return send(data, std::move(data));
+			}
 
             template <
                 typename CharType, 

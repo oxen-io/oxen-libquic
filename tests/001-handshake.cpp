@@ -1,6 +1,7 @@
 #include "quic.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <thread>
 
 
 namespace oxen::quic::test
@@ -9,26 +10,24 @@ namespace oxen::quic::test
     
     TEST_CASE("Simple client to server transmission")
     {
-        fprintf(stderr, "\nBeginning test of DTLS handshake...\n");
+        logger_config();
+
+        log::debug(log_cat, "Beginning test of DTLS handshake...");
 
         Network test_net{};
+        bool good{false};
+        bool run{true};
 
-        client_tls_callback_t client_tls_cb = [](
+        client_tls_callback_t client_tls_cb = [&](
             gnutls_session_t session, unsigned int htype, unsigned int when, unsigned int incoming, const gnutls_datum_t* msg) {
-                fprintf(stderr, "Handshake completed...\n");
+                log::debug(log_cat, "Calling client TLS callback... handshake completed...\n");
 
                 const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
                 const auto& client = static_cast<Connection*>(conn_ref->user_data)->client();
 
-                // REQUIRE(client != nullptr);
+                REQUIRE(client != nullptr);
 
-                // async_callback_t async_cb = [&](const uvw::AsyncEvent& event, uvw::AsyncHandle &udp) {
-                //     client->client_close();
-                // };
-
-                // const auto& handler = client->handler;
-                // handler->client_call_async(std::move(async_cb));
-
+                good = true;
                 return 0;
         };
 
@@ -50,13 +49,33 @@ namespace oxen::quic::test
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
         opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};
 
-        fprintf(stderr, "Calling 'server_listen'...\n");
+        log::debug(log_cat, "Calling 'server_listen'...");
         auto server = test_net.server_listen(server_local, server_tls);
 
-        fprintf(stderr, "Calling 'client_connect'...\n");
-        auto client = test_net.client_connect(client_local, client_remote, client_tls);
+        log::debug(log_cat, "Calling 'client_connect'...");
+        auto client = test_net.client_connect(client_local, client_remote, client_tls, client_tls_cb);
 
-        fprintf(stderr, "Starting event loop...\n");
-        test_net.ev_loop->run();
+        std::thread ev_thread{[&](){
+            test_net.run();
+
+            size_t counter = 0;
+            do
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds{100});
+                if (++counter % 30 == 0)
+                    std::cout << "waiting..." << "\n";
+            } while (run);
+        }};
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        std::thread async_thread([&](){
+            REQUIRE(good == true);
+            test_net.close();
+        });
+
+        test_net.ev_loop->close();
+        async_thread.join();
+        ev_thread.detach();
     };
 }

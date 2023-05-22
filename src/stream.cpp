@@ -15,21 +15,14 @@ namespace oxen::quic
         Connection& conn, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
         conn{conn},
         stream_id{stream_id},
+        data_callback{data_cb},
         avail_trigger{conn.quic_manager->loop()->resource<uvw::AsyncHandle>()}
     {
         log::trace(log_cat, "Creating Stream object...");
         avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
 
-        // user_data = std::move(conn.udp_handle->weak_from_this());
+        // copy-assignment of connection UDP handle carries over packet forwarding -> endpoint
         udp_handle = conn.udp_handle;
-
-        data_callback = (data_cb) ? 
-            std::move(data_cb) : 
-            [](Stream& s, bstring_view data) {
-                auto handle = s.udp_handle;
-                Packet pkt{.path = Path{handle->sock(), handle->peer()}, .data = data};
-                s.conn.endpoint->handle_packet(pkt);
-            };
 
         close_callback = (close_cb) ? 
             std::move(close_cb) : 
@@ -117,22 +110,22 @@ namespace oxen::quic
     Stream::acknowledge(size_t bytes)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::info(log_cat, "Acking {} bytes of {}/{} unacked/size", bytes, unacked_size, size());
 
-        assert(bytes <= size());
-        size_t _bytes = bytes;
-
-        log::info(log_cat, "Acking {} bytes of {} unacked", bytes, unacked_size, size());
+        assert(bytes <= unacked_size);
+        unacked_size -= bytes;
 
         // drop all acked user_buffers, as they are unneeded
-        while (_bytes >= user_buffers.front().first.size())
+        while (bytes >= user_buffers.front().first.size() && bytes)
         {
-            _bytes -= user_buffers.front().first.size();
+            bytes -= user_buffers.front().first.size();
             user_buffers.pop_front();
+            log::trace(log_cat, "bytes: {}", bytes);
         }
 
         // advance bsv pointer to cover any remaining acked data
-        if (_bytes)
-            user_buffers.front().first.remove_prefix(_bytes);
+        if (bytes)
+            user_buffers.front().first.remove_prefix(bytes);
 
         log::trace(log_cat, "{} bytes acked, {} unacked remaining", bytes, size());
     }
@@ -177,79 +170,6 @@ namespace oxen::quic
             avail_trigger->send();
     }
 
-
-    void
-    Stream::wrote(size_t bytes)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        assert(bytes <= unsent());
-        unacked_size += bytes;
-    }
-
-
-    static auto
-    get_buffer_it(
-        std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        auto it = bufs.begin();
-
-        while (offset >= it->first.size())
-        {
-            offset -= it->first.size();
-            it++;
-        }
-
-        return std::make_pair(std::move(it), offset);
-    }
-
-
-    std::vector<ngtcp2_vec>
-    Stream::pending()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        std::vector<ngtcp2_vec> nbufs{};
-
-        if (unsent() != 0 or user_buffers.empty())
-            return nbufs;
-
-        auto [it, offset] = get_buffer_it(user_buffers, unacked_size);
-        nbufs.reserve(std::distance(it, user_buffers.end()));
-
-        auto& temp = nbufs.emplace_back();
-        temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
-        temp.len = it->first.size() - offset;
-
-        for (++it; it != user_buffers.end(); ++it)
-        {
-            auto& temp = nbufs.emplace_back();
-            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
-            temp.len = it->first.size();
-        }
-
-        return nbufs;
-    }
-
-
-    void
-    Stream::send(bstring_view data, std::any keep_alive)
-    {
-        unacked_size += data.size();
-
-        append_buffer(data, keep_alive);
-    }
-
-
-    void
-    Stream::set_user_data(std::shared_ptr<void> data)
-    {
-        user_data = std::move(data);
-    }
-}   // namespace oxen::quic
-
-
-
 /*
 struct pending_buffers {
     // Store our list of buffers we've been given in here:
@@ -274,3 +194,93 @@ struct pending_buffers {
     }
 };
 */
+
+    void
+    Stream::wrote(size_t bytes)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::debug(log_cat, "Increasing unacked_size by {}B", bytes);
+        unacked_size += bytes;
+    }
+
+
+    static auto
+    get_buffer_it(
+        std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        auto it = bufs.begin();
+        log::trace(log_cat, "subcall A");
+
+        log::trace(log_cat, "bufs.size = {}, it.first.size = {}, offset = {}", bufs.size(), it->first.size(), offset);
+
+        while (offset >= it->first.size() && it != bufs.end() && offset)
+        {
+            offset -= it->first.size();
+            it++;
+            log::trace(log_cat, "inner loop: it.first.size = {}, offset = {}", it->first.size(), offset);
+        }
+        log::trace(log_cat, "subcall C");
+
+        return std::make_pair(std::move(it), offset);
+    }
+
+
+    std::vector<ngtcp2_vec>
+    Stream::pending()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        std::vector<ngtcp2_vec> nbufs{};
+
+        log::trace(log_cat, "unsent: {}", unsent());
+
+        if (user_buffers.empty() || unsent() == 0)
+            return nbufs;
+
+        auto [it, offset] = get_buffer_it(user_buffers, unacked_size);
+        log::trace(log_cat, "call A");
+        nbufs.reserve(std::distance(it, user_buffers.end()));
+        log::trace(log_cat, "call B");
+        auto& temp = nbufs.emplace_back();
+        log::trace(log_cat, "call C");
+        temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
+        log::trace(log_cat, "call D");
+        temp.len = it->first.size() - offset;
+        log::trace(log_cat, "call E");
+        // ++it;
+        while (++it != user_buffers.end())
+        {
+            log::trace(log_cat, "call F");
+            auto& temp = nbufs.emplace_back();
+            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
+            temp.len = it->first.size();
+            // ++it;
+        }
+        // for (++it; it != user_buffers.end(); ++it)
+        // {
+        //     log::trace(log_cat, "call F");
+        //     auto& temp = nbufs.emplace_back();
+        //     temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
+        //     temp.len = it->first.size();
+        // }
+
+        return nbufs;
+    }
+
+
+    void
+    Stream::send(bstring_view data, std::any keep_alive)
+    {
+        log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
+        append_buffer(data, keep_alive);
+    }
+
+
+    void
+    Stream::set_user_data(std::shared_ptr<void> data)
+    {
+        user_data = std::move(data);
+    }
+}   // namespace oxen::quic
+

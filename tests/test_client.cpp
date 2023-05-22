@@ -28,6 +28,7 @@ int main(int argc, char* argv[])
 
     Network client_net{};
     auto msg = "hello from the other siiiii-iiiiide"_bsv;
+    log::trace(log_cat, "send message size = {}", msg.size());
 
     opt::client_tls client_tls{
         0, 
@@ -42,18 +43,38 @@ int main(int argc, char* argv[])
 
     log::debug(log_cat, "Calling 'client_connect'...");
     auto client = client_net.client_connect(client_local, client_remote, client_tls);
+
+    std::thread ev_thread{[&](){ 
+        client_net.ev_loop->run();
+
+        size_t counter = 0;
+        do
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+            if (++counter % 30 == 0)
+                std::cout << "waiting..." << "\n";
+        } while (run);
+    }};
+
+    log::debug(log_cat, "Main thread call");
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+    std::thread async_thread{[&](){
+        log::debug(log_cat, "Async thread called");
+        auto stream = client->open_stream();
+        stream->send(msg);
+    }};
     
-    log::debug(log_cat, "Starting event loop...");
-    client_net.ev_loop->run();
+    size_t counter = 0;
+    do
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        if (++counter % 30 == 0)
+            std::cout << "waiting..." << "\n";
+    } while (run);
+
+    async_thread.join();
+    ev_thread.join();
 
     return 0;
 }
-
-/*
-    TODO:
-        - start event loop in a separate thread
-            std::thread ev_thread{[&] { run_event_loop(); }};
-        - make other calls in another thread
-        - join threads
-            ev_thread.join
-*/

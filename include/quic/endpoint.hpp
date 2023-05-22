@@ -59,7 +59,7 @@ namespace oxen::quic
             call_async_all(async_callback_t async_cb);
 
             void
-            client_close();
+            close_conns();
 
             virtual std::shared_ptr<uvw::UDPHandle>
             get_handle(Address& addr) = 0;

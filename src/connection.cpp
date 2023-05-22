@@ -100,7 +100,7 @@ namespace oxen::quic
         void* stream_user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::info(log_cat, "Ack [%lu,%lu)", offset, offset + datalen);
+        log::info(log_cat, "Ack [{},{}]", offset, offset + datalen);
         return static_cast<Connection*>(user_data)->stream_ack(stream_id, datalen);
     }
 
@@ -249,6 +249,8 @@ namespace oxen::quic
         io_result rv{};
         bstring_view send_data{send_buffer.data(), send_buffer_size};
 
+        log::trace(log_cat, "Sending to {}: {}", path.remote.string_addr, buffer_printer{send_data});
+
         if (!send_data.empty())
             rv = endpoint->send_packet(path, send_data);
 
@@ -329,7 +331,7 @@ namespace oxen::quic
                 }
                 else if (bufs.empty())
                 {
-                    log::debug(log_cat, "pending() returned empty buffer, moving on");
+                    log::debug(log_cat, "pending() returned empty buffer for stream ID {}, moving on", stream.stream_id);
                     it = strs.erase(it);
                     continue;
                 }
@@ -598,15 +600,18 @@ namespace oxen::quic
     int
     Connection::stream_receive(int64_t id, bstring_view data, bool fin)
     {
+        log::trace(log_cat, "A");
         auto str = get_stream(id);
-
+        log::trace(log_cat, "B");
         if (!str->data_callback)
-            log::warning(log_cat, "Dropping incoming data on stream {}: stream has no data callback set", str->stream_id);
+            log::warning(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->stream_id);
         else
         {
             bool good = false;
+            log::trace(log_cat, "C");
             try
             {
+                log::trace(log_cat, "D");
                 str->data_callback(*str, data);
                 good = true;
             }
@@ -633,6 +638,7 @@ namespace oxen::quic
         }
         else
         {
+            log::trace(log_cat, "E");
             ngtcp2_conn_extend_max_stream_offset(conn.get(), id, data.size());
             ngtcp2_conn_extend_max_offset(conn.get(), data.size());
         }

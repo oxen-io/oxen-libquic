@@ -146,6 +146,9 @@ namespace oxen::quic
                 return server_ptr;
             };
 
+            void
+            close();
+            
         private:
             std::shared_ptr<Handler> quic_manager;
             std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_client_addrs;
@@ -165,6 +168,7 @@ namespace oxen::quic
 
             void
             signal_config();
+
 
     };
 

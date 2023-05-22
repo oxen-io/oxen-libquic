@@ -55,6 +55,9 @@ namespace oxen::quic
             void
             client_close();
 
+            void
+            close_all();
+
         private:
 			// Tracks client endpoints that are currently being managed by handler object
             std::vector<std::shared_ptr<ClientContext>> clients;

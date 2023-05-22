@@ -5,6 +5,7 @@
 
 #include <oxen/log.hpp>
 
+#include <thread>
 #include <uvw.hpp>
 
 #include <stdexcept>
@@ -62,17 +63,22 @@ namespace oxen::quic
         });
 
         if (signal->init())
-            signal->start(2);
+            signal->start(SIGINT);
+    }
+
+
+    void
+    Network::close()
+    {
+        quic_manager->close_all();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     }
 
 
     void
     Network::run()
     {
-        if (!ev_loop->alive())
-            ev_loop->run();
-        else
-            log::info(log_cat, "Event loop already alive");
+        ev_loop->run();
     }
 
 
@@ -86,7 +92,8 @@ namespace oxen::quic
 
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
 
-            log::trace(log_cat, "Client received packet from sender {}:{}", pkt.path.remote.ip.data(), pkt.path.remote.port);
+            log::trace(log_cat, "Client received packet from sender {}:{} (size = {}) with message: \n{}", 
+                pkt.path.remote.ip.data(), pkt.path.remote.port, data.size(), buffer_printer{data});
             log::trace(log_cat, "Searching client mapping for local address {}:{}", pkt.path.local.ip.data(), pkt.path.local.port);
             
             for (auto ctx : quic_manager->clients)
@@ -112,7 +119,8 @@ namespace oxen::quic
             
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
 
-            log::trace(log_cat, "Server received packet from sender {}:{}", pkt.path.remote.ip.data(), pkt.path.remote.port);
+            log::trace(log_cat, "Server received packet from sender {}:{} (size = {}) with message: \n{}", 
+                pkt.path.remote.ip.data(), pkt.path.remote.port, data.size(), buffer_printer{data});
             log::trace(log_cat, "Searching server mapping for local address {}:{}", pkt.path.local.ip.data(), pkt.path.local.port);
 
             auto itr = quic_manager->servers.find(pkt.path.local);
