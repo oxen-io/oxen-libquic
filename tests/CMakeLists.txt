@@ -20,10 +20,7 @@ add_executable(
     test_server.cpp)
 target_link_libraries(test_server PUBLIC quic)
 
-# example integration of Catch2 using custom main
-#add_executable(
-#    foo-main
-#    foo.cpp
-#    foo-main.cpp)
-#target_link_libraries(foo-main PRIVATE Catch2::Catch2)
-
+add_executable(
+    test_multiclient
+    test_multiclient.cpp)
+target_link_libraries(test_multiclient PUBLIC quic)

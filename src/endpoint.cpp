@@ -1,16 +1,15 @@
 #include "endpoint.hpp"
-#include "connection.hpp"
-#include "handler.hpp"
-#include "utils.hpp"
 
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/version.h>
 
+#include <cstddef>
+#include <optional>
 #include <uvw.hpp>
 
-#include <optional>
-#include <cstddef>
-
+#include "connection.hpp"
+#include "handler.hpp"
+#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -19,7 +18,7 @@ namespace oxen::quic
         handler = quic_manager;
 
         expiry_timer = get_loop()->resource<uvw::TimerHandle>();
-        expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&){ check_timeouts(); });
+        expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&) { check_timeouts(); });
         expiry_timer->start(250ms, 250ms);
 
         log::info(log_cat, "Successfully created QUIC endpoint");
@@ -35,19 +34,16 @@ namespace oxen::quic
     // }
 
     // adds async_cb to all connections; intended use is async shutdown of connections
-    void
-    Endpoint::call_async_all(async_callback_t async_cb)
+    void Endpoint::call_async_all(async_callback_t async_cb)
     {
         for (const auto& c : conns)
             c.second->io_trigger->on<uvw::AsyncEvent>(async_cb);
-        
+
         // for (const auto& c : conns)
         //     c.second->io_ready();
     }
 
-
-    void
-    Endpoint::close_conns()
+    void Endpoint::close_conns()
     {
         for (const auto& c : conns)
         {
@@ -55,16 +51,12 @@ namespace oxen::quic
         }
     }
 
-
-    std::shared_ptr<uvw::Loop>
-    Endpoint::get_loop()
+    std::shared_ptr<uvw::Loop> Endpoint::get_loop()
     {
         return (handler->ev_loop) ? handler->ev_loop : nullptr;
     }
 
-
-    void
-    Endpoint::handle_packet(Packet& pkt)
+    void Endpoint::handle_packet(Packet& pkt)
     {
         auto dcid_opt = handle_initial_packet(pkt);
 
@@ -83,7 +75,7 @@ namespace oxen::quic
         if (!cptr)
         {
             cptr = accept_initial_connection(pkt, dcid);
-            
+
             if (!cptr)
             {
                 log::warning(log_cat, "Error: connection could not be created");
@@ -95,20 +87,20 @@ namespace oxen::quic
         return;
     }
 
-
-    void
-    Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
+    void Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.source_cid.data);
 
         if (!conn || conn.closing || conn.draining)
             return;
-        
+
         if (code == NGTCP2_ERR_IDLE_CLOSE)
         {
-            log::info(log_cat, 
-                "Connection (CID: {}) passed idle expiry timer; closing now without close packet", 
-                *conn.source_cid.data);
+            log::info(
+                    log_cat,
+                    "Connection (CID: {}) passed idle expiry timer; closing now without close "
+                    "packet",
+                    *conn.source_cid.data);
             delete_connection(conn.source_cid);
             return;
         }
@@ -118,29 +110,30 @@ namespace oxen::quic
         //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
         if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
-            log::info(log_cat, "Connection (CID: {}) passed idle expiry timer; closing now with close packet", 
-                *conn.source_cid.data);
+            log::info(
+                    log_cat,
+                    "Connection (CID: {}) passed idle expiry timer; closing now with close packet",
+                    *conn.source_cid.data);
         }
 
         ngtcp2_connection_close_error err;
         ngtcp2_connection_close_error_set_transport_error_liberr(
-            &err, 
-            code, 
-            reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), 
-            msg.size());
-        
+                &err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+
         conn.conn_buffer.resize(max_pkt_size_v4);
         Path path;
         ngtcp2_pkt_info pkt_info;
 
         auto written = ngtcp2_conn_write_connection_close(
-            conn, path, &pkt_info, u8data(conn.conn_buffer), conn.conn_buffer.size(), &err, get_timestamp());
+                conn, path, &pkt_info, u8data(conn.conn_buffer), conn.conn_buffer.size(), &err, get_timestamp());
 
         if (written <= 0)
         {
-            log::warning(log_cat, "Error: Failed to write connection close packet: {}", (written < 0) ? 
-                strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
-            
+            log::warning(
+                    log_cat,
+                    "Error: Failed to write connection close packet: {}",
+                    (written < 0) ? strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
+
             delete_connection(conn.source_cid);
             return;
         }
@@ -149,15 +142,16 @@ namespace oxen::quic
 
         if (auto rv = send_packet(conn.path, conn.conn_buffer); not rv)
         {
-            log::warning(log_cat, "Error: failed to send close packet [code: {}]; removing connection [CID: {}]", 
-                strerror(rv.error_code), *conn.source_cid.data);
+            log::warning(
+                    log_cat,
+                    "Error: failed to send close packet [code: {}]; removing connection [CID: {}]",
+                    strerror(rv.error_code),
+                    *conn.source_cid.data);
             delete_connection(conn.source_cid);
         }
     }
 
-
-    void
-    Endpoint::delete_connection(const ConnectionID &cid)
+    void Endpoint::delete_connection(const ConnectionID& cid)
     {
         auto target = conns.find(cid);
         if (target == conns.end())
@@ -173,19 +167,17 @@ namespace oxen::quic
             c_ptr->on_closing(*c_ptr);
             c_ptr->on_closing = nullptr;
         }
-        
+
         conns.erase(target);
     }
 
-
-    std::optional<ConnectionID>
-    Endpoint::handle_initial_packet(Packet& pkt)
+    std::optional<ConnectionID> Endpoint::handle_initial_packet(Packet& pkt)
     {
         ngtcp2_version_cid vid;
         auto rv = ngtcp2_pkt_decode_version_cid(&vid, u8data(pkt.data), pkt.data.size(), NGTCP2_MAX_CIDLEN);
 
         if (rv == NGTCP2_ERR_VERSION_NEGOTIATION)
-        {   // version negotiation has not been sent yet, ignore packet
+        {  // version negotiation has not been sent yet, ignore packet
             send_version_negotiation(vid, pkt.path);
             return std::nullopt;
         }
@@ -204,13 +196,12 @@ namespace oxen::quic
         return std::make_optional<ConnectionID>(vid.dcid, vid.dcidlen);
     }
 
-
-    void
-    Endpoint::handle_conn_packet(Connection& conn, Packet& pkt)
+    void Endpoint::handle_conn_packet(Connection& conn, Packet& pkt)
     {
         if (auto rv = ngtcp2_conn_is_in_closing_period(conn); rv != 0)
         {
-            log::debug(log_cat, "Error: connection (CID: {}) is in closing period; dropping connection", *conn.source_cid.data);
+            log::debug(
+                    log_cat, "Error: connection (CID: {}) is in closing period; dropping connection", *conn.source_cid.data);
             delete_connection(conn.source_cid);
             return;
         }
@@ -220,25 +211,20 @@ namespace oxen::quic
             log::debug(log_cat, "Error: connection is already draining; dropping");
         }
 
-        log::trace(log_cat, "{}", (read_packet(pkt, conn)) ? 
-            "Done with incoming packet"s :
-            "Read packet failed"s);
+        log::trace(log_cat, "{}", (read_packet(pkt, conn)) ? "Done with incoming packet"s : "Read packet failed"s);
     }
 
-
-    io_result
-    Endpoint::read_packet(Packet& pkt, Connection& conn)
+    io_result Endpoint::read_packet(Packet& pkt, Connection& conn)
     {
-        auto rv = 
-            ngtcp2_conn_read_pkt(conn, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), get_timestamp());
+        auto rv = ngtcp2_conn_read_pkt(conn, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), get_timestamp());
 
-        switch (rv) 
+        switch (rv)
         {
-            case 0:
-                conn.io_ready();
+            case 0: 
+                conn.io_ready(); 
                 break;
-            case NGTCP2_ERR_DRAINING:
-                log::debug(log_cat, "Draining connection {}", *conn.source_cid.data);
+            case NGTCP2_ERR_DRAINING: 
+                log::debug(log_cat, "Draining connection {}", *conn.source_cid.data); 
                 break;
             case NGTCP2_ERR_PROTO:
                 log::debug(log_cat, "Closing connection {} due to error {}", *conn.source_cid.data, ngtcp2_strerror(rv));
@@ -251,7 +237,12 @@ namespace oxen::quic
                 break;
             case NGTCP2_ERR_CRYPTO:
                 // drop conn without calling ngtcp2_conn_write_connection_close()
-                log::debug(log_cat, "Dropping connection {} due to error {}", *conn.source_cid.data, ngtcp2_conn_get_tls_alert(conn));
+                log::debug(
+                        log_cat,
+                        "Dropping connection {} due to error {} (code: {})",
+                        *conn.source_cid.data,
+                        ngtcp2_conn_get_tls_alert(conn),
+                        ngtcp2_strerror(rv));
                 delete_connection(conn.source_cid);
                 break;
             default:
@@ -263,9 +254,7 @@ namespace oxen::quic
         return {rv};
     }
 
-
-    io_result
-    Endpoint::send_packet(Address& remote, bstring_view data)
+    io_result Endpoint::send_packet(Address& remote, bstring_view data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto handle = get_handle(remote);
@@ -279,24 +268,20 @@ namespace oxen::quic
         return io_result{0};
     }
 
-
-    io_result
-    Endpoint::send_packet(Path& p, bstring_view data)
+    io_result Endpoint::send_packet(Path& p, bstring_view data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto handle = get_handle(p);
 
         assert(handle != nullptr);
-        
+
         log::info(log_cat, "Sending udp to {}:{}...", p.remote.ip.c_str(), p.remote.port);
         handle->send(p.remote, const_cast<char*>(reinterpret_cast<const char*>(data.data())), data.length());
 
         return io_result{0};
     }
 
-
-    void
-    Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, Path& p)
+    void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, Path& p)
     {
         auto randgen = make_mt19937();
         std::array<std::byte, max_pkt_size_v4> _buf;
@@ -306,15 +291,15 @@ namespace oxen::quic
         versions[0] = 0x1a2a3a4au;
 
         auto nwrite = ngtcp2_pkt_write_version_negotiation(
-            u8data(_buf),
-            _buf.size(),
-            std::uniform_int_distribution<uint8_t>()(randgen),
-            vid.dcid,
-            vid.dcidlen,
-            vid.scid,
-            vid.scidlen,
-            versions.data(),
-            versions.size());
+                u8data(_buf),
+                _buf.size(),
+                std::uniform_int_distribution<uint8_t>()(randgen),
+                vid.dcid,
+                vid.dcidlen,
+                vid.scid,
+                vid.scidlen,
+                versions.data(),
+                versions.size());
         if (nwrite <= 0)
         {
             log::warning(log_cat, "Error: Failed to construct version negotiation packet: {}", ngtcp2_strerror(nwrite));
@@ -324,9 +309,7 @@ namespace oxen::quic
         send_packet(p, bstring_view{_buf.data(), static_cast<size_t>(nwrite)});
     }
 
-
-    void
-    Endpoint::check_timeouts()
+    void Endpoint::check_timeouts()
     {
         auto now = get_timestamp();
 
@@ -341,15 +324,13 @@ namespace oxen::quic
         }
     }
 
-
-    std::shared_ptr<Connection>
-    Endpoint::get_conn(ConnectionID ID)
+    std::shared_ptr<Connection> Endpoint::get_conn(ConnectionID ID)
     {
         auto it = conns.find(ID);
-        
+
         if (it == conns.end())
             return nullptr;
 
         return it->second;
     }
-}   // namespace oxen::quic
+}  // namespace oxen::quic

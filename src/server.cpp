@@ -1,12 +1,12 @@
 #include "server.hpp"
-#include "connection.hpp"
-#include "crypto.hpp"
 
 #include <ngtcp2/ngtcp2.h>
 
-#include <memory>
 #include <cstddef>
+#include <memory>
 
+#include "connection.hpp"
+#include "crypto.hpp"
 
 namespace oxen::quic
 {
@@ -18,9 +18,7 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-
-    std::shared_ptr<uvw::UDPHandle>
-    Server::get_handle(Address& addr)
+    std::shared_ptr<uvw::UDPHandle> Server::get_handle(Address& addr)
     {
         // server handles are indexed by local bind addr
         auto handle = context->udp_handles.find(addr);
@@ -28,12 +26,11 @@ namespace oxen::quic
         return (handle != context->udp_handles.end()) ? handle->second.first : nullptr;
     }
 
-
-    std::shared_ptr<uvw::UDPHandle>
-    Server::get_handle(Path& p)
+    std::shared_ptr<uvw::UDPHandle> Server::get_handle(Path& p)
     {
-        // because server handles are indexed by local bind addr, when we call connection::send(), the remote
-        // address is passed. as a result, this overload allows us to pass a path (s.t. we can find by local addr)
+        // because server handles are indexed by local bind addr, when we call connection::send(),
+        // the remote address is passed. as a result, this overload allows us to pass a path (s.t.
+        // we can find by local addr)
         for (const auto& h : context->udp_handles)
         {
             if (p.local == h.first)
@@ -43,9 +40,7 @@ namespace oxen::quic
         return nullptr;
     }
 
-
-    std::shared_ptr<Connection>
-    Server::accept_initial_connection(Packet& pkt, ConnectionID& dcid)
+    std::shared_ptr<Connection> Server::accept_initial_connection(Packet& pkt, ConnectionID& dcid)
     {
         log::info(log_cat, "Accepting new connection...");
 
@@ -53,15 +48,21 @@ namespace oxen::quic
 
         auto rv = ngtcp2_accept(&hdr, u8data(pkt.data), pkt.data.size());
 
-        if (rv < 0) // catches all other possible ngtcp2 errors
+        if (rv < 0)  // catches all other possible ngtcp2 errors
         {
-            log::warning(log_cat, "Warning: unexpected packet received, length={}, code={}, continuing...", 
-                pkt.data.size(), ngtcp2_strerror(rv));
+            log::warning(
+                    log_cat,
+                    "Warning: unexpected packet received, length={}, code={}, continuing...",
+                    pkt.data.size(),
+                    ngtcp2_strerror(rv));
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
-            log::error(log_cat, "Error: 0RTT is currently not utilized in this implementation; dropping packet");
+            log::error(
+                    log_cat,
+                    "Error: 0RTT is currently not utilized in this implementation; dropping "
+                    "packet");
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_INITIAL && hdr.tokenlen)
@@ -75,19 +76,29 @@ namespace oxen::quic
         auto result = context->udp_handles.find(pkt.path.local);
         if (result == context->udp_handles.end())
             return nullptr;
-        
-        auto ctx = result->second.second;
-        auto handle = result->second.first;
+
+        // auto handle = result->second.first;
+        auto _ctx = std::dynamic_pointer_cast<GNUTLSContext>(result->second.second);
+
+        // if this is the first connection, take the exact TLS context from UDP_handles; if not,
+        // construct a new one in-place using only the cert/key pair
+        auto ctx = (context->udp_handles.size() > 1) ? 
+            opt::server_tls{_ctx->gcert.keyfile, _ctx->gcert.certfile}.into_context() :
+            _ctx;
 
         for (;;)
         {
             if (auto [itr, res] = conns.emplace(ConnectionID::random(), std::shared_ptr<Connection>{}); res)
             {
                 auto conn = std::make_shared<Connection>(this, handler, itr->first, hdr, pkt.path, ctx);
-                log::debug(log_cat, "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})", *conn->source_cid.data, *conn->dest_cid.data);
+                log::debug(
+                        log_cat,
+                        "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})",
+                        *conn->source_cid.data,
+                        *conn->dest_cid.data);
                 itr->second = conn;
                 return conn;
             }
         }
     }
-}   // namespace oxen::quic
+}  // namespace oxen::quic

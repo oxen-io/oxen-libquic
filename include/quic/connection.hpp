@@ -1,23 +1,21 @@
 #pragma once
 
+#include <ngtcp2/ngtcp2.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <cstdio>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <uvw.hpp>
+#include <variant>
+
+#include "context.hpp"
 #include "crypto.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
-#include "context.hpp"
-
-#include <ngtcp2/ngtcp2.h>
-
-#include <uvw.hpp>
-
-#include <map>
-#include <optional>
-#include <functional>
-#include <variant>
-#include <memory>
-#include <stddef.h>
-#include <stdint.h>
-#include <cstdio>
-
 
 namespace oxen::quic
 {
@@ -28,145 +26,128 @@ namespace oxen::quic
 
     class Connection : public std::enable_shared_from_this<Connection>
     {
-        private:
+      private:
+        struct connection_deleter
+        {
+            inline void operator()(ngtcp2_conn* c) const { ngtcp2_conn_del(c); }
+        };
 
-            struct connection_deleter
-            {
-                inline void
-                operator()(ngtcp2_conn* c) const 
-                { ngtcp2_conn_del(c); }
-            };
+        int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
-            int
-            init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
+        std::array<std::byte, NGTCP2_MAX_UDP_PAYLOAD_SIZE> send_buffer{};
+        size_t send_buffer_size = 0;
+        ngtcp2_pkt_info pkt_info{};
 
-            std::array<std::byte, NGTCP2_MAX_UDP_PAYLOAD_SIZE> send_buffer{};
-            size_t send_buffer_size = 0;
-            ngtcp2_pkt_info pkt_info{};
+      public:
+        // underlying ngtcp2 connection object
+        std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
+        // ngtcp2_crypto_conn_ref conn_ref;
+        std::shared_ptr<TLSContext> tls_context;
+        std::shared_ptr<uvw::UDPHandle> udp_handle;
 
-        public:
-            // underlying ngtcp2 connection object
-            std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
-            // ngtcp2_crypto_conn_ref conn_ref;
-            std::shared_ptr<TLSContext> tls_context;
-            std::shared_ptr<uvw::UDPHandle> udp_handle;
+        Address local;
+        Address remote;
 
-            Address local;
-            Address remote;
+        std::shared_ptr<uvw::TimerHandle> retransmit_timer;
 
-            std::shared_ptr<uvw::TimerHandle> retransmit_timer;
+        // Create and establish a new connection from local client to remote server
+        //      ep: tunnel object managing this connection
+        //      scid: source/local ("primary") CID used for this connection (usually random)
+        //      path: network path to reach remote server
+        //      tunnel_port: destination port to tunnel to at remote end
+        Connection(
+                Client* client,
+                std::shared_ptr<Handler> ep,
+                const ConnectionID& scid,
+                const Path& path,
+                std::shared_ptr<uvw::UDPHandle> handle);
 
-            // Create and establish a new connection from local client to remote server
-            //      ep: tunnel object managing this connection
-            //      scid: source/local ("primary") CID used for this connection (usually random)
-            //      path: network path to reach remote server
-            //      tunnel_port: destination port to tunnel to at remote end
-            Connection(
-                Client* client, std::shared_ptr<Handler> ep, const ConnectionID& scid, const Path& path, std::shared_ptr<uvw::UDPHandle> handle);
+        // Construct and initialize a new incoming connection from remote client to local server
+        //      ep: tunnel objec tmanaging this connection
+        //      scid: local ("primary") CID usd for this connection (usually random)
+        //      header: packet header used to initialize connection
+        //      path: network path used to reach remote client
+        Connection(
+                Server* server,
+                std::shared_ptr<Handler> ep,
+                const ConnectionID& scid,
+                ngtcp2_pkt_hd& hdr,
+                const Path& path,
+                std::shared_ptr<TLSContext> ctx);
 
-            // Construct and initialize a new incoming connection from remote client to local server
-            //      ep: tunnel objec tmanaging this connection
-            //      scid: local ("primary") CID usd for this connection (usually random)
-            //      header: packet header used to initialize connection
-            //      path: network path used to reach remote client
-            Connection(
-                Server* server, std::shared_ptr<Handler> ep, const ConnectionID& scid, ngtcp2_pkt_hd& hdr, const Path& path, std::shared_ptr<TLSContext> ctx);
+        ~Connection();
 
-            ~Connection();
+        // Callbacks to be invoked if set
+        std::function<void(Connection&)> on_stream_available;
+        std::function<void(Connection&)> on_closing;  // clear immediately after use
 
-            // Callbacks to be invoked if set
-            std::function<void(Connection&)> on_stream_available;
-            std::function<void(Connection&)> on_closing;            // clear immediately after use
+        const std::shared_ptr<Stream>& open_stream(
+                stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
-            const std::shared_ptr<Stream>& 
-            open_stream(stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+        void on_io_ready();
 
-            void
-            on_io_ready();
+        io_result send();
 
-            io_result
-            send();
+        void flush_streams();
 
-            void
-            flush_streams();
+        void io_ready();
 
-            void
-            io_ready();
+        std::shared_ptr<Server> server();
 
-            std::shared_ptr<Server>
-            server();
-            
-            std::shared_ptr<Client>
-            client();
-            
-            void
-            schedule_retransmit();
+        std::shared_ptr<Client> client();
 
-            int
-            init_gnutls(Client& client);
+        void schedule_retransmit();
 
-            int
-            init_gnutls(Server& server);
+        int init_gnutls(Client& client);
 
-            const std::shared_ptr<Stream>&
-            get_stream(int64_t ID) const;
+        int init_gnutls(Server& server);
 
-            int
-            stream_opened(int64_t id);
+        const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
 
-            int
-            stream_ack(int64_t id, size_t size);
+        int stream_opened(int64_t id);
 
-            int
-            stream_receive(int64_t id, bstring_view data, bool fin);
+        int stream_ack(int64_t id, size_t size);
 
-            void
-            stream_closed(int64_t id, uint64_t app_code);
+        int stream_receive(int64_t id, bstring_view data, bool fin);
 
-            int
-            get_streams_available();
+        void stream_closed(int64_t id, uint64_t app_code);
 
-            int
-            recv_initial_crypto(std::basic_string_view<uint8_t> data);
+        int get_streams_available();
 
-            // Buffer used to store non-stream connection data
-            //  ex: initial transport params
-            bstring conn_buffer;
+        int recv_initial_crypto(std::basic_string_view<uint8_t> data);
 
-            std::shared_ptr<Handler> quic_manager;
-            std::shared_ptr<Endpoint> endpoint;
+        // Buffer used to store non-stream connection data
+        //  ex: initial transport params
+        bstring conn_buffer;
 
-            const ConnectionID source_cid;
-            ConnectionID dest_cid;
+        std::shared_ptr<Handler> quic_manager;
+        std::shared_ptr<Endpoint> endpoint;
 
-            bool draining = false;
-            bool closing = false;
+        const ConnectionID source_cid;
+        ConnectionID dest_cid;
 
-            Path path;
+        bool draining = false;
+        bool closing = false;
 
-            std::map<int64_t, std::shared_ptr<Stream>> streams;
+        Path path;
 
-            ngtcp2_connection_close_error last_error;
+        std::map<int64_t, std::shared_ptr<Stream>> streams;
 
-            std::shared_ptr<uvw::AsyncHandle> io_trigger;
-            
-            // pass Connection as ngtcp2_conn object
-            operator const ngtcp2_conn*() const
-            { return conn.get(); }
-            operator ngtcp2_conn*()
-            { return conn.get(); }
-            operator ngtcp2_conn&()
-            { return *conn.get(); }
+        ngtcp2_connection_close_error last_error;
+
+        std::shared_ptr<uvw::AsyncHandle> io_trigger;
+
+        // pass Connection as ngtcp2_conn object
+        operator const ngtcp2_conn*() const { return conn.get(); }
+        operator ngtcp2_conn*() { return conn.get(); }
+        operator ngtcp2_conn&() { return *conn.get(); }
     };
-
 
     extern "C"
     {
-        ngtcp2_conn* 
-        get_conn(ngtcp2_crypto_conn_ref *conn_ref);
+        ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref* conn_ref);
 
-        void 
-        log_printer(void *user_data, const char *fmt, ...);
+        void log_printer(void* user_data, const char* fmt, ...);
     }
 
-}   // namespace oxen::quic
+}  // namespace oxen::quic

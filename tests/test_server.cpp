@@ -2,22 +2,18 @@
     Test server binary
 */
 
-#include "quic.hpp"
-
 #include <thread>
 
+#include "quic.hpp"
 
 using namespace oxen::quic;
 
-
 bool run{true};
 
-void
-signal_handler(int)
+void signal_handler(int)
 {
     run = false;
 }
-
 
 int main(int argc, char* argv[])
 {
@@ -29,10 +25,10 @@ int main(int argc, char* argv[])
     Network server_net{};
 
     opt::server_tls server_tls{
-        "/home/dan/oxen/libquicinet/tests/serverkey.pem"s, 
-        "/home/dan/oxen/libquicinet/tests/servercert.pem"s, 
-        "/home/dan/oxen/libquicinet/tests/clientcert.pem"s, 
-        1};
+            "/home/dan/oxen/libquicinet/tests/certs/serverkey.pem"s,
+            "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
+            "/home/dan/oxen/libquicinet/tests/certs/clientcert_a.pem"s,
+            1};
 
     opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
 
@@ -47,9 +43,9 @@ int main(int argc, char* argv[])
     {
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
         if (++counter % 30 == 0)
-            std::cout << "waiting..." << "\n";
+            std::cout << "waiting..."
+                      << "\n";
     } while (run);
 
     return 0;
 }
-

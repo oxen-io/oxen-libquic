@@ -1,29 +1,26 @@
 #pragma once
 
-#include <oxen/log.hpp>
-
+#include <arpa/inet.h>
+#include <gnutls/gnutls.h>
+#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
+#include <sys/socket.h>
 
-#include <gnutls/gnutls.h>
-
-#include <uvw.hpp>
-
-#include <iostream>
+#include <algorithm>
 #include <cassert>
 #include <chrono>
-#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <iostream>
+#include <oxen/log.hpp>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdexcept>
-#include <sys/socket.h>
-#include <filesystem>
+#include <uvw.hpp>
 
 /*
  * Example 1: Handshake with www.google.com
@@ -47,18 +44,26 @@ namespace oxen::quic
     namespace log = oxen::log;
 
     // Callbacks for async calls
-    using async_callback_t = std::function<void(const uvw::AsyncEvent& event, uvw::AsyncHandle &udp)>;
+    using async_callback_t = std::function<void(const uvw::AsyncEvent& event, uvw::AsyncHandle& udp)>;
     // Callbacks for opening quic connections and closing tunnels
     using open_callback = std::function<void(bool success, void* user_data)>;
     using close_callback = std::function<void(int rv, void* user_data)>;
-	// Callbacks for ev timer functionality
-	using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
-	using timer_callback = std::function<void(int nwrite, void* user_data)>;
-	// Callbacks for client/server TLS connectivity and authentication
-	using server_tls_callback_t = std::function<int(gnutls_session_t session, unsigned int htype,
-        unsigned int when, unsigned int incoming, const gnutls_datum_t* msg)>;
-    using client_tls_callback_t = std::function<int(gnutls_session_t session, unsigned int htype,
-        unsigned int when, unsigned int incoming, const gnutls_datum_t* msg)>;
+    // Callbacks for ev timer functionality
+    using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
+    using timer_callback = std::function<void(int nwrite, void* user_data)>;
+    // Callbacks for client/server TLS connectivity and authentication
+    using server_tls_callback_t = std::function<int(
+        gnutls_session_t session,
+        unsigned int htype,
+        unsigned int when,
+        unsigned int incoming,
+        const gnutls_datum_t* msg)>;
+    using client_tls_callback_t = std::function<int(
+        gnutls_session_t session,
+        unsigned int htype,
+        unsigned int when,
+        unsigned int incoming,
+        const gnutls_datum_t* msg)>;
     // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
     using server_data_callback_t = std::function<void(const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)>;
 
@@ -73,15 +78,16 @@ namespace oxen::quic
     static constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
     static constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
 
-    // Remote TCP connection was established and is now accepting stream data; the client is not allowed 
-    // to send any other data down the stream until this comes back (any data sent down the stream before 
-    // then is discarded)
+    // Remote TCP connection was established and is now accepting stream data; the client is not
+    // allowed to send any other data down the stream until this comes back (any data sent down the
+    // stream before then is discarded)
     static constexpr std::byte CONNECT_INIT{0x00};
     // Failure to establish an initial connection:
     static constexpr uint64_t ERROR_CONNECT{0x5471907};
     // Error for something other than CONNECT_INIT as the initial stream data from the server
     static constexpr uint64_t ERROR_BAD_INIT{0x5471908};
-    // Close error code sent if we get an error on the TCP socket (other than an initial connect failure)
+    // Close error code sent if we get an error on the TCP socket (other than an initial connect
+    // failure)
     static constexpr uint64_t ERROR_TCP{0x5471909};
     // Application error code we close with if the data handle throws
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = (1ULL << 62) - 2;
@@ -89,9 +95,10 @@ namespace oxen::quic
     inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
     // bstring_view literals baby
-    inline std::basic_string_view<std::byte>
-    operator""_bsv(const char* __str, size_t __len) noexcept
-    { return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len); }
+    inline std::basic_string_view<std::byte> operator""_bsv(const char* __str, size_t __len) noexcept
+    {
+        return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
+    }
 
     // We pause reading from the local TCP socket if we have more than this amount of outstanding
     // unacked data in the quic tunnel, then resume once it drops below this.
@@ -107,45 +114,35 @@ namespace oxen::quic
 
     // We send and verify this in the initial connection and handshake; this is designed to allow
     // future changes (by either breaking or handling backwards compat).
-    constexpr const std::array<uint8_t, 8> handshake_magic_bytes{
-        'l', 'o', 'k', 'i', 'n', 'e', 't', 0x01};
-    constexpr std::basic_string_view<uint8_t> handshake_magic{
-        handshake_magic_bytes.data(), handshake_magic_bytes.size()};
-    
+    constexpr const std::array<uint8_t, 8> handshake_magic_bytes{'l', 'o', 'k', 'i', 'n', 'e', 't', 0x01};
+    constexpr std::basic_string_view<uint8_t> handshake_magic{handshake_magic_bytes.data(), handshake_magic_bytes.size()};
+
     const char test_priority[] =
-        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
-        "+CHACHA20-POLY1305:+AES-128-CCM:-GROUP-ALL:+GROUP-SECP256R1:+GROUP-X25519:"
-        "+GROUP-SECP384R1:"
-        "+GROUP-SECP521R1:%DISABLE_TLS13_COMPAT_MODE";
-    
-    void
-    logger_config(
-        std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
+            "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM:+AES-256-GCM:"
+            "+CHACHA20-POLY1305:+AES-128-CCM:-GROUP-ALL:+GROUP-SECP256R1:+GROUP-X25519:"
+            "+GROUP-SECP384R1:"
+            "+GROUP-SECP521R1:%DISABLE_TLS13_COMPAT_MODE";
 
-    uint64_t
-    get_timestamp();
+    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
 
-    std::string
-    str_tolower(std::string s);
+    uint64_t get_timestamp();
+
+    std::string str_tolower(std::string s);
 
     std::mt19937 make_mt19937();
 
-    inline int 
-    numeric_host_family(const char *hostname, int family) 
+    inline int numeric_host_family(const char* hostname, int family)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-		uint8_t dst[sizeof(struct in6_addr)];
-		return inet_pton(family, hostname, dst) == 1;
-	}
-
-	inline int 
-    numeric_host(const char *hostname) 
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-		return numeric_host_family(hostname, AF_INET) ||
-			numeric_host_family(hostname, AF_INET6);
+        uint8_t dst[sizeof(struct in6_addr)];
+        return inet_pton(family, hostname, dst) == 1;
     }
 
+    inline int numeric_host(const char* hostname)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return numeric_host_family(hostname, AF_INET) || numeric_host_family(hostname, AF_INET6);
+    }
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
@@ -154,24 +151,16 @@ namespace oxen::quic
         ConnectionID(const ConnectionID& c) = default;
         ConnectionID(const uint8_t* cid, size_t length);
         ConnectionID(ngtcp2_cid c) : ConnectionID(c.data, c.datalen) {}
-        
-        ConnectionID&
-        operator=(const ConnectionID& c) = default;
 
-        inline bool
-        operator==(const ConnectionID& other) const
+        ConnectionID& operator=(const ConnectionID& c) = default;
+
+        inline bool operator==(const ConnectionID& other) const
         {
             return datalen == other.datalen && std::memcmp(data, other.data, datalen) == 0;
         }
-        inline bool
-        operator!=(const ConnectionID& other) const
-        { 
-            return !(*this == other);
-        }
-        static ConnectionID
-        random();
+        inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
+        static ConnectionID random();
     };
-
 
     // Wrapper for address types with helper functionalities, operators, etc. By inheriting from
     // uvw::Addr, we are able to use string/uint16_t representations of host/port through the API
@@ -180,102 +169,104 @@ namespace oxen::quic
     // a member of type ngtcp2_sockaddr, which is itself a typedef of sockaddr
     struct Address : public uvw::Addr
     {
-        private:
-            sockaddr_in _sock_addr{};
-            ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
+      private:
+        sockaddr_in _sock_addr{};
+        ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
 
-        public:
-            std::string string_addr;
+      public:
+        std::string string_addr;
 
-            Address() = default;
-            explicit Address(std::string addr, uint16_t port);
-            explicit Address(uvw::Addr addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
-            
-            Address(const Address& obj) { *this = obj; };
+        Address() = default;
+        explicit Address(std::string addr, uint16_t port);
+        explicit Address(uvw::Addr addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
 
-            inline Address& operator=(const Address& obj)
-            {
-                ip = obj.ip;
-                port = obj.port;
-                _addr = obj._addr;
-                string_addr = obj.string_addr;
-                std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
-                _addr.addrlen = obj._addr.addrlen;
-                return *this;
-            }
+        Address(const Address& obj) { *this = obj; };
 
-            // can pass Address object as boolean to check if addr is set
-            operator bool() const { return _sock_addr.sin_port; }
-            // template code to implicitly convert to uvw::Addr, sockaddr*, 
-            // sockaddr&, ngtcp2_addr&, and sockaddr_in&
-            template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
-            operator T*()
-            { return reinterpret_cast<sockaddr*>(&_sock_addr); }
-            template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
-            operator const T*() const
-            { return reinterpret_cast<const sockaddr*>(&_sock_addr); }
-            inline operator
-            sockaddr&() { return reinterpret_cast<sockaddr&>(_sock_addr); }
-            inline operator const
-            sockaddr&() const { return reinterpret_cast<const sockaddr&>(_sock_addr); }
-            inline operator
-            sockaddr_in&() { return _sock_addr; }
-            inline operator const
-            sockaddr_in&() const { return _sock_addr; }
-            inline operator 
-            ngtcp2_addr&() { return _addr; }
-            inline operator const 
-            ngtcp2_addr&() const { return _addr; }
+        inline Address& operator=(const Address& obj)
+        {
+            ip = obj.ip;
+            port = obj.port;
+            _addr = obj._addr;
+            string_addr = obj.string_addr;
+            std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
+            _addr.addrlen = obj._addr.addrlen;
+            return *this;
+        }
 
-            inline friend bool operator==(const Address& lhs, const uvw::Addr& rhs)
-            {
-                if ((lhs.ip != rhs.ip) || (lhs.port != rhs.port))
-                    return false;
-                return true;
-            }
+        // can pass Address object as boolean to check if addr is set
+        operator bool() const { return _sock_addr.sin_port; }
+        // template code to implicitly convert to uvw::Addr, sockaddr*,
+        // sockaddr&, ngtcp2_addr&, and sockaddr_in&
+        template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
+        operator T*()
+        {
+            return reinterpret_cast<sockaddr*>(&_sock_addr);
+        }
+        template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
+        operator const T*() const
+        {
+            return reinterpret_cast<const sockaddr*>(&_sock_addr);
+        }
+        inline operator sockaddr&() { return reinterpret_cast<sockaddr&>(_sock_addr); }
+        inline operator const sockaddr&() const { return reinterpret_cast<const sockaddr&>(_sock_addr); }
+        inline operator sockaddr_in&() { return _sock_addr; }
+        inline operator const sockaddr_in&() const { return _sock_addr; }
+        inline operator ngtcp2_addr&() { return _addr; }
+        inline operator const ngtcp2_addr&() const { return _addr; }
 
-            inline friend bool operator==(const Address& lhs, const Address& rhs)
-            {
-                if (lhs.string_addr != rhs.string_addr)
-                    return false;
-                return true;
-            }
+        inline friend bool operator==(const Address& lhs, const uvw::Addr& rhs)
+        {
+            if ((lhs.ip != rhs.ip) || (lhs.port != rhs.port))
+                return false;
+            return true;
+        }
 
-            inline ngtcp2_socklen 
-            sockaddr_size() const { return sizeof(sockaddr_in); }
+        inline friend bool operator==(const Address& lhs, const Address& rhs)
+        {
+            if (lhs.string_addr != rhs.string_addr)
+                return false;
+            return true;
+        }
+
+        inline ngtcp2_socklen sockaddr_size() const { return sizeof(sockaddr_in); }
     };
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
     // to ngtcp2_path*
     struct Path
     {
-        private:
-            Address _local, _remote;
+      private:
+        Address _local, _remote;
 
-        public:
-            ngtcp2_path path{ 
-                {_local, _local.sockaddr_size()}, {_remote, _remote.sockaddr_size()}, nullptr};
+      public:
+        ngtcp2_path path{{_local, _local.sockaddr_size()}, {_remote, _remote.sockaddr_size()}, nullptr};
 
-            Address& local = _local;
-            Address& remote = _remote;
-            
-            Path() = default;
-            Path(const Address& l, const Address& r) : _local{l}, _remote{r} {}
-            Path(const uvw::Addr& l, const uvw::Addr& r) : _local{l}, _remote{r} {}
-            Path(const Path& p) : Path{p.local, p.remote} {}
+        Address& local = _local;
+        Address& remote = _remote;
 
-            Path& operator=(const Path& p)
-            {
-                _local = p._local;
-                _remote = p._remote;
-                return *this;
-            }
+        Path() = default;
+        Path(const Address& l, const Address& r) : _local{l}, _remote{r} {}
+        Path(const uvw::Addr& l, const uvw::Addr& r) : _local{l}, _remote{r} {}
+        Path(const Path& p) : Path{p.local, p.remote} {}
 
-            // template code to pass Path into ngtcp2 functions
-            template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
-            operator T*() { return &path; }
-            template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
-            operator const T*() const { return &path; }
+        Path& operator=(const Path& p)
+        {
+            _local = p._local;
+            _remote = p._remote;
+            return *this;
+        }
+
+        // template code to pass Path into ngtcp2 functions
+        template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
+        operator T*()
+        {
+            return &path;
+        }
+        template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
+        operator const T*() const
+        {
+            return &path;
+        }
     };
 
     // Simple struct wrapping a packet and its corresponding information
@@ -295,7 +286,7 @@ namespace oxen::quic
         operator bool() const { return error_code == 0; }
         // returns true if error value indicates a failure to write
         // without blocking
-        bool blocked() const { return error_code == 11; } // EAGAIN = 11
+        bool blocked() const { return error_code == 11; }  // EAGAIN = 11
         // returns error code as string
         std::string_view str() const { return strerror(error_code); }
     };
@@ -303,26 +294,19 @@ namespace oxen::quic
     // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
     // pointer, because we need it all over the place in the ngtcp2 API
     template <
-        typename Container,
-        typename = std::enable_if_t<
-            sizeof(typename std::remove_reference_t<Container>::value_type) == sizeof(uint8_t)>>
-    auto*
-    u8data(Container&& c)
+            typename Container,
+            typename = std::enable_if_t<sizeof(typename std::remove_reference_t<Container>::value_type) == sizeof(uint8_t)>>
+    auto* u8data(Container&& c)
     {
-        using u8_sameconst_t = std::conditional_t<
-            std::is_const_v<std::remove_pointer_t<decltype(c.data())>>,
-            const uint8_t,
-            uint8_t>;
+        using u8_sameconst_t =
+                std::conditional_t<std::is_const_v<std::remove_pointer_t<decltype(c.data())>>, const uint8_t, uint8_t>;
         return reinterpret_cast<u8_sameconst_t*>(c.data());
     }
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type
-    template <
-        typename CharOut, typename CharIn, 
-        std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
-    std::basic_string_view<CharOut> 
-    convert_sv(std::basic_string_view<CharIn> in) 
+    template <typename CharOut, typename CharIn, std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
+    std::basic_string_view<CharOut> convert_sv(std::basic_string_view<CharIn> in)
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
     }
@@ -330,27 +314,31 @@ namespace oxen::quic
     // Namespacing for named address arguments in API calls
     namespace opt
     {
-        struct local_addr : public Address { using Address::Address; };
-        struct remote_addr : public Address { using Address::Address; };
-    }   // namespace oxen::quic::opt
+        struct local_addr : public Address
+        {
+            using Address::Address;
+        };
+        struct remote_addr : public Address
+        {
+            using Address::Address;
+        };
+    }  // namespace opt
 
-
-      struct buffer_printer
+    struct buffer_printer
     {
         std::basic_string_view<std::byte> buf;
 
-        // Constructed from any type of string_view<T> for a single-byte T (char, std::byte, uint8_t,
-        // etc.)
+        // Constructed from any type of string_view<T> for a single-byte T (char, std::byte,
+        // uint8_t, etc.)
         template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
-        explicit buffer_printer(std::basic_string_view<T> buf)
-            : buf{reinterpret_cast<const std::byte*>(buf.data()), buf.size()}
+        explicit buffer_printer(std::basic_string_view<T> buf) :
+                buf{reinterpret_cast<const std::byte*>(buf.data()), buf.size()}
         {}
 
-        // Constructed from any type of lvalue string<T> for a single-byte T (char, std::byte, uint8_t,
-        // etc.)
+        // Constructed from any type of lvalue string<T> for a single-byte T (char, std::byte,
+        // uint8_t, etc.)
         template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
-        explicit buffer_printer(const std::basic_string<T>& buf)
-            : buffer_printer(std::basic_string_view<T>{buf})
+        explicit buffer_printer(const std::basic_string<T>& buf) : buffer_printer(std::basic_string_view<T>{buf})
         {}
 
         // *Not* constructable from a string<T> rvalue (because we only hold a view and do not take
@@ -360,12 +348,10 @@ namespace oxen::quic
 
         // Constructable from a (T*, size) argument pair, for byte-sized T's.
         template <typename T, typename = std::enable_if_t<sizeof(T) == 1>>
-        explicit buffer_printer(const T* data, size_t size)
-            : buffer_printer(std::basic_string_view<T>{data, size})
+        explicit buffer_printer(const T* data, size_t size) : buffer_printer(std::basic_string_view<T>{data, size})
         {}
 
-        inline std::string
-        ToString() const
+        inline std::string ToString() const
         {
             auto& b = buf;
             std::string out;
@@ -407,21 +393,20 @@ namespace oxen::quic
     template <>
     constexpr inline bool IsToStringFormattable<buffer_printer> = true;
 
-}   // namespace oxen::quic
+}  // namespace oxen::quic
 
 namespace std
 {
-    // Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection> 
+    // Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection>
     // is able to call its implicit constructor
     template <>
     struct hash<oxen::quic::ConnectionID>
     {
-        size_t
-        operator()(const oxen::quic::ConnectionID& cid) const
+        size_t operator()(const oxen::quic::ConnectionID& cid) const
         {
             static_assert(
-                alignof(oxen::quic::ConnectionID) >= alignof(size_t)
-                && offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
+                    alignof(oxen::quic::ConnectionID) >= alignof(size_t) &&
+                    offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
             return *reinterpret_cast<const size_t*>(cid.data);
         }
     };
@@ -429,14 +414,9 @@ namespace std
     template <>
     struct hash<oxen::quic::Address>
     {
-        size_t
-        operator()(const oxen::quic::Address& addr) const
-        {
-            return std::hash<std::string>{}(addr.string_addr);
-        }
+        size_t operator()(const oxen::quic::Address& addr) const { return std::hash<std::string>{}(addr.string_addr); }
     };
-}   // namespace std
-
+}  // namespace std
 
 namespace fmt
 {
@@ -444,8 +424,7 @@ namespace fmt
     struct formatter<T, char, std::enable_if_t<oxen::quic::IsToStringFormattable<T>>> : formatter<std::string_view>
     {
         template <typename FormatContext>
-        auto
-        format(const T& val, FormatContext& ctx) const
+        auto format(const T& val, FormatContext& ctx) const
         {
             return formatter<std::string_view>::format(val.ToString(), ctx);
         }

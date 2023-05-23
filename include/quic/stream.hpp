@@ -1,166 +1,140 @@
 #pragma once
 
-#include "utils.hpp"
-
 #include <ngtcp2/ngtcp2.h>
-
-#include <uvw.hpp>
-
-#include <queue>
-#include <any>
-#include <variant>
-#include <functional>
-#include <cassert>
-#include <memory>
 #include <stddef.h>
 #include <stdint.h>
-#include <vector>
-#include <deque>
 
+#include <any>
+#include <cassert>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <queue>
+#include <uvw.hpp>
+#include <variant>
+#include <vector>
+
+#include "utils.hpp"
 
 namespace oxen::quic
 {
-	class Connection;
-	class Stream;
-    
-	using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
-	using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
-	using unblocked_callback_t = std::function<bool(Stream&)>;
+    class Connection;
+    class Stream;
 
-	class Stream : public std::enable_shared_from_this<Stream>
-	{
-		public:
-			explicit Stream(
-				Connection& conn, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr, int64_t stream_id = -1);
-			explicit Stream(Connection& conn, int64_t stream_id = -1);
-			~Stream();
+    using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
+    using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+    using unblocked_callback_t = std::function<bool(Stream&)>;
 
-			stream_data_callback_t data_callback;
-			stream_close_callback_t close_callback;
-			Connection& conn;
+    class Stream : public std::enable_shared_from_this<Stream>
+    {
+      public:
+        explicit Stream(
+                Connection& conn,
+                stream_data_callback_t data_cb = nullptr,
+                stream_close_callback_t close_cb = nullptr,
+                int64_t stream_id = -1);
+        explicit Stream(Connection& conn, int64_t stream_id = -1);
+        ~Stream();
 
-			int64_t stream_id{-1};
-			std::shared_ptr<uvw::UDPHandle> udp_handle;
-			std::vector<uint8_t> data;
-			size_t datalen;
-			size_t nwrite;
-			
-            std::deque<std::pair<bstring_view, std::any>> user_buffers;
+        stream_data_callback_t data_callback;
+        stream_close_callback_t close_callback;
+        Connection& conn;
 
-			Connection&
-			get_conn();
+        int64_t stream_id{-1};
+        std::shared_ptr<uvw::UDPHandle> udp_handle;
+        std::vector<uint8_t> data;
+        size_t datalen;
+        size_t nwrite;
 
-			void
-			close(uint64_t error_code = 0);
+        std::deque<std::pair<bstring_view, std::any>> user_buffers;
 
-			void
-			io_ready();
+        Connection& get_conn();
 
-			void
-			available_ready();
+        void close(uint64_t error_code = 0);
 
-			void
-			wrote(size_t bytes);
+        void io_ready();
 
-			void
-			when_available(unblocked_callback_t unblocked_cb);
+        void available_ready();
 
-			void
-			append_buffer(bstring_view buffer, std::any keep_alive);
+        void wrote(size_t bytes);
 
-			void
-			acknowledge(size_t bytes);
+        void when_available(unblocked_callback_t unblocked_cb);
 
-			inline bool
-			available() const
-			{ return !(is_closing || is_shutdown || sent_fin); }
+        void append_buffer(bstring_view buffer, std::any keep_alive);
 
-			inline size_t
-			size() const
-			{
-				size_t sum{0};
-				if (user_buffers.empty())
-					return sum;
-				for (const auto& [data, store] : user_buffers)
-					sum += data.size();
-				return sum;
-			}
+        void acknowledge(size_t bytes);
 
-			inline size_t
-			unacked() const
-			{ return unacked_size; }
+        inline bool available() const { return !(is_closing || is_shutdown || sent_fin); }
 
-			inline size_t
-			unsent() const
-			{ 
-				log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-				return size() - unacked(); 
-			}
+        inline size_t size() const
+        {
+            size_t sum{0};
+            if (user_buffers.empty())
+                return sum;
+            for (const auto& [data, store] : user_buffers)
+                sum += data.size();
+            return sum;
+        }
 
-			// Retrieve stashed data with static cast to desired type
-			template <typename T>
-			std::shared_ptr<T>
-			get_user_data() const
-			{ return std::static_pointer_cast<T>(std::holds_alternative<std::shared_ptr<void>>(user_data) ? 
-					std::get<std::shared_ptr<void>>(user_data) : 
-					std::get<std::weak_ptr<void>>(user_data).lock()); 
-			}
+        inline size_t unacked() const { return unacked_size; }
 
-			void
-			set_user_data(std::shared_ptr<void> data);
+        inline size_t unsent() const
+        {
+            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+            return size() - unacked();
+        }
 
-            void 
-            send(bstring_view data, std::any keep_alive);
+        // Retrieve stashed data with static cast to desired type
+        template <typename T>
+        std::shared_ptr<T> get_user_data() const
+        {
+            return std::static_pointer_cast<T>(
+                    std::holds_alternative<std::shared_ptr<void>>(user_data)
+                            ? std::get<std::shared_ptr<void>>(user_data)
+                            : std::get<std::weak_ptr<void>>(user_data).lock());
+        }
 
+        void set_user_data(std::shared_ptr<void> data);
 
-			inline void
-			send(bstring_view data)
-			{
-				return send(data, std::move(data));
-			}
+        void send(bstring_view data, std::any keep_alive);
 
-            template <
-                typename CharType, 
+        inline void send(bstring_view data) { return send(data, std::move(data)); }
+
+        template <
+                typename CharType,
                 std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
-            void 
-            send(std::basic_string_view<CharType> data, std::any keep_alive) 
-            {
-                return send(convert_sv<std::byte>(data), std::move(keep_alive));
-            }
+        void send(std::basic_string_view<CharType> data, std::any keep_alive)
+        {
+            return send(convert_sv<std::byte>(data), std::move(keep_alive));
+        }
 
-            template <
-                typename Char, 
-                std::enable_if_t<sizeof(Char) == 1, int> = 0>
-            void 
-            send(std::vector<Char>&& buf) 
-            {
-                return send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
-            }
-		
-		private:
-			friend class Connection;
+        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
+        void send(std::vector<Char>&& buf)
+        {
+            return send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
+        }
 
-			// Callback(s) to invoke once we have the requested amount of space available in the buffer.
-			std::queue<unblocked_callback_t> unblocked_callbacks;
+      private:
+        friend class Connection;
 
-			void
-			handle_unblocked();  // Processes the above if space is available
+        // Callback(s) to invoke once we have the requested amount of space available in the buffer.
+        std::queue<unblocked_callback_t> unblocked_callbacks;
 
-			std::vector<ngtcp2_vec>
-			pending();
+        void handle_unblocked();  // Processes the above if space is available
 
-			// amount of unacked bytes
-			size_t unacked_size{0};
+        std::vector<ngtcp2_vec> pending();
 
-			bool is_closing{false};
-			bool is_shutdown{false};
-			bool sent_fin{false};
+        // amount of unacked bytes
+        size_t unacked_size{0};
 
-			// Async trigger for batch scheduling callbacks
-			std::shared_ptr<uvw::AsyncHandle> avail_trigger;
+        bool is_closing{false};
+        bool is_shutdown{false};
+        bool sent_fin{false};
 
-            // TOTHINK: maybe should store a ptr to network or handler here?
-			std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;
-	};
-}	// namespace oxen::quic
+        // Async trigger for batch scheduling callbacks
+        std::shared_ptr<uvw::AsyncHandle> avail_trigger;
 
+        // TOTHINK: maybe should store a ptr to network or handler here?
+        std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;
+    };
+}  // namespace oxen::quic

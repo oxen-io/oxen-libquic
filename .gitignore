@@ -1,4 +1,5 @@
 build/
+certs/
 .cache/
 .vscode/
 .DS_Store
@@ -9,3 +10,4 @@ build/
 *.DER
 rebuild.sh
 full_rebuild.sh
+notes.txt

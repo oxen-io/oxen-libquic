@@ -1,8 +1,7 @@
-#include "quic.hpp"
-
 #include <catch2/catch_test_macros.hpp>
 #include <thread>
 
+#include "quic.hpp"
 
 namespace oxen::quic::test
 {
@@ -19,17 +18,17 @@ namespace oxen::quic::test
         bool run{true};
 
         opt::server_tls server_tls{
-            "/home/dan/oxen/libquicinet/tests/serverkey.pem"s, 
-            "/home/dan/oxen/libquicinet/tests/servercert.pem"s, 
-            "/home/dan/oxen/libquicinet/tests/clientcert.pem"s, 
-            1};
+                "/home/dan/oxen/libquicinet/tests/serverkey.pem"s,
+                "/home/dan/oxen/libquicinet/tests/servercert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/clientcert.pem"s,
+                1};
 
         opt::client_tls client_tls{
-            0, 
-            "/home/dan/oxen/libquicinet/tests/clientkey.pem"s, 
-            "/home/dan/oxen/libquicinet/tests/clientcert.pem"s, 
-            "/home/dan/oxen/libquicinet/tests/servercert.pem"s,
-            ""s};
+                0,
+                "/home/dan/oxen/libquicinet/tests/clientkey.pem"s,
+                "/home/dan/oxen/libquicinet/tests/clientcert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/servercert.pem"s,
+                ""s};
 
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
@@ -41,7 +40,7 @@ namespace oxen::quic::test
         log::debug(log_cat, "Calling 'client_connect'...");
         auto client = test_net.client_connect(client_local, client_remote, client_tls);
 
-        std::thread ev_thread{[&](){
+        std::thread ev_thread{[&]() {
             test_net.run();
 
             size_t counter = 0;
@@ -49,13 +48,14 @@ namespace oxen::quic::test
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds{100});
                 if (++counter % 30 == 0)
-                    std::cout << "waiting..." << "\n";
+                    std::cout << "waiting..."
+                              << "\n";
             } while (run);
         }};
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        std::thread async_thread([&](){
+        std::thread async_thread([&]() {
             auto stream = client->open_stream();
             stream->send(msg);
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -66,4 +66,4 @@ namespace oxen::quic::test
         async_thread.join();
         ev_thread.detach();
     };
-}
+}  // namespace oxen::quic::test

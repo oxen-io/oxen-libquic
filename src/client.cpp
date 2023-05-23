@@ -1,32 +1,40 @@
 #include "client.hpp"
-#include "context.hpp"
-#include "connection.hpp"
-#include "utils.hpp"
 
+#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 
 #include <cstdio>
 #include <cstring>
-#include <netinet/in.h>
 #include <stdexcept>
 
+#include "connection.hpp"
+#include "context.hpp"
+#include "utils.hpp"
 
 namespace oxen::quic
 {
-    Client::Client(std::shared_ptr<Handler> quic_manager, std::shared_ptr<ClientContext> ctx, ConnectionID& id, std::shared_ptr<uvw::UDPHandle> handle) : 
-        Endpoint{quic_manager},
-        context{ctx}
+    Client::Client(
+            std::shared_ptr<Handler> quic_manager,
+            std::shared_ptr<ClientContext> ctx,
+            ConnectionID& id,
+            std::shared_ptr<uvw::UDPHandle> handle) :
+            Endpoint{quic_manager}, context{ctx}
     {
         Path path{ctx->local, ctx->remote};
 
-        log::trace(log_cat, "Client path: local={}:{}, remote={}:{}", path.local.ip.data(), path.local.port, path.remote.ip.data(), path.remote.port);
+        log::trace(
+                log_cat,
+                "Client path: local={}:{}, remote={}:{}",
+                path.local.ip.data(),
+                path.local.port,
+                path.remote.ip.data(),
+                path.remote.port);
 
         auto conn = std::make_shared<Connection>(this, handler, id, std::move(path), handle);
 
-        conn->on_stream_available = [](Connection& conn) 
-        {
+        conn->on_stream_available = [](Connection& conn) {
             log::info(log_cat, "QUIC connection established, streams now available");
-            try 
+            try
             {
                 conn.open_stream();
             }
@@ -36,14 +44,17 @@ namespace oxen::quic
             }
         };
 
-        log::trace(log_cat, "Mapping ngtcp2_conn in client registry to source_cid:{} (dcid: {})", *conn->source_cid.data, *conn->dest_cid.data);
+        log::trace(
+                log_cat,
+                "Mapping ngtcp2_conn in client registry to source_cid:{} (dcid: {})",
+                *conn->source_cid.data,
+                *conn->dest_cid.data);
 
         conns[conn->source_cid] = conn;
         conn->io_ready();
 
         log::info(log_cat, "Successfully created Client endpoint");
     }
-
 
     Client::~Client()
     {
@@ -53,9 +64,7 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-
-    std::shared_ptr<Stream>
-    Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    std::shared_ptr<Stream> Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "Opening client stream...");
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
@@ -74,16 +83,13 @@ namespace oxen::quic
         return str;
     }
 
-
-    std::shared_ptr<uvw::UDPHandle>
-    Client::get_handle(Address& addr)
+    std::shared_ptr<uvw::UDPHandle> Client::get_handle(Address& addr)
     {
         return reinterpret_cast<ClientContext*>(context.get())->udp_handle;
     }
 
-    std::shared_ptr<uvw::UDPHandle>
-    Client::get_handle(Path& p)
+    std::shared_ptr<uvw::UDPHandle> Client::get_handle(Path& p)
     {
         return reinterpret_cast<ClientContext*>(context.get())->udp_handle;
     }
-}   // namespace oxen::quic
+}  // namespace oxen::quic
