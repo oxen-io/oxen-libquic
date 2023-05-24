@@ -1,27 +1,18 @@
-# libquicinet 
+# libQUIC [WIP]
+
+
+## Scope and Domain
 
 <!-- todo: placeholder -->
 
-## scope and domain of lib
+### Purpose
 
 <!-- todo: placeholder -->
 
-### purpose
+### Features
 
 <!-- todo: placeholder -->
 
-### features
-
-<!-- todo: placeholder -->
-
-### platform support
-
-<!-- todo: placeholder -->
-
-### non goals
-
-<!-- todo: placeholder -->
-
-## tech spec
+### Platform Support
 
 <!-- todo: placeholder -->

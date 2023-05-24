@@ -38,6 +38,8 @@ static auto log_cat = oxen::log::Cat("quic");
 
 namespace oxen::quic
 {
+    class Stream;
+    
     using namespace std::literals;
     using bstring = std::basic_string<std::byte>;
     using bstring_view = std::basic_string_view<std::byte>;
@@ -66,6 +68,10 @@ namespace oxen::quic
         const gnutls_datum_t* msg)>;
     // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
     using server_data_callback_t = std::function<void(const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)>;
+    // Stream callbacks
+    using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
+    using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+    using unblocked_callback_t = std::function<bool(Stream&)>;
 
     static constexpr std::byte CLIENT_TO_SERVER{1};
     static constexpr std::byte SERVER_TO_CLIENT{2};
@@ -397,7 +403,7 @@ namespace oxen::quic
 
 namespace std
 {
-    // Custom hash is required s.t. unordered_set storing ConnectionID:shared_ptr<Connection>
+    // Custom hash is required s.t. unordered_set storing ConnectionID:unique_ptr<Connection>
     // is able to call its implicit constructor
     template <>
     struct hash<oxen::quic::ConnectionID>
@@ -414,7 +420,10 @@ namespace std
     template <>
     struct hash<oxen::quic::Address>
     {
-        size_t operator()(const oxen::quic::Address& addr) const { return std::hash<std::string>{}(addr.string_addr); }
+        size_t operator()(const oxen::quic::Address& addr) const 
+        { 
+            return std::hash<std::string>{}(addr.string_addr); 
+        }
     };
 }  // namespace std
 

@@ -1,16 +1,17 @@
 #pragma once
 
 #include <ngtcp2/ngtcp2.h>
+
+#include <uvw.hpp>
+
 #include <stddef.h>
 #include <stdint.h>
-
 #include <any>
 #include <cassert>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <queue>
-#include <uvw.hpp>
 #include <variant>
 #include <vector>
 
@@ -19,28 +20,30 @@
 namespace oxen::quic
 {
     class Connection;
-    class Stream;
-
-    using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
-    using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
-    using unblocked_callback_t = std::function<bool(Stream&)>;
+    // using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
+    // using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+    // using unblocked_callback_t = std::function<bool(Stream&)>;
 
     class Stream : public std::enable_shared_from_this<Stream>
     {
+        friend class Connection;
+
       public:
-        explicit Stream(
+        Stream(
                 Connection& conn,
                 stream_data_callback_t data_cb = nullptr,
                 stream_close_callback_t close_cb = nullptr,
                 int64_t stream_id = -1);
-        explicit Stream(Connection& conn, int64_t stream_id = -1);
+        Stream(
+                Connection& conn,
+                int64_t stream_id);
         ~Stream();
 
         stream_data_callback_t data_callback;
         stream_close_callback_t close_callback;
         Connection& conn;
 
-        int64_t stream_id{-1};
+        int64_t stream_id;
         std::shared_ptr<uvw::UDPHandle> udp_handle;
         std::vector<uint8_t> data;
         size_t datalen;
@@ -115,8 +118,6 @@ namespace oxen::quic
         }
 
       private:
-        friend class Connection;
-
         // Callback(s) to invoke once we have the requested amount of space available in the buffer.
         std::queue<unblocked_callback_t> unblocked_callbacks;
 

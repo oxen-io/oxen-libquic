@@ -40,7 +40,7 @@ namespace oxen::quic
         return nullptr;
     }
 
-    std::shared_ptr<Connection> Server::accept_initial_connection(Packet& pkt, ConnectionID& dcid)
+    Connection* Server::accept_initial_connection(Packet& pkt, ConnectionID& dcid)
     {
         log::info(log_cat, "Accepting new connection...");
 
@@ -77,27 +77,28 @@ namespace oxen::quic
         if (result == context->udp_handles.end())
             return nullptr;
 
-        // auto handle = result->second.first;
         auto _ctx = std::dynamic_pointer_cast<GNUTLSContext>(result->second.second);
 
         // if this is the first connection, take the exact TLS context from UDP_handles; if not,
-        // construct a new one in-place using only the cert/key pair
-        auto ctx = (context->udp_handles.size() > 1) ? 
-            opt::server_tls{_ctx->gcert.keyfile, _ctx->gcert.certfile}.into_context() :
+        // construct a new one in-place using only the cert/key pair to reconfigure gnutls specific details
+        log::debug(log_cat, "Currently active conns: {}", context->server->conns.size()+1);
+
+        auto ctx = (context->server->conns.size() != 0) ? 
+            GNUTLSCert{_ctx->gcert.keyfile, _ctx->gcert.certfile}.into_context() :
             _ctx;
 
         for (;;)
         {
-            if (auto [itr, res] = conns.emplace(ConnectionID::random(), std::shared_ptr<Connection>{}); res)
+            if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
             {
-                auto conn = std::make_shared<Connection>(this, handler, itr->first, hdr, pkt.path, ctx);
+                auto conn = std::make_unique<Connection>(*this, handler, itr->first, hdr, pkt.path, ctx);
                 log::debug(
                         log_cat,
                         "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})",
                         *conn->source_cid.data,
                         *conn->dest_cid.data);
-                itr->second = conn;
-                return conn;
+                itr->second = std::move(conn);
+                return itr->second.get();
             }
         }
     }

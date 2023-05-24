@@ -1,6 +1,7 @@
 #include "context.hpp"
 #include "client.hpp"
 #include "server.hpp"
+#include "connection.hpp"
 
 namespace oxen::quic
 {

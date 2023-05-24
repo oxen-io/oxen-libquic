@@ -14,7 +14,7 @@
 
 namespace oxen::quic
 {
-    class Connection;
+    // class Connection;
 
     enum GNUTLS_verification_scheme { NO_VERIFY = 0, CA_VERIFY = 1, CALLBACK = 2 };
 
@@ -25,7 +25,7 @@ namespace oxen::quic
         ngtcp2_crypto_conn_ref conn_ref;
         gnutls_session_t session;
         virtual ~TLSContext() = default;
-        virtual int conn_link(Connection& conn) = 0;
+        // virtual int conn_link(Connection& conn) = 0;
     };
 
     // Pure virtual TLSCert base class
@@ -182,15 +182,14 @@ namespace oxen::quic
     // GnuTLS certificate context
     struct GNUTLSContext : TLSContext
     {
-
-        explicit GNUTLSContext(GNUTLSCert cert)
+        explicit GNUTLSContext(GNUTLSCert cert) : gcert{cert}
         {
             log::trace(log_cat, "GNUTLSContext constructor A - for subsequent server connections");
             server_init(cert);
         };
 
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::server_tls>, bool> = true>
-        explicit GNUTLSContext(T& cert)
+        explicit GNUTLSContext(T& cert) : gcert{cert}
         {
             log::trace(log_cat, "GNUTLSContext constructor A");
             if (cert.server_tls_cb)
@@ -199,7 +198,7 @@ namespace oxen::quic
         };
 
         template <typename T, std::enable_if_t<std::is_same_v<T, opt::client_tls>, bool> = true>
-        explicit GNUTLSContext(T& cert)
+        explicit GNUTLSContext(T& cert) : gcert{cert}
         {
             log::trace(log_cat, "GNUTLSContext constructor B");
             if (cert.client_tls_cb)
@@ -215,16 +214,12 @@ namespace oxen::quic
         gnutls_certificate_credentials_t cred;
         gnutls_priority_t priority;
         gnutls_x509_crt_int* cert;
-        // gnutls_session_t session;
         server_tls_callback_t server_tls_cb;
         client_tls_callback_t client_tls_cb;
         GNUTLSCert gcert;
 
         int client_init(GNUTLSCert& cert);
-
         int server_init(GNUTLSCert& cert);
-
-        int conn_link(Connection& conn);
 
       private:
         int config_server_certs(GNUTLSCert& cert);

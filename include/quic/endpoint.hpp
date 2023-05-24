@@ -45,7 +45,7 @@ namespace oxen::quic
 
         void delete_connection(const ConnectionID& cid);
 
-        std::shared_ptr<Connection> get_conn(ConnectionID ID);
+        Connection* get_conn(ConnectionID ID);
 
         void call_async_all(async_callback_t async_cb);
 
@@ -83,14 +83,14 @@ namespace oxen::quic
         //
         //      They are indexed by connection ID, storing the removal time as a uint64_t value
         //
-        std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
+        std::unordered_map<ConnectionID, std::unique_ptr<Connection>> conns;
         std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
         std::optional<ConnectionID> handle_initial_packet(Packet& pkt);
 
         void handle_conn_packet(Connection& conn, Packet& pkt);
 
-        io_result read_packet(Packet& pkt, Connection& conn);
+        io_result read_packet(Connection& conn, Packet& pkt);
 
         io_result send_packet(Address& remote, bstring_view data);
 
@@ -103,7 +103,7 @@ namespace oxen::quic
         // Accepts new connection, returning either a ptr to the Connection
         // object or nullptr if error. Virtual function returns nothing --
         // overrided by Client and Server classes
-        virtual std::shared_ptr<Connection> accept_initial_connection(Packet& pkt, ConnectionID& dcid) = 0;
+        virtual Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid) = 0;
 
         // NOTE: this may not be necessary for a generalizable quic library,
         //      as it is a lokinet-specific implementation. However, it may be

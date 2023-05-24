@@ -17,7 +17,7 @@
         log::trace(log_cat, "Function call to {} failed", __func__); \
     }
 
-#define ALPN "http/1.1"
+#define ALPN "h2"
 
 namespace oxen::quic
 {
@@ -112,11 +112,11 @@ namespace oxen::quic
     // The session pointer to the conn_ref struct needs to be done at Connection creation, so
     // conn_link will likely need to stay a separate function, especially for server connections
     // created in Server::accept_initial_connection
-    int GNUTLSContext::conn_link(Connection& conn)
-    {
-        gnutls_session_set_ptr(session, &conn.tls_context->conn_ref);
-        return 0;
-    }
+    // int GNUTLSContext::conn_link(Connection& conn)
+    // {
+    //     gnutls_session_set_ptr(session, &conn.tls_context->conn_ref);
+    //     return 0;
+    // }
 
     int GNUTLSContext::client_init(GNUTLSCert& cert)
     {

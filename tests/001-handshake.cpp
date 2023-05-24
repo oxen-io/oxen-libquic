@@ -34,16 +34,16 @@ namespace oxen::quic::test
         };
 
         opt::server_tls server_tls{
-                "/home/dan/oxen/libquicinet/tests/serverkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/servercert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/clientcert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/serverkey.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/clientcert_a.pem"s,
                 1};
 
         opt::client_tls client_tls{
                 0,
-                "/home/dan/oxen/libquicinet/tests/clientkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/clientcert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/servercert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/clientkey_a.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/clientcert_a.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
                 ""s,
                 client_tls_cb};
 

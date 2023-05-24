@@ -14,12 +14,12 @@
 
 #include "context.hpp"
 #include "crypto.hpp"
-#include "stream.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
     class Endpoint;
+    class Stream;
     class Server;
     class Client;
     class Handler;
@@ -56,7 +56,7 @@ namespace oxen::quic
         //      path: network path to reach remote server
         //      tunnel_port: destination port to tunnel to at remote end
         Connection(
-                Client* client,
+                Client& client,
                 std::shared_ptr<Handler> ep,
                 const ConnectionID& scid,
                 const Path& path,
@@ -68,7 +68,7 @@ namespace oxen::quic
         //      header: packet header used to initialize connection
         //      path: network path used to reach remote client
         Connection(
-                Server* server,
+                Server& server,
                 std::shared_ptr<Handler> ep,
                 const ConnectionID& scid,
                 ngtcp2_pkt_hd& hdr,
@@ -92,9 +92,9 @@ namespace oxen::quic
 
         void io_ready();
 
-        std::shared_ptr<Server> server();
+        Server* server();
 
-        std::shared_ptr<Client> client();
+        Client* client();
 
         void schedule_retransmit();
 
@@ -121,7 +121,7 @@ namespace oxen::quic
         bstring conn_buffer;
 
         std::shared_ptr<Handler> quic_manager;
-        std::shared_ptr<Endpoint> endpoint;
+        Endpoint& endpoint;
 
         const ConnectionID source_cid;
         ConnectionID dest_cid;

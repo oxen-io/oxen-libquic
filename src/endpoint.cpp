@@ -160,7 +160,7 @@ namespace oxen::quic
             return;
         }
 
-        auto c_ptr = target->second;
+        auto c_ptr = target->second.get();
 
         if (c_ptr->on_closing)
         {
@@ -211,10 +211,10 @@ namespace oxen::quic
             log::debug(log_cat, "Error: connection is already draining; dropping");
         }
 
-        log::trace(log_cat, "{}", (read_packet(pkt, conn)) ? "Done with incoming packet"s : "Read packet failed"s);
+        log::trace(log_cat, "{}", (read_packet(conn, pkt)) ? "Done with incoming packet"s : "Read packet failed"s);
     }
 
-    io_result Endpoint::read_packet(Packet& pkt, Connection& conn)
+    io_result Endpoint::read_packet(Connection& conn, Packet& pkt)
     {
         auto rv = ngtcp2_conn_read_pkt(conn, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), get_timestamp());
 
@@ -324,13 +324,13 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<Connection> Endpoint::get_conn(ConnectionID ID)
+    Connection* Endpoint::get_conn(ConnectionID ID)
     {
         auto it = conns.find(ID);
 
         if (it == conns.end())
             return nullptr;
 
-        return it->second;
+        return it->second.get();
     }
 }  // namespace oxen::quic

@@ -32,14 +32,14 @@ namespace oxen::quic
 
         ~Client();
 
-        std::shared_ptr<Stream> open_stream(
+        const std::shared_ptr<Stream>& open_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
         std::shared_ptr<uvw::UDPHandle> get_handle(Address& addr) override;
 
         std::shared_ptr<uvw::UDPHandle> get_handle(Path& p) override;
 
-        inline std::shared_ptr<Connection> accept_initial_connection(Packet& pkt, ConnectionID& dcid) override
+        inline Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid) override
         {
             log::warning(log_cat, "{} called (this should probably not be called)", __PRETTY_FUNCTION__);
             return nullptr;

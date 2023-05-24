@@ -15,11 +15,6 @@
 
 namespace oxen::quic
 {
-    /*
-        TODO:
-            - add methods for system CA verification to client_connect and server_listen pathways
-    */
-
     class Network
     {
         friend class Handler;

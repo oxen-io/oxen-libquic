@@ -18,11 +18,11 @@
 #include <memory>
 #include <stdexcept>
 
+#include "stream.hpp"
 #include "client.hpp"
 #include "endpoint.hpp"
 #include "handler.hpp"
 #include "server.hpp"
-#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -174,14 +174,14 @@ namespace oxen::quic
         return 0;
     }
 
-    std::shared_ptr<Server> Connection::server()
+    Server* Connection::server()
     {
-        return std::dynamic_pointer_cast<Server>(endpoint);
+        return dynamic_cast<Server*>(&endpoint);
     }
 
-    std::shared_ptr<Client> Connection::client()
+    Client* Connection::client()
     {
-        return std::dynamic_pointer_cast<Client>(endpoint);
+        return dynamic_cast<Client*>(&endpoint);
     }
 
     void Connection::io_ready()
@@ -220,7 +220,7 @@ namespace oxen::quic
         log::trace(log_cat, "Sending to {}: {}", path.remote.string_addr, buffer_printer{send_data});
 
         if (!send_data.empty())
-            rv = endpoint->send_packet(path, send_data);
+            rv = endpoint.send_packet(path, send_data);
 
         return rv;
     }
@@ -493,7 +493,7 @@ namespace oxen::quic
         stream->stream_id = id;
         bool good = true;
 
-        auto srv = std::dynamic_pointer_cast<Server>(stream->conn.endpoint);
+        auto srv = stream->conn.server();
         
         if (srv)
             stream->data_callback = (srv->context->stream_data_cb) ? 
@@ -632,7 +632,7 @@ namespace oxen::quic
             if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
             {
                 log::warning(log_cat, "Error: expiry handler invocation returned error code: %s", ngtcp2_strerror(rv));
-                endpoint->close_connection(*this, rv);
+                endpoint.close_connection(*this, rv);
             }
             else
             {
@@ -688,22 +688,22 @@ namespace oxen::quic
         return 0;
     }
 
-    //  client conn
+    // client conn
     Connection::Connection(
-            Client* client,
+            Client& client,
             std::shared_ptr<Handler> ep,
             const ConnectionID& scid,
             const Path& path,
             std::shared_ptr<uvw::UDPHandle> handle) :
+            endpoint{client},
             quic_manager{ep},
             source_cid{scid},
             dest_cid{ConnectionID::random()},
             path{path},
-            local{client->context->local},
-            remote{client->context->remote},
+            local{client.context->local},
+            remote{client.context->remote},
             udp_handle{handle},
-            endpoint{client},
-            tls_context{client->context->tls_ctx}
+            tls_context{client.context->tls_ctx}
     {
         log::trace(log_cat, "Creating new client connection object");
 
@@ -737,21 +737,21 @@ namespace oxen::quic
         log::info(log_cat, "Successfully created new client connection object");
     }
 
-    //  server conn
+    // server conn
     Connection::Connection(
-            Server* server,
+            Server& server,
             std::shared_ptr<Handler> ep,
             const ConnectionID& cid,
             ngtcp2_pkt_hd& hdr,
             const Path& path,
             std::shared_ptr<TLSContext> ctx) :
+            endpoint{server},
             quic_manager{ep},
             source_cid{cid},
             dest_cid{hdr.scid},
             path{path},
-            local{server->context->local},
+            local{server.context->local},
             remote{path.remote},
-            endpoint{server},
             tls_context{ctx}
     {
         log::trace(log_cat, "Creating new server connection object");

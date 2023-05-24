@@ -30,7 +30,7 @@ namespace oxen::quic
                 path.remote.ip.data(),
                 path.remote.port);
 
-        auto conn = std::make_shared<Connection>(this, handler, id, std::move(path), handle);
+        auto conn = std::make_unique<Connection>(*this, handler, id, std::move(path), handle);
 
         conn->on_stream_available = [](Connection& conn) {
             log::info(log_cat, "QUIC connection established, streams now available");
@@ -50,8 +50,8 @@ namespace oxen::quic
                 *conn->source_cid.data,
                 *conn->dest_cid.data);
 
-        conns[conn->source_cid] = conn;
         conn->io_ready();
+        conns.emplace(conn->source_cid, std::move(conn));
 
         log::info(log_cat, "Successfully created Client endpoint");
     }
@@ -64,7 +64,7 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-    std::shared_ptr<Stream> Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    const std::shared_ptr<Stream>& Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "Opening client stream...");
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
@@ -72,11 +72,10 @@ namespace oxen::quic
         auto conn = get_conn(ctx->conn_id);
         auto stream = std::make_shared<Stream>(*conn, std::move(data_cb), std::move(close_cb));
 
-        if (int rv = ngtcp2_conn_open_bidi_stream(*conn.get(), &stream->stream_id, stream.get()); rv != 0)
+        if (int rv = ngtcp2_conn_open_bidi_stream(*conn, &stream->stream_id, stream.get()); rv != 0)
             throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
 
         auto& str = conn->streams[stream->stream_id];
-
         str = std::move(stream);
 
         log::debug(log_cat, "Client stream opened");

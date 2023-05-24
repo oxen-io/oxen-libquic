@@ -35,7 +35,7 @@ namespace oxen::quic
         std::shared_ptr<uvw::UDPHandle> get_handle(Path& p) override;
 
       protected:
-        std::shared_ptr<Connection> accept_initial_connection(Packet& pkt, ConnectionID& dcid) override;
+        Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid) override;
     };
 
 }  // namespace oxen::quic
