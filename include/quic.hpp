@@ -7,6 +7,7 @@
 #include "quic/endpoint.hpp"
 #include "quic/handler.hpp"
 #include "quic/network.hpp"
+#include "quic/opt.hpp"
 #include "quic/server.hpp"
 #include "quic/stream.hpp"
 #include "quic/utils.hpp"

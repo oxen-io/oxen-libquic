@@ -18,11 +18,11 @@
 #include <memory>
 #include <stdexcept>
 
-#include "stream.hpp"
 #include "client.hpp"
 #include "endpoint.hpp"
 #include "handler.hpp"
 #include "server.hpp"
+#include "stream.hpp"
 
 namespace oxen::quic
 {
@@ -434,7 +434,7 @@ namespace oxen::quic
                 }
                 if (nwrite == NGTCP2_ERR_CLOSING)  // -230
                 {
-                    log::error(log_cat, "Error writing non-stream data: {}", ngtcp2_strerror(nwrite));
+                    log::warning(log_cat, "Error writing non-stream data: {}", ngtcp2_strerror(nwrite));
                     break;
                 }
                 if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)  // -210
@@ -494,12 +494,10 @@ namespace oxen::quic
         bool good = true;
 
         auto srv = stream->conn.server();
-        
+
         if (srv)
-            stream->data_callback = (srv->context->stream_data_cb) ? 
-                srv->context->stream_data_cb : 
-                nullptr;
-        
+            stream->data_callback = (srv->context->stream_data_cb) ? std::move(srv->context->stream_data_cb) : nullptr;
+
         if (!good)
         {
             log::info(log_cat, "stream_open_callback returned failure, dropping stream {}", id);
@@ -561,7 +559,7 @@ namespace oxen::quic
         auto str = get_stream(id);
 
         if (!str->data_callback)
-            log::warning(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->stream_id);
+            log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->stream_id);
         else
         {
             bool good = false;
@@ -598,6 +596,7 @@ namespace oxen::quic
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }
+
         if (fin)
         {
             log::info(log_cat, "Stream {} closed by remote", str->stream_id);
@@ -608,6 +607,7 @@ namespace oxen::quic
             ngtcp2_conn_extend_max_stream_offset(conn.get(), id, data.size());
             ngtcp2_conn_extend_max_offset(conn.get(), data.size());
         }
+
         return 0;
     }
 

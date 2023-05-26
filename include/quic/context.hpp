@@ -6,8 +6,9 @@
 
 #include "crypto.hpp"
 #include "handler.hpp"
-#include "utils.hpp"
+#include "opt.hpp"
 #include "stream.hpp"
+#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -49,7 +50,6 @@ namespace oxen::quic
             quic_manager = quic_ep;
             // parse all options
             ((void)handle_clientctx_opt(std::forward<Opt>(opts)), ...);
-            // handle_callbacks();
 
             conn_id = ConnectionID::random();
 
@@ -62,8 +62,7 @@ namespace oxen::quic
         void handle_clientctx_opt(opt::local_addr& addr);
         void handle_clientctx_opt(opt::remote_addr& addr);
         void handle_clientctx_opt(opt::client_tls& tls);
-        void handle_clientctx_opt(client_tls_callback_t func);
-        void handle_callbacks();
+        void handle_clientctx_opt(client_tls_callback_t& func);
 
         inline void set_local(Address& addr) { local = Address{addr}; };
         inline void set_remote(Address& addr) { remote = Address{addr}; };

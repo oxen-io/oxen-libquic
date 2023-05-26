@@ -39,7 +39,7 @@ static auto log_cat = oxen::log::Cat("quic");
 namespace oxen::quic
 {
     class Stream;
-    
+
     using namespace std::literals;
     using bstring = std::basic_string<std::byte>;
     using bstring_view = std::basic_string_view<std::byte>;
@@ -55,17 +55,17 @@ namespace oxen::quic
     using timer_callback = std::function<void(int nwrite, void* user_data)>;
     // Callbacks for client/server TLS connectivity and authentication
     using server_tls_callback_t = std::function<int(
-        gnutls_session_t session,
-        unsigned int htype,
-        unsigned int when,
-        unsigned int incoming,
-        const gnutls_datum_t* msg)>;
+            gnutls_session_t session,
+            unsigned int htype,
+            unsigned int when,
+            unsigned int incoming,
+            const gnutls_datum_t* msg)>;
     using client_tls_callback_t = std::function<int(
-        gnutls_session_t session,
-        unsigned int htype,
-        unsigned int when,
-        unsigned int incoming,
-        const gnutls_datum_t* msg)>;
+            gnutls_session_t session,
+            unsigned int htype,
+            unsigned int when,
+            unsigned int incoming,
+            const gnutls_datum_t* msg)>;
     // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
     using server_data_callback_t = std::function<void(const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)>;
     // Stream callbacks
@@ -319,16 +319,7 @@ namespace oxen::quic
 
     // Namespacing for named address arguments in API calls
     namespace opt
-    {
-        struct local_addr : public Address
-        {
-            using Address::Address;
-        };
-        struct remote_addr : public Address
-        {
-            using Address::Address;
-        };
-    }  // namespace opt
+    {}  // namespace opt
 
     struct buffer_printer
     {
@@ -420,10 +411,7 @@ namespace std
     template <>
     struct hash<oxen::quic::Address>
     {
-        size_t operator()(const oxen::quic::Address& addr) const 
-        { 
-            return std::hash<std::string>{}(addr.string_addr); 
-        }
+        size_t operator()(const oxen::quic::Address& addr) const { return std::hash<std::string>{}(addr.string_addr); }
     };
 }  // namespace std
 

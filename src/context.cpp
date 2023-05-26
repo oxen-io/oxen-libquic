@@ -1,7 +1,8 @@
 #include "context.hpp"
+
 #include "client.hpp"
-#include "server.hpp"
 #include "connection.hpp"
+#include "server.hpp"
 
 namespace oxen::quic
 {
@@ -39,17 +40,15 @@ namespace oxen::quic
         tls_ctx = std::move(tls).into_context();
     }
 
-    void ClientContext::handle_clientctx_opt(client_tls_callback_t func)
+    void ClientContext::handle_clientctx_opt(client_tls_callback_t& func)
     {
         log::trace(log_cat, "Client given server certification callback");
-        client_tls_cb = std::move(func);
-    }
-
-    void ClientContext::handle_callbacks()
-    {
         auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(tls_ctx);
-        if (client_tls_cb)
-            ctx->client_tls_cb = std::move(client_tls_cb);
+        if (func)
+        {
+            ctx->client_tls_cb = std::move(func);
+            ctx->client_callback_init();
+        }
     }
 
     void ServerContext::handle_serverctx_opt(opt::local_addr& addr)
@@ -67,7 +66,12 @@ namespace oxen::quic
     void ServerContext::handle_serverctx_opt(server_tls_callback_t& func)
     {
         log::trace(log_cat, "Server given client certification callback");
-        server_tls_cb = std::move(func);
+        auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(temp_ctx);
+        if (func)
+        {
+            ctx->server_tls_cb = std::move(func);
+            ctx->server_callback_init();
+        }
     }
 
     void ServerContext::handle_serverctx_opt(opt::server_tls& tls)

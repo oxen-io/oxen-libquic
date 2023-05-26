@@ -26,12 +26,9 @@ int main(int argc, char* argv[])
     auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
     opt::client_tls client_tls{
-        0,
-        "/home/dan/oxen/libquicinet/tests/certs/clientkey_a.pem"s,
-        "/home/dan/oxen/libquicinet/tests/certs/clientcert_a.pem"s,
-        "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
-        ""s,
-        nullptr};
+            "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
+            "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
+            "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
 
     opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
     opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};
@@ -39,18 +36,7 @@ int main(int argc, char* argv[])
     log::debug(log_cat, "Calling 'client_connect'...");
     auto client = client_net.client_connect(client_local, client_remote, client_tls);
 
-    std::thread ev_thread{[&]() {
-        client_net.ev_loop->run();
-
-        size_t counter = 0;
-        do
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds{100});
-            if (++counter % 30 == 0)
-                std::cout << "waiting..."
-                          << "\n";
-        } while (run);
-    }};
+    std::thread ev_thread{[&]() { client_net.run(); }};
 
     log::debug(log_cat, "Main thread call");
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));

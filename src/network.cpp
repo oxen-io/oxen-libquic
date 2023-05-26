@@ -1,3 +1,5 @@
+#include "network.hpp"
+
 #include <memory>
 #include <oxen/log.hpp>
 #include <stdexcept>
@@ -5,10 +7,9 @@
 #include <thread>
 #include <uvw.hpp>
 
-#include "network.hpp"
+#include "connection.hpp"
 #include "context.hpp"
 #include "handler.hpp"
-#include "connection.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic

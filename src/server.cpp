@@ -81,11 +81,9 @@ namespace oxen::quic
 
         // if this is the first connection, take the exact TLS context from UDP_handles; if not,
         // construct a new one in-place using only the cert/key pair to reconfigure gnutls specific details
-        log::debug(log_cat, "Currently active conns: {}", context->server->conns.size()+1);
+        log::debug(log_cat, "Currently active conns: {}", context->server->conns.size() + 1);
 
-        auto ctx = (context->server->conns.size() != 0) ? 
-            GNUTLSCert{_ctx->gcert.keyfile, _ctx->gcert.certfile}.into_context() :
-            _ctx;
+        auto ctx = (context->server->conns.size() != 0) ? GNUTLSCert{_ctx->gcert}.into_context() : _ctx;
 
         for (;;)
         {

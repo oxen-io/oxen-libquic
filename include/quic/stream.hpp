@@ -1,17 +1,16 @@
 #pragma once
 
 #include <ngtcp2/ngtcp2.h>
-
-#include <uvw.hpp>
-
 #include <stddef.h>
 #include <stdint.h>
+
 #include <any>
 #include <cassert>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <queue>
+#include <uvw.hpp>
 #include <variant>
 #include <vector>
 
@@ -29,14 +28,11 @@ namespace oxen::quic
         friend class Connection;
 
       public:
-        Stream(
-                Connection& conn,
-                stream_data_callback_t data_cb = nullptr,
-                stream_close_callback_t close_cb = nullptr,
-                int64_t stream_id = -1);
-        Stream(
-                Connection& conn,
-                int64_t stream_id);
+        Stream(Connection& conn,
+               stream_data_callback_t data_cb = nullptr,
+               stream_close_callback_t close_cb = nullptr,
+               int64_t stream_id = -1);
+        Stream(Connection& conn, int64_t stream_id);
         ~Stream();
 
         stream_data_callback_t data_callback;

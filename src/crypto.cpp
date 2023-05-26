@@ -32,8 +32,8 @@ namespace oxen::quic
                 unsigned int incoming,
                 const gnutls_datum_t* ms)
         {
-            auto conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
-            auto server = static_cast<Connection*>(conn_ref->user_data)->server();
+            const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
+            const auto& server = static_cast<Connection*>(conn_ref->user_data)->server();
 
             if (!server)
             {
@@ -102,48 +102,150 @@ namespace oxen::quic
         }
     }
 
+    GNUTLSCert::GNUTLSCert(opt::client_tls client_tls) :
+            private_key{client_tls.private_key},
+            local_cert{client_tls.local_cert},
+            scheme{client_tls.scheme},
+            cred{client_tls.cred}
+    {
+        log::trace(log_cat, "GNUTLSCert direct construction from opt::client_tls");
+        if (client_tls.remote_cert)
+            remote_cert = client_tls.remote_cert;
+        if (client_tls.remote_ca)
+            remote_ca = client_tls.remote_ca;
+    }
+
+    GNUTLSCert::GNUTLSCert(opt::server_tls server_tls) :
+            private_key{server_tls.private_key},
+            local_cert{server_tls.local_cert},
+            scheme{server_tls.scheme},
+            cred{server_tls.cred}
+    {
+        log::trace(log_cat, "GNUTLSCert direct construction from opt::server_tls");
+        if (server_tls.remote_cert)
+            remote_cert = server_tls.remote_cert;
+        if (server_tls.remote_ca)
+            remote_ca = server_tls.remote_ca;
+    }
+
+    std::shared_ptr<TLSContext> GNUTLSCert::GNUTLSCert::into_context() &&
+    {
+        return std::make_unique<GNUTLSContext>(*this);
+    }
+
+    int GNUTLSCert::_client_cred_init()
+    {
+        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
+            log::warning(log_cat, "Server gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
+
+        if (auto rv = gnutls_certificate_set_x509_system_trust(cred); rv < 0)
+            log::warning(log_cat, "Set x509 system trust failed with code {}", gnutls_strerror(rv));
+
+        // remote CA file is passed, but not remote cert file
+        if (remote_ca && !remote_cert)
+        {
+            if (auto rv = (remote_ca.from_mem) ? gnutls_certificate_set_x509_trust_mem(cred, remote_ca, remote_ca)
+                                               : gnutls_certificate_set_x509_trust_file(cred, remote_ca, remote_ca);
+                rv < 0)
+                log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
+        }
+        // remote cert file is passed, but not remote CA file
+        else if (!remote_ca && remote_cert)
+        {
+            if (auto rv = (remote_cert.from_mem) ? gnutls_certificate_set_x509_trust_mem(cred, remote_cert, remote_cert)
+                                                 : gnutls_certificate_set_x509_trust_file(cred, remote_cert, remote_cert);
+                rv < 0)
+                log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
+        }
+        else
+        {
+            if (!server_tls_cb)
+                throw std::invalid_argument(
+                        "Error. Either the remote CA, remote cert, or cert verification callback must be passed");
+        }
+
+        if (private_key && local_cert)
+        {
+            if (auto rv = (local_cert.from_mem)
+                                ? gnutls_certificate_set_x509_key_mem(cred, local_cert, private_key, private_key)
+                                : gnutls_certificate_set_x509_key_file(cred, local_cert, private_key, private_key);
+                rv < 0)
+                log::warning(log_cat, "Set x509 key failed with code {}", gnutls_strerror(rv));
+        }
+
+        log::info(log_cat, "Completed client credential initialization");
+        return 0;
+    }
+
+    int GNUTLSCert::_server_cred_init()
+    {
+        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
+            log::warning(log_cat, "Server gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
+
+        if (auto rv = gnutls_certificate_set_x509_system_trust(cred); rv < 0)
+            log::warning(log_cat, "Set x509 system trust failed with code {}", gnutls_strerror(rv));
+
+        if (remote_ca)
+        {
+            if (auto rv = (remote_ca.from_mem) ? gnutls_certificate_set_x509_trust_mem(cred, remote_ca, remote_ca)
+                                               : gnutls_certificate_set_x509_trust_file(cred, remote_ca, remote_ca);
+                rv < 0)
+                log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
+        }
+
+        if (auto rv = (local_cert.from_mem)
+                            ? gnutls_certificate_set_x509_key_mem(cred, local_cert, private_key, private_key)
+                            : gnutls_certificate_set_x509_key_file(cred, local_cert, private_key, private_key);
+            rv < 0)
+            log::warning(log_cat, "Set x509 key with code {}", gnutls_strerror(rv));
+
+        log::info(log_cat, "Completed server credential initialization");
+        return 0;
+    }
+
     GNUTLSContext::~GNUTLSContext()
     {
-        gnutls_certificate_free_credentials(cred);
+        gnutls_certificate_free_credentials(gcert.cred);
 
         gnutls_deinit(session);
     }
 
-    // The session pointer to the conn_ref struct needs to be done at Connection creation, so
-    // conn_link will likely need to stay a separate function, especially for server connections
-    // created in Server::accept_initial_connection
-    // int GNUTLSContext::conn_link(Connection& conn)
-    // {
-    //     gnutls_session_set_ptr(session, &conn.tls_context->conn_ref);
-    //     return 0;
-    // }
-
-    int GNUTLSContext::client_init(GNUTLSCert& cert)
+    int GNUTLSContext::_server_session_init()
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        if (auto rv = gnutls_init(&session, GNUTLS_SERVER); rv < 0)
+            log::warning(log_cat, "Server gnutls_init failed: {}", gnutls_strerror(rv));
 
-        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
-            log::warning(log_cat, "Client gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
+        if (auto rv = gnutls_set_default_priority(session); rv < 0)
+            log::warning(log_cat, "gnutls_set_default_priority failed: {}", gnutls_strerror(rv));
 
-        config_client_certs(cert);
+        if (auto rv = ngtcp2_crypto_gnutls_configure_server_session(session); rv < 0)
+            log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_server_session failed: {}", ngtcp2_strerror(rv));
 
+        gnutls_session_set_ptr(session, &conn_ref);
+
+        if (auto rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, gcert.cred); rv < 0)
+            log::warning(log_cat, "gnutls_credentials_set failed: {}", gnutls_strerror(rv));
+
+        if (auto rv = gnutls_alpn_set_protocols(session, &alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
+            log::warning(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
+
+        log::info(log_cat, "Completed server session initialization");
+        return 0;
+    }
+
+    int GNUTLSContext::_client_session_init()
+    {
         if (auto rv = gnutls_init(&session, GNUTLS_CLIENT); rv < 0)
             log::warning(log_cat, "Client gnutls_init failed: {}", gnutls_strerror(rv));
 
         if (auto rv = gnutls_set_default_priority(session); rv < 0)
             log::warning(log_cat, "gnutls_set_default_priority failed: {}", gnutls_strerror(rv));
 
-        if (client_tls_cb)
-        {
-            log::warning(log_cat, "Emplacing client tls callback in hook function...");
-            gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, client_cb_wrapper);
-        }
-
         if (auto rv = ngtcp2_crypto_gnutls_configure_client_session(session); rv < 0)
             log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_client_session failed: {}", ngtcp2_strerror(rv));
         gnutls_session_set_ptr(session, &conn_ref);
 
-        if (auto rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, cred); rv < 0)
+        if (auto rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, gcert.cred); rv < 0)
             log::warning(log_cat, "gnutls_credentials_set failed: {}", gnutls_strerror(rv));
 
         if (auto rv = gnutls_alpn_set_protocols(session, &alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
@@ -154,102 +256,23 @@ namespace oxen::quic
             log::warning(log_cat, "gnutls_server_name_set failed: {}", gnutls_strerror(rv));
 
         log::info(log_cat, "Completed client_init");
+
         return 0;
     }
 
-    int GNUTLSContext::server_init(GNUTLSCert& cert)
+    // Note: set_hook_function is purposely not wrapped in a conditional checking 'if (client_tls_cb)' inside 
+    // _{client, server}_session_init(). If the server/client tls callbacks are passed to client_connect or
+    // server_listen prior to the tls information, it will set a nullptr for the callback function. This is no
+    // good. By separating the callback emplacement, we ensure that it is called when the tls callback is processed
+    void GNUTLSContext::client_callback_init()
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
-            log::warning(log_cat, "Server gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
-
-        config_server_certs(cert);
-
-        if (auto rv = gnutls_init(&session, GNUTLS_SERVER); rv < 0)
-            log::warning(log_cat, "Server gnutls_init failed: {}", gnutls_strerror(rv));
-
-        if (auto rv = gnutls_set_default_priority(session); rv < 0)
-            log::warning(log_cat, "gnutls_set_default_priority failed: {}", gnutls_strerror(rv));
-
-        // uncomment after testing server callbacks
-        //
-        // gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_CLIENT_HELLO,
-        // GNUTLS_HOOK_POST, server_protocol_hook);
-
-        // fix this so it is like the client hook
-        if (cert.server_tls_cb)
-            gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, server_cb_wrapper);
-
-        if (auto rv = ngtcp2_crypto_gnutls_configure_server_session(session); rv < 0)
-            log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_server_session failed: {}", ngtcp2_strerror(rv));
-
-        gnutls_session_set_ptr(session, &conn_ref);
-
-        if (auto rv = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, cred); rv < 0)
-            log::warning(log_cat, "gnutls_credentials_set failed: {}", gnutls_strerror(rv));
-
-        if (auto rv = gnutls_alpn_set_protocols(session, &alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
-            log::warning(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
-
-        log::info(log_cat, "Completed server_init");
-        return 0;
+        log::debug(log_cat, "Emplacing client tls callback in hook function...");
+        gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, client_cb_wrapper);
     }
 
-    int GNUTLSContext::config_server_certs(GNUTLSCert& cert)
+    void GNUTLSContext::server_callback_init()
     {
-        if (auto rv = gnutls_certificate_set_x509_system_trust(cred); rv < 0)
-            log::warning(log_cat, "Set x509 system trust failed with code {}", gnutls_strerror(rv));
-
-        if (!cert.remotecafile.empty())
-        {
-            if (auto rv = gnutls_certificate_set_x509_trust_file(cred, cert.remotecafile.c_str(), cert.remoteca_type);
-                rv < 0)
-                log::warning(log_cat, "Set x509 trust file failed with code {}", gnutls_strerror(rv));
-        }
-
-        if (auto rv = gnutls_certificate_set_x509_key_file(cred, cert.certfile.c_str(), cert.keyfile.c_str(), cert.key_type);
-            rv < 0)
-            log::warning(log_cat, "Set x509 key file failed with code {}", gnutls_strerror(rv));
-
-        return 0;
+        log::debug(log_cat, "Emplacing server tls callback in hook function...");
+        gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, server_cb_wrapper);
     }
-
-    int GNUTLSContext::config_client_certs(GNUTLSCert& cert)
-    {
-        if (auto rv = gnutls_certificate_set_x509_system_trust(cred); rv < 0)
-            log::warning(log_cat, "Set x509 system trust failed with code {}", gnutls_strerror(rv));
-
-        // remote CA file is passed, but not remote cert file
-        if (!cert.remotecafile.empty() && cert.remotecert.empty())
-        {
-            if (auto rv = gnutls_certificate_set_x509_trust_file(cred, cert.remotecafile.c_str(), cert.remoteca_type);
-                rv < 0)
-                log::warning(log_cat, "Set x509 trust file failed with code {}", gnutls_strerror(rv));
-        }
-        // remote cert file is passed, but not remote CA file
-        else if (cert.remotecafile.empty() && !cert.remotecert.empty())
-        {
-            if (auto rv = gnutls_certificate_set_x509_trust_file(cred, cert.remotecert.c_str(), cert.remotecert_type);
-                rv < 0)
-                log::warning(log_cat, "Set x509 trust file failed with code {}", gnutls_strerror(rv));
-        }
-        else
-        {
-            if (!cert.server_tls_cb)
-                throw std::invalid_argument(
-                        "Error. Either the remote CA, remote cert, or cert verification callback must be passed");
-        }
-
-        if (!cert.keyfile.empty() && !cert.certfile.empty())
-        {
-            if (auto rv = gnutls_certificate_set_x509_key_file(
-                        cred, cert.certfile.c_str(), cert.keyfile.c_str(), cert.key_type);
-                rv < 0)
-                log::warning(log_cat, "Set x509 key file failed with code {}", gnutls_strerror(rv));
-        }
-
-        return 0;
-    }
-
 }  // namespace oxen::quic

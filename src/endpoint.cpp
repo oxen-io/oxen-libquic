@@ -220,11 +220,11 @@ namespace oxen::quic
 
         switch (rv)
         {
-            case 0: 
-                conn.io_ready(); 
+            case 0:
+                conn.io_ready();
                 break;
-            case NGTCP2_ERR_DRAINING: 
-                log::debug(log_cat, "Draining connection {}", *conn.source_cid.data); 
+            case NGTCP2_ERR_DRAINING:
+                log::debug(log_cat, "Draining connection {}", *conn.source_cid.data);
                 break;
             case NGTCP2_ERR_PROTO:
                 log::debug(log_cat, "Closing connection {} due to error {}", *conn.source_cid.data, ngtcp2_strerror(rv));
