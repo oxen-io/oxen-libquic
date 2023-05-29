@@ -13,3 +13,6 @@
 [submodule "external/uvw"]
 	path = external/uvw
 	url = https://github.com/skypjack/uvw.git
+[submodule "external/CLI11"]
+	path = tests/CLI11
+	url = https://github.com/CLIUtils/CLI11
