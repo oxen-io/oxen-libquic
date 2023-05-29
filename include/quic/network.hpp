@@ -1,6 +1,9 @@
 #pragma once
 
+extern "C"
+{
 #include <gnutls/gnutls.h>
+}
 
 #include <cstdint>
 #include <memory>

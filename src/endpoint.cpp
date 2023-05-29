@@ -1,7 +1,10 @@
 #include "endpoint.hpp"
 
+extern "C"
+{
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/version.h>
+}
 
 #include <cstddef>
 #include <optional>

@@ -1,11 +1,14 @@
 #pragma once
 
+extern "C"
+{
 #include <ngtcp2/ngtcp2.h>
-#include <stddef.h>
-#include <stdint.h>
+}
 
 #include <any>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>

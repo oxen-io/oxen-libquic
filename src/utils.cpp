@@ -1,6 +1,9 @@
 #include "utils.hpp"
 
+extern "C"
+{
 #include <netinet/in.h>
+}
 
 #include <string>
 

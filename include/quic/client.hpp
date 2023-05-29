@@ -1,12 +1,15 @@
 #pragma once
 
+extern "C"
+{
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
-#include <stdlib.h>
+}
 
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
 #include <string_view>
 #include <uvw.hpp>

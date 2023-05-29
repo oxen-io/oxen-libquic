@@ -1,6 +1,9 @@
 #include "stream.hpp"
 
+extern "C"
+{
 #include <ngtcp2/ngtcp2.h>
+}
 
 #include <cstddef>
 #include <cstdio>

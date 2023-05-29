@@ -1,7 +1,10 @@
 #include "crypto.hpp"
 
+extern "C"
+{
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
+}
 
 #include <stdexcept>
 

@@ -1,7 +1,10 @@
 #include "client.hpp"
 
+extern "C"
+{
 #include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
+}
 
 #include <cstdio>
 #include <cstring>

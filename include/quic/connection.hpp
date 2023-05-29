@@ -1,9 +1,9 @@
 #pragma once
 
 #include <ngtcp2/ngtcp2.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <map>

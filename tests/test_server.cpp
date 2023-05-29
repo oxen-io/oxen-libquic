@@ -4,7 +4,7 @@
 
 #include <thread>
 
-#include "quic.hpp"
+#include <quic.hpp>
 
 using namespace oxen::quic;
 
