@@ -177,10 +177,18 @@ namespace oxen::quic
     {
         return dynamic_cast<Server*>(&endpoint);
     }
+    const Server* Connection::server() const
+    {
+        return dynamic_cast<const Server*>(&endpoint);
+    }
 
     Client* Connection::client()
     {
         return dynamic_cast<Client*>(&endpoint);
+    }
+    const Client* Connection::client() const
+    {
+        return dynamic_cast<const Client*>(&endpoint);
     }
 
     void Connection::io_ready()

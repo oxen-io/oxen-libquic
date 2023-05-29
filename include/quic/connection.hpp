@@ -24,7 +24,7 @@ namespace oxen::quic
     class Client;
     class Handler;
 
-    class Connection : public std::enable_shared_from_this<Connection>
+    class Connection
     {
       private:
         struct connection_deleter
@@ -95,9 +95,15 @@ namespace oxen::quic
 
         void io_ready();
 
+        /// Returns a pointer to the owning Server, if this is a Server connection, nullptr
+        /// otherwise.
         Server* server();
+        const Server* server() const;
 
+        /// Returns a pointer to the owning Client, if this is a Client connection, nullptr
+        /// otherwise.
         Client* client();
+        const Client* client() const;
 
         void schedule_retransmit();
 
