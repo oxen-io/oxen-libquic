@@ -59,10 +59,10 @@ namespace oxen::quic
         ~ClientContext();
 
       private:
-        void handle_clientctx_opt(opt::local_addr& addr);
-        void handle_clientctx_opt(opt::remote_addr& addr);
-        void handle_clientctx_opt(opt::client_tls& tls);
-        void handle_clientctx_opt(client_tls_callback_t& func);
+        void handle_clientctx_opt(opt::local_addr addr);
+        void handle_clientctx_opt(opt::remote_addr addr);
+        void handle_clientctx_opt(opt::client_tls tls);
+        void handle_clientctx_opt(client_tls_callback_t func);
 
         inline void set_local(Address& addr) { local = Address{addr}; };
         inline void set_remote(Address& addr) { remote = Address{addr}; };
@@ -97,14 +97,13 @@ namespace oxen::quic
         ~ServerContext();
 
       private:
-        void handle_serverctx_opt(opt::local_addr& addr);
-        void handle_serverctx_opt(Address& addr);
-        void handle_serverctx_opt(opt::server_tls& tls);
-        void handle_serverctx_opt(server_tls_callback_t& func);
-        void handle_serverctx_opt(server_data_callback_t& func);
-        void handle_serverctx_opt(stream_data_callback_t& func);
-        void handle_serverctx_opt(stream_open_callback_t& func);
-        inline void set_addr(Address& addr) { local = Address{addr}; };
+        void handle_serverctx_opt(opt::local_addr addr);
+        void handle_serverctx_opt(Address addr);
+        void handle_serverctx_opt(opt::server_tls tls);
+        void handle_serverctx_opt(server_tls_callback_t func);
+        void handle_serverctx_opt(server_data_callback_t func);
+        void handle_serverctx_opt(stream_data_callback_t func);
+        inline void set_addr(Address addr) { local = std::move(addr); }
     };
 
 }  // namespace oxen::quic

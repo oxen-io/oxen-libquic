@@ -23,24 +23,24 @@ namespace oxen::quic
         return server;
     }
 
-    void ClientContext::handle_clientctx_opt(opt::local_addr& addr)
+    void ClientContext::handle_clientctx_opt(opt::local_addr addr)
     {
-        local = addr;
+        local = std::move(addr);
         log::trace(log_cat, "Client stored local address: {}:{}", local.ip.data(), local.port);
     }
 
-    void ClientContext::handle_clientctx_opt(opt::remote_addr& addr)
+    void ClientContext::handle_clientctx_opt(opt::remote_addr addr)
     {
-        remote = addr;
+        remote = std::move(addr);
         log::trace(log_cat, "Client stored remote address: {}:{}", remote.ip.data(), remote.port);
     }
 
-    void ClientContext::handle_clientctx_opt(opt::client_tls& tls)
+    void ClientContext::handle_clientctx_opt(opt::client_tls tls)
     {
         tls_ctx = std::move(tls).into_context();
     }
 
-    void ClientContext::handle_clientctx_opt(client_tls_callback_t& func)
+    void ClientContext::handle_clientctx_opt(client_tls_callback_t func)
     {
         log::trace(log_cat, "Client given server certification callback");
         auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(tls_ctx);
@@ -51,19 +51,19 @@ namespace oxen::quic
         }
     }
 
-    void ServerContext::handle_serverctx_opt(opt::local_addr& addr)
+    void ServerContext::handle_serverctx_opt(opt::local_addr addr)
     {
-        local = addr;
+        local = std::move(addr);
         log::trace(log_cat, "Server stored bind address: {}:{}", local.ip.data(), local.port);
     }
 
-    void ServerContext::handle_serverctx_opt(Address& addr)
+    void ServerContext::handle_serverctx_opt(Address addr)
     {
-        local = addr;
+        local = std::move(addr);
         log::trace(log_cat, "Server stored bind address: {}:{}", local.ip.data(), local.port);
     }
 
-    void ServerContext::handle_serverctx_opt(server_tls_callback_t& func)
+    void ServerContext::handle_serverctx_opt(server_tls_callback_t func)
     {
         log::trace(log_cat, "Server given client certification callback");
         auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(temp_ctx);
@@ -74,18 +74,18 @@ namespace oxen::quic
         }
     }
 
-    void ServerContext::handle_serverctx_opt(opt::server_tls& tls)
+    void ServerContext::handle_serverctx_opt(opt::server_tls tls)
     {
         temp_ctx = std::move(tls).into_context();
     }
 
-    void ServerContext::handle_serverctx_opt(server_data_callback_t& func)
+    void ServerContext::handle_serverctx_opt(server_data_callback_t func)
     {
         log::trace(log_cat, "Server given data callback");
         server_data_cb = std::move(func);
     }
 
-    void ServerContext::handle_serverctx_opt(stream_data_callback_t& func)
+    void ServerContext::handle_serverctx_opt(stream_data_callback_t func)
     {
         log::trace(log_cat, "Server given data callback");
         stream_data_cb = std::move(func);

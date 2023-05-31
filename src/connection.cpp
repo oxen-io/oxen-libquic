@@ -250,7 +250,7 @@ namespace oxen::quic
         io_result rv{};
         bstring_view send_data{send_buffer.data(), send_buffer_size};
 
-        log::trace(log_cat, "Sending to {}: {}", path.remote.string_addr, buffer_printer{send_data});
+        log::trace(log_cat, "Sending to {}: {}", path.remote.to_string(), buffer_printer{send_data});
 
         if (!send_data.empty())
             rv = endpoint.send_packet(path, send_data);
