@@ -51,23 +51,43 @@ namespace oxen::quic::test
         log::debug(log_cat, "Calling 'client_connect'...");
         auto client = test_net.client_connect(client_local, client_remote, client_tls);
 
+        std::vector<std::shared_ptr<Stream>> streams{36};
+
+        for (auto& s : streams)
+            s = client->open_stream();
+
+        for (auto& s : streams)
+            s->send(msg);
+
         std::thread ev_thread{[&]() { test_net.run(); }};
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        std::thread stream_thread([&]() {
-            auto stream = client->open_stream();
-            stream->send(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        });
+        streams[0]->close();
+        streams[1]->close();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        streams[2]->close();
+        streams[3]->close();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        streams[4]->close();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        streams[0] = client->open_stream();
+        streams[1] = client->open_stream();
 
         std::thread check_thread([&]() {
             REQUIRE(good == true);
+            auto conn = client->get_conn(client->context->conn_id);
+            REQUIRE(conn->pending_streams.size() == 1);
             test_net.close();
         });
 
         test_net.ev_loop->close();
-        stream_thread.join();
         check_thread.join();
         ev_thread.detach();
     };

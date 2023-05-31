@@ -163,6 +163,7 @@ namespace oxen::quic
 
         void client_callback_init();
         void server_callback_init();
+
       private:
         int _client_session_init();
         int _server_session_init();

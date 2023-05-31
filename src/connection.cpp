@@ -167,9 +167,8 @@ namespace oxen::quic
         auto& conn = *static_cast<Connection*>(user_data);
         assert(_conn == conn);
 
-        if (conn.on_stream_available)
-            if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn); remaining > 0)
-                conn.on_stream_available(conn);
+        if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn); remaining > 0)
+            conn.check_pending_streams(remaining);
 
         return 0;
     }
@@ -189,18 +188,52 @@ namespace oxen::quic
         io_trigger->send();
     }
 
-    const std::shared_ptr<Stream>& Connection::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    // note: this does not need to return anything, it is never called except in on_stream_available
+    // First, we check the list of pending streams on deck to see if they're ready for broadcast. If
+    // so, we move them to the streams map, where they will get picked up by flush_streams and dump
+    // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
+    // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
+    void Connection::check_pending_streams(int available, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        int popped = 0;
+
+        while (!pending_streams.empty() && popped < available)
+        {
+            auto& str = pending_streams.front();
+
+            if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &str->stream_id, str.get()); rv == 0)
+            {
+                log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", str->stream_id);
+                str->set_ready();
+                popped += 1;
+                streams[str->stream_id] = std::move(str);
+                pending_streams.pop_front();
+            }
+            else
+                return;
+        }
+    }
+
+    std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    {
         auto stream = std::make_shared<Stream>(*this, std::move(data_cb), std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
-            throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
-
-        auto& strm = streams[stream->stream_id];
-        strm = std::move(stream);
-
-        return strm;
+        {
+            log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
+            stream->set_not_ready();
+            pending_streams.push_back(std::move(stream));
+            return pending_streams.back();
+        }
+        else
+        {
+            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->stream_id);
+            stream->set_ready();
+            auto& strm = streams[stream->stream_id];
+            strm = std::move(stream);
+            return strm;
+        }
     }
 
     void Connection::on_io_ready()
