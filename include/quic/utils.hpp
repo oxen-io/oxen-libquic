@@ -71,6 +71,8 @@ namespace oxen::quic
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
     using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+    // returns 0 on success
+    using stream_open_callback_t = std::function<uint64_t(Stream&)>;
     using unblocked_callback_t = std::function<bool(Stream&)>;
 
     static constexpr std::byte CLIENT_TO_SERVER{1};

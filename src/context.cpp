@@ -91,6 +91,12 @@ namespace oxen::quic
         stream_data_cb = std::move(func);
     }
 
+    void ServerContext::handle_serverctx_opt(stream_open_callback_t& func)
+    {
+        log::trace(log_cat, "Server given data callback");
+        stream_open_cb = std::move(func);
+    }
+
     ServerContext::~ServerContext()
     {
         for (auto& h : udp_handles)

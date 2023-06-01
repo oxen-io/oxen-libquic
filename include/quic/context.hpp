@@ -76,6 +76,7 @@ namespace oxen::quic
         server_tls_callback_t server_tls_cb;
         server_data_callback_t server_data_cb;
         stream_data_callback_t stream_data_cb;
+        stream_open_callback_t stream_open_cb;
 
         // Server endpoint linked to this instance
         std::shared_ptr<Endpoint> endpoint() override;
@@ -102,6 +103,7 @@ namespace oxen::quic
         void handle_serverctx_opt(server_tls_callback_t& func);
         void handle_serverctx_opt(server_data_callback_t& func);
         void handle_serverctx_opt(stream_data_callback_t& func);
+        void handle_serverctx_opt(stream_open_callback_t& func);
         inline void set_addr(Address& addr) { local = Address{addr}; };
     };
 

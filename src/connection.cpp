@@ -524,14 +524,19 @@ namespace oxen::quic
         auto stream = std::make_shared<Stream>(*this, id);
 
         stream->stream_id = id;
-        bool good = true;
+        uint64_t rv{0};
 
         auto srv = stream->conn.server();
 
         if (srv)
-            stream->data_callback = (srv->context->stream_data_cb) ? std::move(srv->context->stream_data_cb) : nullptr;
+        {
+            stream->data_callback = srv->context->stream_data_cb;
+            
+            if (srv->context->stream_open_cb)
+                rv = srv->context->stream_open_cb(*stream);
+        }
 
-        if (!good)
+        if (rv != 0)
         {
             log::info(log_cat, "stream_open_callback returned failure, dropping stream {}", id);
             ngtcp2_conn_shutdown_stream(conn.get(), id, 1);
