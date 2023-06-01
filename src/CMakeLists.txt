@@ -30,7 +30,7 @@ target_link_libraries(quic
     PUBLIC
     ngtcp2::crypto
     gnutls
-    uvw::uvw-static
+    uvw
     oxen::logging
     common
     PRIVATE
