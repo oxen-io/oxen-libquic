@@ -26,7 +26,7 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        server_data_callback_t server_data_cb = [&](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp){
+        server_data_callback_t server_data_cb = [&](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp) {
             log::debug(log_cat, "Calling server data callback... data received...");
             good = true;
         };
@@ -39,9 +39,9 @@ namespace oxen::quic::test
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
 
         opt::client_tls client_tls{
-            "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
-            "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
-            "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
+                "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
+                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
 
         opt::local_addr client_a_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
         opt::local_addr client_b_local{"127.0.0.1"s, static_cast<uint16_t>(4422)};
@@ -93,7 +93,7 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-        std::thread check_thread ([&]() {
+        std::thread check_thread([&]() {
             REQUIRE(good == true);
             test_net.close();
         });

@@ -10,7 +10,7 @@
 #include <memory>
 #include <optional>
 #include <uvw.hpp>
-#include <variant>
+#include <deque>
 
 #include "context.hpp"
 #include "crypto.hpp"
@@ -78,11 +78,14 @@ namespace oxen::quic
         ~Connection();
 
         // Callbacks to be invoked if set
-        std::function<void(Connection&)> on_stream_available;
         std::function<void(Connection&)> on_closing;  // clear immediately after use
 
-        const std::shared_ptr<Stream>& open_stream(
-                stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+        // change to check_pending_streams, do not create after while loop
+        void check_pending_streams(
+            int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+
+        std::shared_ptr<Stream> get_new_stream(
+            stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
         void on_io_ready();
 
@@ -131,7 +134,11 @@ namespace oxen::quic
 
         Path path;
 
+        // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
+        // holds queue of pending streams not yet ready to broadcast
+        // streams are added to the back and popped from the front (FIFO)
+        std::deque<std::shared_ptr<Stream>> pending_streams;
 
         ngtcp2_connection_close_error last_error;
 

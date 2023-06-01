@@ -16,6 +16,11 @@ add_executable(
 target_link_libraries(003 PUBLIC quic Catch2::Catch2WithMain)
 
 add_executable(
+    004
+    004-stream-pending.cpp)
+target_link_libraries(004 PUBLIC quic Catch2::Catch2WithMain)
+
+add_executable(
     test_client
     test_client.cpp)
 target_link_libraries(test_client PUBLIC quic)

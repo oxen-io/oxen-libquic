@@ -24,8 +24,7 @@ namespace oxen::quic
         udp_handle = conn.udp_handle;
 
         close_callback = (close_cb) ? std::move(close_cb) : [](Stream& s, uint64_t error_code) {
-            log::warning(log_cat, "Closing UDP paired to stream (error code: {})", error_code);
-            s.udp_handle->close();
+            log::warning(log_cat, "Stream close callback called (error code: {})", error_code);
         };
 
         when_available([](Stream& s) {
@@ -68,15 +67,15 @@ namespace oxen::quic
     void Stream::close(uint64_t error_code)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
 
         if (is_shutdown)
             log::info(log_cat, "Stream is already shutting down");
         else if (is_closing)
             log::debug(log_cat, "Stream is already closing");
-        else if (error_code && error_code != 0)
+        else
         {
             is_closing = is_shutdown = true;
+            log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
             ngtcp2_conn_shutdown_stream(conn, stream_id, error_code);
         }
         if (is_shutdown)
@@ -89,7 +88,10 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, keep_alive);
-        conn.io_ready();
+        if (ready)
+            conn.io_ready();
+        else
+            log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
     }
 
     void Stream::acknowledge(size_t bytes)

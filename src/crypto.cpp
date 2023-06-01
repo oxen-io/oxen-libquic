@@ -260,7 +260,7 @@ namespace oxen::quic
         return 0;
     }
 
-    // Note: set_hook_function is purposely not wrapped in a conditional checking 'if (client_tls_cb)' inside 
+    // Note: set_hook_function is purposely not wrapped in a conditional checking 'if (client_tls_cb)' inside
     // _{client, server}_session_init(). If the server/client tls callbacks are passed to client_connect or
     // server_listen prior to the tls information, it will set a nullptr for the callback function. This is no
     // good. By separating the callback emplacement, we ensure that it is called when the tls callback is processed

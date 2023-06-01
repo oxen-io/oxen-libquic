@@ -19,7 +19,11 @@ namespace oxen::quic
         }
 
         client_tls::client_tls(
-                std::string client_key, std::string client_cert, std::string server_cert, std::string server_ca, client_tls_callback_t client_cb)
+                std::string client_key,
+                std::string client_cert,
+                std::string server_cert,
+                std::string server_ca,
+                client_tls_callback_t client_cb)
         {
             log::trace(log_cat, "client_tls constructor");
             private_key = datum{client_key};

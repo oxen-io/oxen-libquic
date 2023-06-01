@@ -32,18 +32,6 @@ namespace oxen::quic
 
         auto conn = std::make_unique<Connection>(*this, handler, id, std::move(path), handle);
 
-        conn->on_stream_available = [](Connection& conn) {
-            log::info(log_cat, "QUIC connection established, streams now available");
-            try
-            {
-                conn.open_stream();
-            }
-            catch (const std::exception& e)
-            {
-                log::error(log_cat, "{}\n", e.what());
-            }
-        };
-
         log::trace(
                 log_cat,
                 "Mapping ngtcp2_conn in client registry to source_cid:{} (dcid: {})",
@@ -64,22 +52,15 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-    const std::shared_ptr<Stream>& Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    // only push into pending if rv is blocked
+    std::shared_ptr<Stream> Client::open_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
         log::trace(log_cat, "Opening client stream...");
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
 
         auto conn = get_conn(ctx->conn_id);
-        auto stream = std::make_shared<Stream>(*conn, std::move(data_cb), std::move(close_cb));
-
-        if (int rv = ngtcp2_conn_open_bidi_stream(*conn, &stream->stream_id, stream.get()); rv != 0)
-            throw std::runtime_error{"Stream creation failed: "s + ngtcp2_strerror(rv)};
-
-        auto& str = conn->streams[stream->stream_id];
-        str = std::move(stream);
-
-        log::debug(log_cat, "Client stream opened");
-        return str;
+        
+        return conn->get_new_stream(std::move(data_cb), std::move(close_cb));
     }
 
     std::shared_ptr<uvw::UDPHandle> Client::get_handle(Address& addr)

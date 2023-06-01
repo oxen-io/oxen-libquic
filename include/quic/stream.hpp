@@ -97,21 +97,24 @@ namespace oxen::quic
 
         void send(bstring_view data, std::any keep_alive);
 
-        inline void send(bstring_view data) { return send(data, std::move(data)); }
+        inline void send(bstring_view data) { send(data, std::move(data)); }
 
         template <
                 typename CharType,
                 std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
         void send(std::basic_string_view<CharType> data, std::any keep_alive)
         {
-            return send(convert_sv<std::byte>(data), std::move(keep_alive));
+            send(convert_sv<std::byte>(data), std::move(keep_alive));
         }
 
         template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
         void send(std::vector<Char>&& buf)
         {
-            return send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
+            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
         }
+
+        inline void set_ready() { ready = true; };
+        inline void set_not_ready() { ready = false; };
 
       private:
         // Callback(s) to invoke once we have the requested amount of space available in the buffer.
@@ -127,6 +130,7 @@ namespace oxen::quic
         bool is_closing{false};
         bool is_shutdown{false};
         bool sent_fin{false};
+        bool ready{false};
 
         // Async trigger for batch scheduling callbacks
         std::shared_ptr<uvw::AsyncHandle> avail_trigger;
