@@ -5,7 +5,6 @@ extern "C"
 #include <ngtcp2/ngtcp2.h>
 }
 
-#include <any>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -45,7 +44,7 @@ namespace oxen::quic
         size_t datalen;
         size_t nwrite;
 
-        std::deque<std::pair<bstring_view, std::any>> user_buffers;
+        std::deque<std::pair<bstring_view, std::shared_ptr<void>>> user_buffers;
 
         Connection& get_conn();
 
@@ -59,7 +58,7 @@ namespace oxen::quic
 
         void when_available(unblocked_callback_t unblocked_cb);
 
-        void append_buffer(bstring_view buffer, std::any keep_alive);
+        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
 
         void acknowledge(size_t bytes);
 
@@ -95,14 +94,12 @@ namespace oxen::quic
 
         void set_user_data(std::shared_ptr<void> data);
 
-        void send(bstring_view data, std::any keep_alive);
-
-        inline void send(bstring_view data) { send(data, std::move(data)); }
+        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr);
 
         template <
                 typename CharType,
                 std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
-        void send(std::basic_string_view<CharType> data, std::any keep_alive)
+        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
         {
             send(convert_sv<std::byte>(data), std::move(keep_alive));
         }
@@ -110,7 +107,7 @@ namespace oxen::quic
         template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
         void send(std::vector<Char>&& buf)
         {
-            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::move(buf));
+            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
         }
 
         inline void set_ready() { ready = true; };

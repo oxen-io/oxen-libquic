@@ -329,7 +329,7 @@ namespace oxen::quic
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type
-    template <typename CharOut, typename CharIn, std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
+    template <typename CharOut, typename CharIn, typename = std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
     std::basic_string_view<CharOut> convert_sv(std::basic_string_view<CharIn> in)
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
