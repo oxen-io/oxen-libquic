@@ -104,6 +104,14 @@ namespace oxen::quic
             send(convert_sv<std::byte>(data), std::move(keep_alive));
         }
 
+        template <typename CharType>
+        void send(std::basic_string<CharType>&& data)
+        {
+            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
+            std::basic_string_view<CharType> view{*keep_alive};
+            send(view, std::move(keep_alive));
+        }
+
         template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
         void send(std::vector<Char>&& buf)
         {
