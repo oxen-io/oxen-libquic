@@ -1,6 +1,9 @@
 #include "utils.hpp"
 
+extern "C"
+{
 #include <netinet/in.h>
+}
 
 #include <string>
 
@@ -56,8 +59,6 @@ namespace oxen::quic
 
     Address::Address(std::string addr, uint16_t port) : uvw::Addr{addr, port}
     {
-        string_addr = addr + ":"s + std::to_string(port);
-
         memset(&_sock_addr, 0, sizeof(_sock_addr));
         _sock_addr.sin_family = AF_INET;
         _sock_addr.sin_port = htons(port);

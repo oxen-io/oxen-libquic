@@ -177,10 +177,18 @@ namespace oxen::quic
     {
         return dynamic_cast<Server*>(&endpoint);
     }
+    const Server* Connection::server() const
+    {
+        return dynamic_cast<const Server*>(&endpoint);
+    }
 
     Client* Connection::client()
     {
         return dynamic_cast<Client*>(&endpoint);
+    }
+    const Client* Connection::client() const
+    {
+        return dynamic_cast<const Client*>(&endpoint);
     }
 
     void Connection::io_ready()
@@ -250,7 +258,7 @@ namespace oxen::quic
         io_result rv{};
         bstring_view send_data{send_buffer.data(), send_buffer_size};
 
-        log::trace(log_cat, "Sending to {}: {}", path.remote.string_addr, buffer_printer{send_data});
+        log::trace(log_cat, "Sending to {}: {}", path.remote.to_string(), buffer_printer{send_data});
 
         if (!send_data.empty())
             rv = endpoint.send_packet(path, send_data);
@@ -524,14 +532,19 @@ namespace oxen::quic
         auto stream = std::make_shared<Stream>(*this, id);
 
         stream->stream_id = id;
-        bool good = true;
+        uint64_t rv{0};
 
         auto srv = stream->conn.server();
 
         if (srv)
-            stream->data_callback = (srv->context->stream_data_cb) ? std::move(srv->context->stream_data_cb) : nullptr;
+        {
+            stream->data_callback = srv->context->stream_data_cb;
 
-        if (!good)
+            if (srv->context->stream_open_cb)
+                rv = srv->context->stream_open_cb(*stream);
+        }
+
+        if (rv != 0)
         {
             log::info(log_cat, "stream_open_callback returned failure, dropping stream {}", id);
             ngtcp2_conn_shutdown_stream(conn.get(), id, 1);

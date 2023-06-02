@@ -1,11 +1,14 @@
 #pragma once
 
+extern "C"
+{
 #include <ngtcp2/ngtcp2.h>
-#include <stddef.h>
-#include <stdint.h>
+}
 
 #include <any>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -19,9 +22,6 @@
 namespace oxen::quic
 {
     class Connection;
-    // using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
-    // using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
-    // using unblocked_callback_t = std::function<bool(Stream&)>;
 
     class Stream : public std::enable_shared_from_this<Stream>
     {

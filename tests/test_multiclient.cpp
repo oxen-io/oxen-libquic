@@ -2,9 +2,8 @@
     Test client binary
 */
 
+#include <quic.hpp>
 #include <thread>
-
-#include "quic.hpp"
 
 using namespace oxen::quic;
 

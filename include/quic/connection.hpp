@@ -1,16 +1,16 @@
 #pragma once
 
 #include <ngtcp2/ngtcp2.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <uvw.hpp>
-#include <deque>
 
 #include "context.hpp"
 #include "crypto.hpp"
@@ -24,7 +24,7 @@ namespace oxen::quic
     class Client;
     class Handler;
 
-    class Connection : public std::enable_shared_from_this<Connection>
+    class Connection
     {
       private:
         struct connection_deleter
@@ -82,10 +82,10 @@ namespace oxen::quic
 
         // change to check_pending_streams, do not create after while loop
         void check_pending_streams(
-            int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+                int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
         std::shared_ptr<Stream> get_new_stream(
-            stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+                stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
 
         void on_io_ready();
 
@@ -95,9 +95,15 @@ namespace oxen::quic
 
         void io_ready();
 
+        /// Returns a pointer to the owning Server, if this is a Server connection, nullptr
+        /// otherwise.
         Server* server();
+        const Server* server() const;
 
+        /// Returns a pointer to the owning Client, if this is a Client connection, nullptr
+        /// otherwise.
         Client* client();
+        const Client* client() const;
 
         void schedule_retransmit();
 

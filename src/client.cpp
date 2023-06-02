@@ -1,7 +1,10 @@
 #include "client.hpp"
 
+extern "C"
+{
 #include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
+}
 
 #include <cstdio>
 #include <cstring>
@@ -59,7 +62,7 @@ namespace oxen::quic
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
 
         auto conn = get_conn(ctx->conn_id);
-        
+
         return conn->get_new_stream(std::move(data_cb), std::move(close_cb));
     }
 

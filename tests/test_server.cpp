@@ -2,9 +2,8 @@
     Test server binary
 */
 
+#include <quic.hpp>
 #include <thread>
-
-#include "quic.hpp"
 
 using namespace oxen::quic;
 
@@ -31,8 +30,13 @@ int main(int argc, char* argv[])
 
     opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
 
+    stream_open_callback_t stream_cb = [&](Stream& s) {
+        log::debug(log_cat, "Stream open callback called");
+        return 0;
+    };
+
     log::debug(log_cat, "Calling 'server_listen'...");
-    auto server = server_net.server_listen(server_local, server_tls);
+    auto server = server_net.server_listen(server_local, server_tls, stream_cb);
 
     log::debug(log_cat, "Starting event loop...");
     server_net.ev_loop->run();

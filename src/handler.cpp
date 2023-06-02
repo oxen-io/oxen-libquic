@@ -1,16 +1,19 @@
 #include "handler.hpp"
 
+extern "C"
+{
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+}
 
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
 #include <thread>

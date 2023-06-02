@@ -1,11 +1,14 @@
 #pragma once
 
+extern "C"
+{
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <sys/socket.h>
+}
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <queue>
@@ -15,8 +18,6 @@
 
 #include "crypto.hpp"
 #include "utils.hpp"
-
-#define IP_TUNNEL_MAX_BUFFER_SIZE 4096
 
 namespace oxen::quic
 {

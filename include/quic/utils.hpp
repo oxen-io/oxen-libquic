@@ -1,5 +1,7 @@
 #pragma once
 
+extern "C"
+{
 #include <arpa/inet.h>
 #include <gnutls/gnutls.h>
 #include <netinet/in.h>
@@ -7,6 +9,7 @@
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 #include <sys/socket.h>
+}
 
 #include <algorithm>
 #include <cassert>
@@ -71,6 +74,8 @@ namespace oxen::quic
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
     using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
+    // returns 0 on success
+    using stream_open_callback_t = std::function<uint64_t(Stream&)>;
     using unblocked_callback_t = std::function<bool(Stream&)>;
 
     static constexpr std::byte CLIENT_TO_SERVER{1};
@@ -179,23 +184,30 @@ namespace oxen::quic
         sockaddr_in _sock_addr{};
         ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
 
-      public:
-        std::string string_addr;
+        void _copy_internals(const Address& obj)
+        {
+            std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
+            _addr.addrlen = obj._addr.addrlen;
+        }
 
+      public:
         Address() = default;
         explicit Address(std::string addr, uint16_t port);
         explicit Address(uvw::Addr addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
 
-        Address(const Address& obj) { *this = obj; };
+        Address(const Address& obj) : uvw::Addr{obj} { _copy_internals(obj); }
+        Address(Address&& obj) : uvw::Addr{std::move(obj)} { _copy_internals(obj); }
 
-        inline Address& operator=(const Address& obj)
+        Address& operator=(const Address& obj)
         {
-            ip = obj.ip;
-            port = obj.port;
-            _addr = obj._addr;
-            string_addr = obj.string_addr;
-            std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
-            _addr.addrlen = obj._addr.addrlen;
+            uvw::Addr::operator=(obj);
+            _copy_internals(obj);
+            return *this;
+        }
+        Address& operator=(Address&& obj)
+        {
+            uvw::Addr::operator=(std::move(obj));
+            _copy_internals(obj);
             return *this;
         }
 
@@ -220,21 +232,12 @@ namespace oxen::quic
         inline operator ngtcp2_addr&() { return _addr; }
         inline operator const ngtcp2_addr&() const { return _addr; }
 
-        inline friend bool operator==(const Address& lhs, const uvw::Addr& rhs)
-        {
-            if ((lhs.ip != rhs.ip) || (lhs.port != rhs.port))
-                return false;
-            return true;
-        }
-
-        inline friend bool operator==(const Address& lhs, const Address& rhs)
-        {
-            if (lhs.string_addr != rhs.string_addr)
-                return false;
-            return true;
-        }
+        inline bool operator==(const uvw::Addr& other) const { return ip == other.ip && port == other.port; }
 
         inline ngtcp2_socklen sockaddr_size() const { return sizeof(sockaddr_in); }
+
+        // Convenience method for debugging, etc.
+        std::string to_string() const { return fmt::format("{}:{}", ip, port); }
     };
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
@@ -244,21 +247,36 @@ namespace oxen::quic
       private:
         Address _local, _remote;
 
+        void _update_path()
+        {
+            path.local = _local;
+            path.remote = _remote;
+        }
+
       public:
         ngtcp2_path path{{_local, _local.sockaddr_size()}, {_remote, _remote.sockaddr_size()}, nullptr};
 
-        Address& local = _local;
-        Address& remote = _remote;
+        const Address& local = _local;
+        const Address& remote = _remote;
 
         Path() = default;
         Path(const Address& l, const Address& r) : _local{l}, _remote{r} {}
         Path(const uvw::Addr& l, const uvw::Addr& r) : _local{l}, _remote{r} {}
         Path(const Path& p) : Path{p.local, p.remote} {}
+        Path(Path&& p) : Path{std::move(p.local), std::move(p.remote)} {}
 
         Path& operator=(const Path& p)
         {
             _local = p._local;
             _remote = p._remote;
+            _update_path();
+            return *this;
+        }
+        Path& operator=(Path&& p)
+        {
+            _local = std::move(p._local);
+            _remote = std::move(p._remote);
+            _update_path();
             return *this;
         }
 
@@ -408,10 +426,17 @@ namespace std
         }
     };
 
+    inline constexpr size_t inverse_golden_ratio = sizeof(size_t) >= 8 ? 0x9e37'79b9'7f4a'7c15 : 0x9e37'79b9;
+
     template <>
     struct hash<oxen::quic::Address>
     {
-        size_t operator()(const oxen::quic::Address& addr) const { return std::hash<std::string>{}(addr.string_addr); }
+        size_t operator()(const oxen::quic::Address& addr) const
+        {
+            auto h = hash<string>{}(addr.ip);
+            h ^= hash<unsigned int>{}(addr.port) + inverse_golden_ratio + (h << 6) + (h >> 2);
+            return h;
+        }
     };
 }  // namespace std
 
