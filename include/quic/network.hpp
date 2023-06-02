@@ -7,6 +7,7 @@ extern "C"
 
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <uvw.hpp>
 
 #include "client.hpp"
@@ -23,14 +24,14 @@ namespace oxen::quic
         friend class Handler;
 
       public:
-        Network(std::shared_ptr<uvw::loop> loop_ptr = nullptr);
+        Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id);
+        Network();
         ~Network();
 
         std::shared_ptr<uvw::loop> ev_loop;
+        std::unique_ptr<std::thread> loop_thread;
 
         Handler* get_quic();
-
-        void run();
 
         // Main client endpoint creation function. If a local address is passed, then a dedicated
         // UDPHandle is bound to that address. If not, the universal UDPHandle is used for I/O. To

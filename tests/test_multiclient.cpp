@@ -42,8 +42,6 @@ int main(int argc, char* argv[])
     auto client_a = client_net.client_connect(client_a_local, client_a_remote, client_tls);
     auto client_b = client_net.client_connect(client_b_local, client_b_remote, client_tls);
 
-    std::thread ev_thread{[&]() { client_net.run(); }};
-
     log::debug(log_cat, "Main thread call");
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
@@ -88,7 +86,6 @@ int main(int argc, char* argv[])
 
     async_thread_a.join();
     async_thread_b.join();
-    ev_thread.join();
 
     return 0;
 }

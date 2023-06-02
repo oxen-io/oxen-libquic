@@ -44,8 +44,6 @@ namespace oxen::quic::test
         auto client_a = test_net.client_connect(client_a_local, client_a_remote, client_tls);
         auto client_b = test_net.client_connect(client_b_local, client_b_remote, client_tls);
 
-        std::thread ev_thread{[&]() { test_net.run(); }};
-
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         std::thread async_thread_a{[&]() {
@@ -83,9 +81,7 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        test_net.ev_loop->close();
         async_thread_a.join();
         async_thread_b.join();
-        ev_thread.detach();
     };
 }  // namespace oxen::quic::test

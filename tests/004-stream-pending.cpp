@@ -45,8 +45,6 @@ namespace oxen::quic::test
         for (auto& s : streams)
             s->send(msg);
 
-        std::thread ev_thread{[&]() { test_net.run(); }};
-
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         streams[0]->close();
@@ -71,7 +69,5 @@ namespace oxen::quic::test
         REQUIRE(conn->pending_streams.size() == 1);
         test_net.close();
 
-        test_net.ev_loop->close();
-        ev_thread.detach();
     };
 }  // namespace oxen::quic::test

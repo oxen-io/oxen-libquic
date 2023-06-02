@@ -14,27 +14,28 @@
 
 namespace oxen::quic
 {
-    Network::Network(std::shared_ptr<uvw::loop> loop_ptr)
+    Network::Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id) : ev_loop{loop_ptr}
     {
+        assert(ev_loop);
         log::trace(log_cat, "Beginning context creation");
-        ev_loop = (loop_ptr) ? loop_ptr : uvw::loop::create();
-        signal_config();
 
-        quic_manager = std::make_shared<Handler>(ev_loop, *this);
+        quic_manager = std::make_shared<Handler>(ev_loop, loop_thread_id, *this);
+    }
+
+    Network::Network()
+    {
+        log::trace(log_cat, __PRETTY_FUNCTION__);
+        ev_loop = uvw::Loop::create();
+
+        signal_config(); // TODO: probably remove this, as the library user should handle signals
+
+        loop_thread = std::make_unique<std::thread>([this](){ ev_loop->run(); });
+        quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
     }
 
     Network::~Network()
     {
-        log::info(log_cat, "Shutting down context...");
-
-        if (ev_loop)
-        {
-            ev_loop->walk(uvw::overloaded{[](uvw::udp_handle&& h) { h.close(); }, [](auto&&) {}});
-            ev_loop->reset();
-            ev_loop->stop();
-            ev_loop->close();
-            log::debug(log_cat, "Event loop shut down...");
-        }
+        close();
     }
 
     void Network::signal_config()
@@ -64,13 +65,23 @@ namespace oxen::quic
 
     void Network::close()
     {
+        log::info(log_cat, "Shutting down context...");
         quic_manager->close_all();
-        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-    }
 
-    void Network::run()
-    {
-        ev_loop->run();
+        if (loop_thread)
+        {
+            quic_manager->call([this](){
+                ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle&& h) { h.close(); }, [](auto&&) {}});
+                // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
+                // uvw::loop parent class uvw::emitter (unregisters all event listeners)
+                ev_loop->reset();
+                ev_loop->stop();
+            });
+            loop_thread->join();
+            loop_thread.reset();
+            ev_loop->close();
+            log::debug(log_cat, "Event loop shut down...");
+        }
     }
 
     void Network::configure_client_handle(std::shared_ptr<uvw::udp_handle> handle)

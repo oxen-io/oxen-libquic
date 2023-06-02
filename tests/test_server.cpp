@@ -38,9 +38,6 @@ int main(int argc, char* argv[])
     log::debug(log_cat, "Calling 'server_listen'...");
     auto server = server_net.server_listen(server_local, server_tls, stream_cb);
 
-    log::debug(log_cat, "Starting event loop...");
-    server_net.ev_loop->run();
-
     size_t counter = 0;
     do
     {

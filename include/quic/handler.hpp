@@ -15,6 +15,8 @@ extern "C"
 #include <unordered_set>
 #include <uvw.hpp>
 #include <vector>
+#include <mutex>
+#include <thread>
 
 #include "crypto.hpp"
 #include "utils.hpp"
@@ -33,8 +35,10 @@ namespace oxen::quic
     {
         friend class Network;
 
+        bool in_event_loop() const;
+
       public:
-        explicit Handler(std::shared_ptr<uvw::loop> loop_ptr, Network& net);
+        explicit Handler(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id, Network& net);
         ~Handler();
 
         Network& net;
@@ -47,6 +51,19 @@ namespace oxen::quic
         std::shared_ptr<uvw::loop> loop();
 
         void client_call_async(async_callback_t async_cb);
+
+        void call_soon(std::function<void(void)> f);
+
+        template <typename Callable>
+        void call(Callable&& f)
+        {
+            if (in_event_loop())
+                f();
+            else
+                call_soon(std::forward<Callable>(f));
+        }
+
+        void process_job_queue();
 
         void client_close();
 
@@ -65,5 +82,10 @@ namespace oxen::quic
 
         ///	keep ev loop open for cleanup
         std::shared_ptr<int> keep_alive = std::make_shared<int>(0);
+
+        std::thread::id loop_thread_id;
+        std::shared_ptr<uvw::AsyncHandle> job_waker;
+        std::queue<std::function<void()>> job_queue;
+        std::mutex job_queue_mutex;
     };
 }  // namespace oxen::quic
