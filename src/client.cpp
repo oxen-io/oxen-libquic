@@ -62,7 +62,7 @@ namespace oxen::quic
         auto ctx = reinterpret_cast<ClientContext*>(context.get());
 
         auto conn = get_conn(ctx->conn_id);
-        
+
         return conn->get_new_stream(std::move(data_cb), std::move(close_cb));
     }
 

@@ -539,7 +539,7 @@ namespace oxen::quic
         if (srv)
         {
             stream->data_callback = srv->context->stream_data_cb;
-            
+
             if (srv->context->stream_open_cb)
                 rv = srv->context->stream_open_cb(*stream);
         }

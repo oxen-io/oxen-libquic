@@ -20,6 +20,7 @@ extern "C"
 #include <unordered_map>
 #include <uvw.hpp>
 
+#include "connection.hpp"
 #include "context.hpp"
 #include "utils.hpp"
 
