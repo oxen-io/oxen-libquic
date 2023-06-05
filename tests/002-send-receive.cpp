@@ -44,9 +44,9 @@ namespace oxen::quic::test
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         });
 
+        stream_thread.join();
+
         REQUIRE(good == true);
         test_net.close();
-
-        stream_thread.join();
     };
 }  // namespace oxen::quic::test

@@ -76,12 +76,10 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-        REQUIRE(good);
-        test_net.close();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
         async_thread_a.join();
         async_thread_b.join();
+
+        REQUIRE(good);
+        test_net.close();
     };
 }  // namespace oxen::quic::test
