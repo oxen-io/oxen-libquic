@@ -7,6 +7,7 @@ extern "C"
 
 #include <cstdint>
 #include <memory>
+#include <atomic>
 #include <thread>
 #include <future>
 #include <uvw.hpp>
@@ -169,6 +170,8 @@ namespace oxen::quic
         void close();
 
       private:
+        std::atomic<bool> running{false};
+
         std::shared_ptr<Handler> quic_manager;
         std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_client_addrs;
         std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_server_addrs;

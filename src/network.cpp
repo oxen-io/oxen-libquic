@@ -30,6 +30,7 @@ namespace oxen::quic
         signal_config(); // TODO: probably remove this, as the library user should handle signals
 
         loop_thread = std::make_unique<std::thread>([this](){ ev_loop->run(); });
+        running.store(true);
         quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
     }
 
@@ -65,23 +66,57 @@ namespace oxen::quic
 
     void Network::close()
     {
+        if (not running.exchange(false))
+            return;
+
         log::info(log_cat, "Shutting down context...");
-        quic_manager->close_all();
+
+        std::promise<void> p;
+        auto f = p.get_future();
+        quic_manager->call([this, &p](){
+            try {
+                quic_manager->close_all();
+
+                for (auto& [addr, handle] : mapped_client_addrs)
+                {
+                    auto s = handle->sock();
+                    log::debug(log_cat, "closing client UDPHandle bound to {}:{}", s.ip, s.port);
+                    handle->close();
+                }
+                for (auto& [addr, handle] : mapped_server_addrs)
+                {
+                    auto s = handle->sock();
+                    log::debug(log_cat, "closing server UDPHandle bound to {}:{}", s.ip, s.port);
+                    handle->close();
+                }
+                if (loop_thread)
+                {
+                    // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
+                    // uvw::loop parent class uvw::emitter (unregisters all event listeners)
+                    ev_loop->clear();
+                    ev_loop->stop();
+
+                }
+                p.set_value();
+            }
+            catch (...) {
+                p.set_exception(std::current_exception());
+            }
+        });
+        f.get();
 
         if (loop_thread)
         {
             quic_manager->call([this](){
-                ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle&& h) { h.close(); }, [](auto&&) {}});
-                // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
-                // uvw::loop parent class uvw::emitter (unregisters all event listeners)
-                ev_loop->reset();
+                ev_loop->walk([](auto&& h) { h.close(); });
                 ev_loop->stop();
             });
             loop_thread->join();
             loop_thread.reset();
             ev_loop->close();
-            log::debug(log_cat, "Event loop shut down...");
         }
+
+        log::debug(log_cat, "Event loop shut down...");
     }
 
     void Network::configure_client_handle(std::shared_ptr<uvw::udp_handle> handle)
