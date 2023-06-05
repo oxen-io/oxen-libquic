@@ -83,6 +83,13 @@ namespace oxen::quic
     static constexpr size_t dgram_size = 1200;
     static constexpr size_t ev_loop_queue_size = 1024;
 
+    // Check if T is an instantiation of templated class `Class`; for example,
+    // `is_instantiation<std::basic_string, std::string>` is true.
+    template <template <typename...> class Class, typename T>
+    inline constexpr bool is_instantiation = false;
+    template <template <typename...> class Class, typename... Us>
+    inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
+
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
     static constexpr size_t max_bufsize = 64 * 1024;
     // Max size of a UDP packet that we'll send
@@ -329,7 +336,7 @@ namespace oxen::quic
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type
-    template <typename CharOut, typename CharIn, std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
+    template <typename CharOut, typename CharIn, typename = std::enable_if_t<sizeof(CharOut) == 1 && sizeof(CharIn) == 1>>
     std::basic_string_view<CharOut> convert_sv(std::basic_string_view<CharIn> in)
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};

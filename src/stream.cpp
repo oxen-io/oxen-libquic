@@ -87,10 +87,10 @@ namespace oxen::quic
         conn.io_ready();
     }
 
-    void Stream::append_buffer(bstring_view buffer, std::any keep_alive)
+    void Stream::append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        user_buffers.emplace_back(buffer, keep_alive);
+        user_buffers.emplace_back(buffer, std::move(keep_alive));
         if (ready)
             conn.io_ready();
         else
@@ -159,7 +159,7 @@ namespace oxen::quic
         unacked_size += bytes;
     }
 
-    static auto get_buffer_it(std::deque<std::pair<bstring_view, std::any>>& bufs, size_t offset)
+    static auto get_buffer_it(std::deque<std::pair<bstring_view, std::shared_ptr<void>>>& bufs, size_t offset)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto it = bufs.begin();
@@ -200,7 +200,7 @@ namespace oxen::quic
         return nbufs;
     }
 
-    void Stream::send(bstring_view data, std::any keep_alive)
+    void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
         append_buffer(data, keep_alive);

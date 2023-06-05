@@ -5,6 +5,7 @@ add_executable(test_all
     002-send-receive.cpp
     003-multiclient.cpp
     004-stream-pending.cpp
+    005-chunked-sender.cpp
 )
 target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
 set_target_properties(test_all PROPERTIES OUTPUT_NAME all)
