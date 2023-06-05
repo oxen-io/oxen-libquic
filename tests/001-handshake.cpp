@@ -6,23 +6,15 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    bool run{true};
-    bool good{false};
-
-    void signal_handler(int)
+    TEST_CASE("001: Server-client handshaking", "[001][handshake]")
     {
-        run = false;
-    }
-
-    TEST_CASE("Simple client to server transmission")
-    {
-        signal(SIGINT, signal_handler);
-        signal(SIGTERM, signal_handler);
         logger_config();
 
         log::debug(log_cat, "Beginning test of DTLS handshake...");
 
         Network test_net{};
+
+        std::atomic<bool> good{false};
 
         client_tls_callback_t client_tls_cb = [&](gnutls_session_t session,
                                                   unsigned int htype,
@@ -40,15 +32,9 @@ namespace oxen::quic::test
             return 0;
         };
 
-        opt::server_tls server_tls{
-                "/home/dan/oxen/libquicinet/tests/certs/serverkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s};
+        opt::server_tls server_tls{"./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s};
 
-        opt::client_tls client_tls{
-                "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
+        opt::client_tls client_tls{"./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s};
 
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
@@ -64,13 +50,10 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        std::thread async_thread([&]() {
-            REQUIRE(good == true);
-            test_net.close();
-        });
+        REQUIRE(good);
+        test_net.close();
 
         test_net.ev_loop->close();
-        async_thread.join();
         ev_thread.detach();
     };
 }  // namespace oxen::quic::test
