@@ -7,18 +7,8 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    bool run{true};
-    bool good{false};
-
-    void signal_handler(int)
+    TEST_CASE("004: Multiple pending streams", "[004][streams]")
     {
-        run = false;
-    }
-
-    TEST_CASE("Simple client to server transmission")
-    {
-        signal(SIGINT, signal_handler);
-        signal(SIGTERM, signal_handler);
         logger_config();
 
         log::debug(log_cat, "Beginning test of client to server transmission...");
@@ -26,20 +16,16 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
+        std::atomic<bool> good{false};
+
         server_data_callback_t server_data_cb = [&](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp) {
             log::debug(log_cat, "Calling server data callback... data received...");
             good = true;
         };
 
-        opt::server_tls server_tls{
-                "/home/dan/oxen/libquicinet/tests/certs/serverkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s};
+        opt::server_tls server_tls{"./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s};
 
-        opt::client_tls client_tls{
-                "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
-                "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
+        opt::client_tls client_tls{"./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s};
 
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
@@ -80,15 +66,12 @@ namespace oxen::quic::test
         streams[0] = client->open_stream();
         streams[1] = client->open_stream();
 
-        std::thread check_thread([&]() {
-            REQUIRE(good == true);
-            auto conn = client->get_conn(client->context->conn_id);
-            REQUIRE(conn->pending_streams.size() == 1);
-            test_net.close();
-        });
+        REQUIRE(good == true);
+        auto conn = client->get_conn(client->context->conn_id);
+        REQUIRE(conn->pending_streams.size() == 1);
+        test_net.close();
 
         test_net.ev_loop->close();
-        check_thread.join();
         ev_thread.detach();
     };
 }  // namespace oxen::quic::test

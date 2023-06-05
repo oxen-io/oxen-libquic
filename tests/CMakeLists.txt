@@ -1,24 +1,13 @@
 add_subdirectory(Catch2)
 
-add_executable(
-    001
-    001-handshake.cpp)
-target_link_libraries(001 PUBLIC quic Catch2::Catch2WithMain)
-
-add_executable(
-    002
-    002-send-receive.cpp)
-target_link_libraries(002 PUBLIC quic Catch2::Catch2WithMain)
-
-add_executable(
-    003
-    003-multiclient.cpp)
-target_link_libraries(003 PUBLIC quic Catch2::Catch2WithMain)
-
-add_executable(
-    004
-    004-stream-pending.cpp)
-target_link_libraries(004 PUBLIC quic Catch2::Catch2WithMain)
+add_executable(test_all
+    001-handshake.cpp
+    002-send-receive.cpp
+    003-multiclient.cpp
+    004-stream-pending.cpp
+)
+target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
+set_target_properties(test_all PROPERTIES OUTPUT_NAME all)
 
 add_executable(
     test_client
