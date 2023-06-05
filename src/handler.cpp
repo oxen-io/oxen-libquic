@@ -80,6 +80,7 @@ namespace oxen::quic
 
     void Handler::call_soon(std::function<void(void)> f)
     {
+        log::trace(log_cat, "{}", __PRETTY_FUNCTION__);
         std::lock_guard<std::mutex> lock{job_queue_mutex};
         job_queue.push(std::move(f));
         job_waker->send();

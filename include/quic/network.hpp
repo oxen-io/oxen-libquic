@@ -8,6 +8,7 @@ extern "C"
 #include <cstdint>
 #include <memory>
 #include <thread>
+#include <future>
 #include <uvw.hpp>
 
 #include "client.hpp"
@@ -30,8 +31,6 @@ namespace oxen::quic
 
         std::shared_ptr<uvw::loop> ev_loop;
         std::unique_ptr<std::thread> loop_thread;
-
-        Handler* get_quic();
 
         // Main client endpoint creation function. If a local address is passed, then a dedicated
         // UDPHandle is bound to that address. If not, the universal UDPHandle is used for I/O. To
@@ -60,33 +59,45 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Client> client_connect(Opt&&... opts)
         {
-            // initialize client context and client tls context simultaneously
-            std::shared_ptr<ClientContext> client_ctx =
-                    std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
+            std::promise<std::shared_ptr<Client>> p;
+            auto f = p.get_future();
+            quic_manager->call([&opts...,&p,this]() mutable {
+                try {
+                    // initialize client context and client tls context simultaneously
+                    std::shared_ptr<ClientContext> client_ctx =
+                            std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
 
-            if (client_ctx->local)
-            {
-                client_ctx->udp_handle = handle_client_mapping(client_ctx->local);
-            }
-            else
-            {
-                client_ctx->udp_handle = quic_manager->universal_handle;
-                client_ctx->local = quic_manager->default_local;
-            }
+                    if (client_ctx->local)
+                    {
+                        client_ctx->udp_handle = handle_client_mapping(client_ctx->local);
+                    }
+                    else
+                    {
+                        client_ctx->udp_handle = quic_manager->universal_handle;
+                        client_ctx->local = quic_manager->default_local;
+                    }
 
-            // ensure addresses stored correctly
-            log::trace(log_cat, "Client local addr: {}:{}", client_ctx->local.ip.data(), client_ctx->local.port);
-            log::trace(log_cat, "Client remote addr: {}:{}", client_ctx->remote.ip.data(), client_ctx->remote.port);
+                    // ensure addresses stored correctly
+                    log::trace(log_cat, "Client local addr: {}:{}", client_ctx->local.ip.data(), client_ctx->local.port);
+                    log::trace(log_cat, "Client remote addr: {}:{}", client_ctx->remote.ip.data(), client_ctx->remote.port);
 
-            // create client and then copy assign it to the client context so we can return
-            // the shared ptr from this function
-            auto client_ptr =
-                    std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
-            client_ctx->client = client_ptr;
+                    // create client and then copy assign it to the client context so we can return
+                    // the shared ptr from this function
+                    auto client_ptr =
+                            std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
+                    client_ctx->client = client_ptr;
 
-            quic_manager->clients.emplace_back(std::move(client_ctx));
-            log::trace(log_cat, "Client context emplaced");
-            return client_ptr;
+                    quic_manager->clients.emplace_back(std::move(client_ctx));
+                    log::trace(log_cat, "Client context emplaced");
+
+                    p.set_value(client_ptr);
+                }
+                catch (...) {
+                    p.set_exception(std::current_exception());
+                }
+            });
+
+            return f.get();
         };
 
         // Main server endpoint creation function. Binds a dedicated UDPHandle to the binding
@@ -117,31 +128,42 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Server> server_listen(Opt&&... opts)
         {
-            // initialize server context and server tls context simultaneously
-            std::shared_ptr<ServerContext> server_ctx =
-                    std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
+            std::promise<std::shared_ptr<Server>> p;
+            auto f = p.get_future();
+            quic_manager->call([&opts...,&p,this]() mutable {
+                try {
+                    // initialize server context and server tls context simultaneously
+                    std::shared_ptr<ServerContext> server_ctx =
+                            std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
 
-            // ensure address stored correctly
-            log::trace(log_cat, "Server local addr: {}:{}", server_ctx->local.ip.data(), server_ctx->local.port);
+                    // ensure address stored correctly
+                    log::trace(log_cat, "Server local addr: {}:{}", server_ctx->local.ip.data(), server_ctx->local.port);
 
-            // UDP mapping
-            auto udp_handle = handle_server_mapping(server_ctx->local);
-            if (server_ctx->server_data_cb)
-                udp_handle->on<uvw::udp_data_event>(server_ctx->server_data_cb);
+                    // UDP mapping
+                    auto udp_handle = handle_server_mapping(server_ctx->local);
+                    if (server_ctx->server_data_cb)
+                        udp_handle->on<uvw::udp_data_event>(server_ctx->server_data_cb);
 
-            server_ctx->udp_handles[Address{server_ctx->local}] =
-                    std::make_pair(udp_handle, std::move(server_ctx->temp_ctx));
-            server_ctx->temp_ctx.reset();
+                    server_ctx->udp_handles[Address{server_ctx->local}] =
+                            std::make_pair(udp_handle, std::move(server_ctx->temp_ctx));
+                    server_ctx->temp_ctx.reset();
 
-            // make server
-            server_ctx->server = std::make_shared<Server>(quic_manager, server_ctx);
-            auto server_ptr = server_ctx->server;
+                    // make server
+                    server_ctx->server = std::make_shared<Server>(quic_manager, server_ctx);
+                    auto server_ptr = server_ctx->server;
 
-            // emplace server context in handler set
-            quic_manager->servers.emplace(server_ctx->local, server_ctx);
-            // quic_manager->servers[server_ctx->local] = server_ctx;
-            log::trace(log_cat, "Server context emplaced");
-            return server_ptr;
+                    // emplace server context in handler set
+                    quic_manager->servers.emplace(server_ctx->local, server_ctx);
+                    // quic_manager->servers[server_ctx->local] = server_ctx;
+                    log::trace(log_cat, "Server context emplaced");
+                    p.set_value(server_ptr);
+                }
+                catch (...) {
+                    p.set_exception(std::current_exception());
+                }
+            });
+
+            return f.get();
         };
 
         void close();
