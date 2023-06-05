@@ -33,10 +33,6 @@ namespace oxen::quic
             net{net}, loop_thread_id{loop_thread_id}
     {
         ev_loop = loop_ptr;
-        universal_handle = ev_loop->resource<uvw::udp_handle>();
-
-        universal_handle->bind(default_local);
-        net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
 
         if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
             throw std::runtime_error{"Failed to create job queue uvw async handle"};
@@ -135,6 +131,20 @@ namespace oxen::quic
                     ctx->client->close_conns();
             }
         });
+    }
+
+    Server* Handler::find_server(const Address& local)
+    {
+        if (auto it = servers.find(local); it != servers.end())
+            return it->second->server.get();
+        return nullptr;
+    }
+    Client* Handler::find_client(const Address& local)
+    {
+        for (auto& ctx : clients)
+            if (ctx->local == local)
+                return ctx->client.get();
+        return nullptr;
     }
 
 }  // namespace oxen::quic

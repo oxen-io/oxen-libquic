@@ -11,6 +11,8 @@ extern "C"
 #include <sys/socket.h>
 }
 
+#include <fmt/core.h>
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -19,6 +21,7 @@ extern "C"
 #include <filesystem>
 #include <iostream>
 #include <oxen/log.hpp>
+#include <oxen/log/format.hpp>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -37,13 +40,14 @@ extern "C"
 
 #define MESSAGE "GET /\r\n"
 
-static auto log_cat = oxen::log::Cat("quic");
-
 namespace oxen::quic
 {
+    inline auto log_cat = oxen::log::Cat("quic");
+
     class Stream;
 
     using namespace std::literals;
+    using namespace oxen::log::literals;
     using bstring = std::basic_string<std::byte>;
     using bstring_view = std::basic_string_view<std::byte>;
     namespace log = oxen::log;
@@ -106,7 +110,7 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
     // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
-    using server_data_callback_t = std::function<void(const uvw::udp_data_event& event, uvw::udp_handle& udp)>;
+
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
     using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
@@ -115,12 +119,9 @@ namespace oxen::quic
     using unblocked_callback_t = std::function<bool(Stream&)>;
 
     inline constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
-    inline constexpr size_t DATAGRAM_BATCH_SIZE =
-#if !defined(OXEN_LIBQUIC_UDP_NO_SENDMMSG) && (defined(__linux__) || defined(__FreeBSD__))
-            8;
-#else
-            1;
-#endif
+
+    // Maximum number of packets we can send in one batch when using sendmmsg/GSO
+    inline constexpr size_t DATAGRAM_BATCH_SIZE = 24;
 
     inline constexpr std::byte CLIENT_TO_SERVER{1};
     inline constexpr std::byte SERVER_TO_CLIENT{2};
@@ -137,8 +138,7 @@ namespace oxen::quic
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
     inline constexpr size_t max_bufsize = 64_ki;
     // Max size of a UDP packet that we'll send
-    inline constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-    inline constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    inline constexpr size_t max_pkt_size = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;
 
     // Remote TCP connection was established and is now accepting stream data; the client is not
     // allowed to send any other data down the stream until this comes back (any data sent down the
@@ -170,7 +170,7 @@ namespace oxen::quic
     template <typename Base, typename T>
     constexpr bool is_strict_base_of_v = std::is_base_of_v<Base, T> && !std::is_same_v<Base, T>;
 
-    // Types can opt-in to being formatting via .ToString() by specializing this to true
+    // Types can opt-in to being formatting via .to_string() by specializing this to true
     template <typename T>
     constexpr bool IsToStringFormattable = false;
 
@@ -187,6 +187,7 @@ namespace oxen::quic
 
     void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
 
+    std::chrono::steady_clock::time_point get_time();
     uint64_t get_timestamp();
 
     std::string str_tolower(std::string s);
@@ -229,11 +230,11 @@ namespace oxen::quic
     // interface and in the constructors. The string/uint16_t representation is stored in a two
     // other formats for ease of use with ngtcp2: sockaddr_in and ngtcp2_addr. ngtcp2_addr store
     // a member of type ngtcp2_sockaddr, which is itself a typedef of sockaddr
-    struct Address : public uvw::socket_address
+    struct Address
     {
       private:
-        sockaddr_in _sock_addr{};
-        ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), sizeof(_sock_addr)};
+        sockaddr_storage _sock_addr{};
+        ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), 0};
 
         void _copy_internals(const Address& obj)
         {
@@ -242,107 +243,178 @@ namespace oxen::quic
         }
 
       public:
-        Address() = default;
-        explicit Address(std::string addr, uint16_t port);
-        explicit Address(uvw::socket_address addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
+        // Default constructor yields [::]:0
+        Address() { _addr.addrlen = sizeof(sockaddr_in6); }
 
-        Address(const Address& obj) : uvw::socket_address{obj} { _copy_internals(obj); }
-        Address(Address&& obj) : uvw::socket_address{std::move(obj)} { _copy_internals(obj); }
+        Address(const sockaddr* s, socklen_t n)
+        {
+            std::memmove(&_sock_addr, s, n);
+            _addr.addrlen = n;
+        }
+        explicit Address(const sockaddr* s) :
+                Address{s, static_cast<socklen_t>(s->sa_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6))}
+        {}
+        explicit Address(const sockaddr_in* s) : Address{reinterpret_cast<const sockaddr*>(s), sizeof(sockaddr_in)} {}
+        explicit Address(const sockaddr_in6* s) : Address{reinterpret_cast<const sockaddr*>(s), sizeof(sockaddr_in6)} {}
+        Address(const std::string& addr, uint16_t port);
 
+        // Assignment from a sockaddr pointer; we copy the sockaddr's contents
+        template <
+                typename T,
+                std::enable_if_t<
+                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr>,
+                        int> = 0>
+        Address& operator=(const T* s)
+        {
+            _addr.addrlen = std::is_same_v<T, sockaddr>
+                                  ? s->sa_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6)
+                                  : sizeof(T);
+            std::memmove(&_sock_addr, s, _addr.addrlen);
+            return *this;
+        }
+
+        Address(const Address& obj) { _copy_internals(obj); }
         Address& operator=(const Address& obj)
         {
-            uvw::socket_address::operator=(obj);
-            _copy_internals(obj);
-            return *this;
-        }
-        Address& operator=(Address&& obj)
-        {
-            uvw::socket_address::operator=(std::move(obj));
             _copy_internals(obj);
             return *this;
         }
 
-        // can pass Address object as boolean to check if addr is set
-        operator bool() const { return _sock_addr.sin_port; }
-        // template code to implicitly convert to uvw::Addr, sockaddr*,
-        // sockaddr&, ngtcp2_addr&, and sockaddr_in&
-        template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
+        bool is_ipv4() const
+        {
+            return _addr.addrlen == sizeof(sockaddr_in) &&
+                   reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_family == AF_INET;
+        }
+        bool is_ipv6() const
+        {
+            return _addr.addrlen == sizeof(sockaddr_in6) &&
+                   reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_family == AF_INET6;
+        }
+
+        // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
+        const sockaddr_in& in4() const
+        {
+            assert(is_ipv4());
+            return reinterpret_cast<const sockaddr_in&>(_sock_addr);
+        }
+
+        // Accesses the sockaddr_in6 for this address.  Precondition: `is_ipv6()`
+        const sockaddr_in6& in6() const
+        {
+            assert(is_ipv6());
+            return reinterpret_cast<const sockaddr_in6&>(_sock_addr);
+        }
+
+        uint16_t port() const
+        {
+            assert(is_ipv4() || is_ipv6());
+            return is_ipv4() ? reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port
+                             : reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port;
+        }
+
+        // template code to implicitly convert to sockaddr*, sockaddr_in*, sockaddr_in6* so that
+        // this can be passed into C functions taking such a pointer (for the first you also want
+        // `socklen()`).
+        //
+        // Because this is a deducated templated type, dangerous implicit conversions from the
+        // pointer to other things (like bool) won't occur.
+        template <
+                typename T,
+                std::enable_if_t<
+                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr_in6>,
+                        int> = 0>
         operator T*()
         {
-            return reinterpret_cast<sockaddr*>(&_sock_addr);
+            return reinterpret_cast<T*>(&_sock_addr);
         }
-        template <typename T, std::enable_if_t<std::is_same_v<T, sockaddr>, int> = 0>
+        template <
+                typename T,
+                std::enable_if_t<
+                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr_in6>,
+                        int> = 0>
         operator const T*() const
         {
-            return reinterpret_cast<const sockaddr*>(&_sock_addr);
+            return reinterpret_cast<const T*>(&_sock_addr);
         }
-        inline operator sockaddr&() { return reinterpret_cast<sockaddr&>(_sock_addr); }
-        inline operator const sockaddr&() const { return reinterpret_cast<const sockaddr&>(_sock_addr); }
-        inline operator sockaddr_in&() { return _sock_addr; }
-        inline operator const sockaddr_in&() const { return _sock_addr; }
-        inline operator ngtcp2_addr&() { return _addr; }
-        inline operator const ngtcp2_addr&() const { return _addr; }
 
-        inline bool operator==(const uvw::socket_address& other) const { return ip == other.ip && port == other.port; }
+        // Conversion to a const ngtcp2_addr reference and pointer.  We don't provide non-const
+        // access because this points at our internal data.
+        operator const ngtcp2_addr&() const { return _addr; }
+        template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_addr*>, int> = 0>
+        operator const T*() const
+        {
+            return &_addr;
+        }
 
-        inline ngtcp2_socklen sockaddr_size() const { return sizeof(sockaddr_in); }
+        bool operator==(const Address& other) const
+        {
+            if (is_ipv4() && other.is_ipv4())
+            {
+                auto& a = in4();
+                auto& b = other.in4();
+                return a.sin_port == b.sin_port && a.sin_addr.s_addr == b.sin_addr.s_addr;
+            }
+            if (is_ipv6() && other.is_ipv6())
+            {
+                auto& a = in6();
+                auto& b = other.in6();
+                return a.sin6_port == b.sin6_port &&
+                       memcmp(a.sin6_addr.s6_addr, b.sin6_addr.s6_addr, sizeof(a.sin6_addr.s6_addr)) == 0;
+            }
+            return false;
+        }
 
-        // Convenience method for debugging, etc.
-        std::string to_string() const { return fmt::format("{}:{}", ip, port); }
+        // Returns the size of the sockaddr
+        socklen_t socklen() const { return _addr.addrlen; }
+
+        // Convenience method for debugging, etc.  This is usually called implicitly by passing the
+        // Address to fmt to format it.
+        std::string to_string() const;
     };
+    template <>
+    inline constexpr bool IsToStringFormattable<Address> = true;
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
     // to ngtcp2_path*
     struct Path
     {
-      private:
-        Address _local, _remote;
+      public:
+        Address local;
+        Address remote;
 
-        void _update_path()
-        {
-            path.local = _local;
-            path.remote = _remote;
-        }
+      private:
+        ngtcp2_path _path{local, remote, nullptr};
 
       public:
-        ngtcp2_path path{{_local, _local.sockaddr_size()}, {_remote, _remote.sockaddr_size()}, nullptr};
-
-        const Address& local = _local;
-        const Address& remote = _remote;
-
         Path() = default;
-        Path(const Address& l, const Address& r) : _local{l}, _remote{r} {}
-        Path(const uvw::socket_address& l, const uvw::socket_address& r) : _local{l}, _remote{r} {}
+        Path(const Address& l, const Address& r) : local{l}, remote{r} {}
         Path(const Path& p) : Path{p.local, p.remote} {}
-        Path(Path&& p) : Path{std::move(p.local), std::move(p.remote)} {}
 
         Path& operator=(const Path& p)
         {
-            _local = p._local;
-            _remote = p._remote;
-            _update_path();
-            return *this;
-        }
-        Path& operator=(Path&& p)
-        {
-            _local = std::move(p._local);
-            _remote = std::move(p._remote);
-            _update_path();
+            local = p.local;
+            remote = p.remote;
+            _path.local = local;
+            _path.remote = remote;
             return *this;
         }
 
-        // template code to pass Path into ngtcp2 functions
+        // template code to pass Path as ngtcp2_path into ngtcp2 functions
         template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
         operator T*()
         {
-            return &path;
+            return &_path;
         }
         template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_path>, int> = 0>
         operator const T*() const
         {
-            return &path;
+            return &_path;
         }
+
+        std::string to_string() const;
     };
+    template <>
+    inline constexpr bool IsToStringFormattable<Path> = true;
 
     // Simple struct wrapping a packet and its corresponding information
     struct Packet
@@ -352,19 +424,60 @@ namespace oxen::quic
         ngtcp2_pkt_info pkt_info;
     };
 
+    struct libuv_error_code_t final
+    {};
+    struct ngtcp2_error_code_t final
+    {};
+
+    // Tag values to pass into the constructor to indicate a libuv or ngtcp2 error code.
+    //
+    // (On unixy systems, libuv error codes are the negatives of errno codes, but on Windows they
+    // are arbitrary values, so they have to be handled differently).
+    //
+    // (For ngtcp2, error codes are arbitrary negative values without any connection to errno).
+    static inline constexpr libuv_error_code_t libuv_error_code{};
+    static inline constexpr ngtcp2_error_code_t ngtcp2_error_code{};
+
     // Struct returned as a result of send_packet that either is implicitly
     // convertible to bool, but also is able to carry an error code
     struct io_result
     {
+
+        // Default construction makes a "good" io_result, i.e. with error code 0
+        io_result() : io_result{0} {}
+
+        // Constructs an io_result with an `errno` value.
+        explicit io_result(int errno_val) : error_code{errno_val} {}
+
+        // Constructs an io_result with a libuv error value.
+        io_result(int err, libuv_error_code_t) : error_code{err}, is_libuv{true} {}
+
+        // Constructs an io_result with an ngtcp2 error value.
+        io_result(int err, ngtcp2_error_code_t) : error_code{err}, is_libuv{true} {}
+
+        // Same as the libuv error code constructor
+        static io_result libuv(int err) { return io_result{err, libuv_error_code}; }
+
+        // Same as the ngtcp2 error code constructor
+        static io_result ngtcp2(int err) { return io_result{err, ngtcp2_error_code}; }
+
+        // The numeric error code
         int error_code{0};
+        // If true then `error_code` is a libuv/ngtcp2 error code, rather than an errno value.
+        bool is_libuv = false, is_ngtcp2 = false;
         // Returns true if this indicates success, i.e. error code of 0
         bool success() const { return error_code == 0; }
         // Returns true if this indicates failure, i.e. error code not 0
         bool failure() const { return !success(); }
         // returns true if error value indicates a failure to write without blocking
-        bool blocked() const { return error_code == EAGAIN || error_code == EWOULDBLOCK; }
-        // returns error code as string
-        std::string_view str() const { return strerror(error_code); }
+        bool blocked() const
+        {
+            return is_libuv  ? error_code == UV_EAGAIN
+                 : is_ngtcp2 ? error_code == NGTCP2_ERR_STREAM_DATA_BLOCKED
+                             : (error_code == EAGAIN || error_code == EWOULDBLOCK);
+        }
+        // returns the error message string describing error_code
+        std::string_view str() const;
     };
 
     // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
@@ -418,47 +531,11 @@ namespace oxen::quic
         explicit buffer_printer(const T* data, size_t size) : buffer_printer(std::basic_string_view<T>{data, size})
         {}
 
-        inline std::string ToString() const
-        {
-            auto& b = buf;
-            std::string out;
-            auto ins = std::back_inserter(out);
-            fmt::format_to(ins, "Buffer[{}/{:#x} bytes]:", b.size(), b.size());
-
-            for (size_t i = 0; i < b.size(); i += 32)
-            {
-                fmt::format_to(ins, "\n{:04x} ", i);
-
-                size_t stop = std::min(b.size(), i + 32);
-                for (size_t j = 0; j < 32; j++)
-                {
-                    auto k = i + j;
-                    if (j % 4 == 0)
-                        out.push_back(' ');
-                    if (k >= stop)
-                        out.append("  ");
-                    else
-                        fmt::format_to(ins, "{:02x}", std::to_integer<uint_fast16_t>(b[k]));
-                }
-                out.append(u8"  ┃");
-                for (size_t j = i; j < stop; j++)
-                {
-                    auto c = std::to_integer<char>(b[j]);
-                    if (c == 0x00)
-                        out.append(u8"∅");
-                    else if (c < 0x20 || c > 0x7e)
-                        out.append(u8"·");
-                    else
-                        out.push_back(c);
-                }
-                out.append(u8"┃");
-            }
-            return out;
-        };
+        std::string to_string() const;
     };
 
     template <>
-    constexpr inline bool IsToStringFormattable<buffer_printer> = true;
+    inline constexpr bool IsToStringFormattable<buffer_printer> = true;
 
 }  // namespace oxen::quic
 
@@ -485,8 +562,24 @@ namespace std
     {
         size_t operator()(const oxen::quic::Address& addr) const
         {
-            auto h = hash<string>{}(addr.ip);
-            h ^= hash<unsigned int>{}(addr.port) + inverse_golden_ratio + (h << 6) + (h >> 2);
+            std::string_view addr_data;
+            in_port_t port;
+            if (addr.is_ipv4())
+            {
+                auto& ip4 = addr.in4();
+                addr_data = {reinterpret_cast<const char*>(&ip4.sin_addr.s_addr), sizeof(ip4.sin_addr.s_addr)};
+                port = ip4.sin_port;
+            }
+            else
+            {
+                assert(addr.is_ipv6());
+                auto& ip6 = addr.in6();
+                addr_data = {reinterpret_cast<const char*>(ip6.sin6_addr.s6_addr), sizeof(ip6.sin6_addr.s6_addr)};
+                port = ip6.sin6_port;
+            }
+
+            auto h = hash<string_view>{}(addr_data);
+            h ^= hash<in_port_t>{}(port) + inverse_golden_ratio + (h << 6) + (h >> 2);
             return h;
         }
     };
@@ -500,7 +593,7 @@ namespace fmt
         template <typename FormatContext>
         auto format(const T& val, FormatContext& ctx) const
         {
-            return formatter<std::string_view>::format(val.ToString(), ctx);
+            return formatter<std::string_view>::format(val.to_string(), ctx);
         }
     };
 

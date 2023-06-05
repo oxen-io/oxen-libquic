@@ -39,7 +39,6 @@ namespace oxen::quic
         Connection& conn;
 
         int64_t stream_id;
-        std::shared_ptr<uvw::udp_handle> udp_handle;
         std::vector<uint8_t> data;
         size_t datalen;
         size_t nwrite;
@@ -50,13 +49,7 @@ namespace oxen::quic
 
         void close(uint64_t error_code = 0);
 
-        void io_ready();
-
-        void available_ready();
-
         void wrote(size_t bytes);
-
-        void when_available(unblocked_callback_t unblocked_cb);
 
         void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
 
@@ -253,11 +246,6 @@ namespace oxen::quic
         inline void set_not_ready() { ready = false; };
 
       private:
-        // Callback(s) to invoke once we have the requested amount of space available in the buffer.
-        std::queue<unblocked_callback_t> unblocked_callbacks;
-
-        void handle_unblocked();  // Processes the above if space is available
-
         std::vector<ngtcp2_vec> pending();
 
         // amount of unacked bytes
@@ -267,9 +255,6 @@ namespace oxen::quic
         bool is_shutdown{false};
         bool sent_fin{false};
         bool ready{false};
-
-        // Async trigger for batch scheduling callbacks
-        std::shared_ptr<uvw::async_handle> avail_trigger;
 
         // TOTHINK: maybe should store a ptr to network or handler here?
         std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;

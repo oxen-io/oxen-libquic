@@ -44,7 +44,7 @@ namespace oxen::quic
         // gnutls_certificate_credentials_t objects used to initialize its ngtcp2 things
         std::shared_ptr<TLSContext> tls_ctx;
         std::shared_ptr<Client> client;
-        std::shared_ptr<uvw::udp_handle> udp_handle;
+        std::shared_ptr<uv_udp_t> udp_handle;
         ConnectionID conn_id;
         client_tls_callback_t client_tls_cb;
 
@@ -66,8 +66,6 @@ namespace oxen::quic
             log::debug(log_cat, "Client context successfully created");
         }
 
-        ~ClientContext();
-
       private:
         void handle_clientctx_opt(opt::local_addr addr);
         void handle_clientctx_opt(opt::remote_addr addr);
@@ -81,10 +79,9 @@ namespace oxen::quic
     struct ServerContext : ContextBase
     {
         std::shared_ptr<Server> server;
-        std::unordered_map<Address, std::pair<std::shared_ptr<uvw::udp_handle>, std::shared_ptr<TLSContext>>> udp_handles;
+        std::unordered_map<Address, std::pair<std::shared_ptr<uv_udp_t>, std::shared_ptr<TLSContext>>> udp_handles;
         std::shared_ptr<TLSContext> temp_ctx;
         server_tls_callback_t server_tls_cb;
-        server_data_callback_t server_data_cb;
         stream_data_callback_t stream_data_cb;
         stream_open_callback_t stream_open_cb;
 
@@ -104,14 +101,11 @@ namespace oxen::quic
             log::debug(log_cat, "Server context successfully created");
         }
 
-        ~ServerContext();
-
       private:
         void handle_serverctx_opt(opt::local_addr addr);
         void handle_serverctx_opt(Address addr);
         void handle_serverctx_opt(opt::server_tls tls);
         void handle_serverctx_opt(server_tls_callback_t func);
-        void handle_serverctx_opt(server_data_callback_t func);
         void handle_serverctx_opt(stream_data_callback_t func);
         void handle_serverctx_opt(stream_open_callback_t func);
         void handle_serverctx_opt(opt::max_streams ms);

@@ -34,14 +34,16 @@ namespace oxen::quic
         std::unique_ptr<std::thread> loop_thread;
 
         // Main client endpoint creation function. If a local address is passed, then a dedicated
-        // UDPHandle is bound to that address. If not, the universal UDPHandle is used for I/O. To
-        // use this function four parameter structs can be passed:
+        // uv_udt_t is bound to that address. To use this function four parameter structs can be
+        // passed:
         //
-        //      local_addr                          OPTIONAL (if not, a random localhost:port
-        //      {                                       will be assigned)
+        //      local_addr                          OPTIONAL (if not, the "any" address will be used)
+        //      {
         //          std::string host,
-        //          std::string port
+        //          uint16_t port
         //      }
+        //      or local_addr{uint16_t port} for any address with the given port.
+        //
         //      remote_addr                         REQUIRED
         //      {
         //          std::string host,
@@ -69,19 +71,11 @@ namespace oxen::quic
                     std::shared_ptr<ClientContext> client_ctx =
                             std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
 
-                    if (client_ctx->local)
-                    {
-                        client_ctx->udp_handle = handle_client_mapping(client_ctx->local);
-                    }
-                    else
-                    {
-                        client_ctx->udp_handle = quic_manager->universal_handle;
-                        client_ctx->local = quic_manager->default_local;
-                    }
+                    client_ctx->udp_handle = handle_mapping(false, client_ctx->local);
 
                     // ensure addresses stored correctly
-                    log::trace(log_cat, "Client local addr: {}:{}", client_ctx->local.ip.data(), client_ctx->local.port);
-                    log::trace(log_cat, "Client remote addr: {}:{}", client_ctx->remote.ip.data(), client_ctx->remote.port);
+                    log::trace(log_cat, "Client local addr: {}", client_ctx->local);
+                    log::trace(log_cat, "Client remote addr: {}", client_ctx->remote);
 
                     // create client and then copy assign it to the client context so we can return
                     // the shared ptr from this function
@@ -103,14 +97,15 @@ namespace oxen::quic
             return f.get();
         };
 
-        // Main server endpoint creation function. Binds a dedicated UDPHandle to the binding
+        // Main server endpoint creation function. Binds a dedicated uv_udt_t to the binding
         // address passed. To use this function, two parameter structs can be passed:
         //
         //      local_addr                              REQUIRED
         //      {
         //          std::string host,
-        //          std::string port
-        //      }
+        //          uint16_t port
+        //      } or local_addr{uint16_t port} for all addresses with a given port.
+        //
         //      server_tls                              REQUIRED
         //      {
         //          std::string server_key,             REQUIRED
@@ -120,8 +115,6 @@ namespace oxen::quic
         //      }
         //      server_tls_callback_t server_tls_cb     OPTIONAL (do not pass this and
         //      client_ca_cert)
-        //
-        //      server_data_callback_t server_data_cb   OPTIONAL (for test cases and error checking)
         //
         // If a client CA cert is passed, it will be used as the CA authority for the connections;
         // if a server callback is passed, then the user is expected to implement logic that will
@@ -141,16 +134,16 @@ namespace oxen::quic
                             std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
 
                     // ensure address stored correctly
-                    log::trace(log_cat, "Server local addr: {}:{}", server_ctx->local.ip.data(), server_ctx->local.port);
+                    log::trace(log_cat, "Server local addr: {}", server_ctx->local);
+
+                    auto& [udp, tls] = server_ctx->udp_handles[server_ctx->local];
+                    if (udp)
+                        throw std::runtime_error{
+                                "Unable to start server: we already have a server listening on that address"};
 
                     // UDP mapping
-                    auto udp_handle = handle_server_mapping(server_ctx->local);
-                    if (server_ctx->server_data_cb)
-                        udp_handle->on<uvw::udp_data_event>(server_ctx->server_data_cb);
-
-                    server_ctx->udp_handles[Address{server_ctx->local}] =
-                            std::make_pair(udp_handle, std::move(server_ctx->temp_ctx));
-                    server_ctx->temp_ctx.reset();
+                    udp = handle_mapping(true, server_ctx->local);
+                    tls = std::move(server_ctx->temp_ctx);
 
                     // make server
                     server_ctx->server = std::make_shared<Server>(quic_manager, server_ctx);
@@ -177,16 +170,12 @@ namespace oxen::quic
         std::atomic<bool> running{false};
 
         std::shared_ptr<Handler> quic_manager;
-        std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_client_addrs;
-        std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_server_addrs;
+        std::unordered_map<Address, std::shared_ptr<uv_udp_t>> mapped_client_addrs;
+        std::unordered_map<Address, std::shared_ptr<uv_udp_t>> mapped_server_addrs;
 
-        std::shared_ptr<uvw::udp_handle> handle_client_mapping(Address& local);
+        std::shared_ptr<uv_udp_t> handle_mapping(bool server, const Address& local);
 
-        std::shared_ptr<uvw::udp_handle> handle_server_mapping(Address& local);
-
-        void configure_client_handle(std::shared_ptr<uvw::udp_handle> handle);
-
-        void configure_server_handle(std::shared_ptr<uvw::udp_handle> handle);
+        std::shared_ptr<uv_udp_t> start_udp_handle(uv_loop_t* loop, bool server, const Address& bind);
 
         void signal_config();
     };

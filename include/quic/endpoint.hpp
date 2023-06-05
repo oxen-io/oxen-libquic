@@ -38,8 +38,6 @@ namespace oxen::quic
         virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
 
         std::shared_ptr<Handler> handler;
-        std::array<std::byte, 1500> buf;
-        size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
         std::shared_ptr<uvw::loop> get_loop();
 
@@ -55,9 +53,9 @@ namespace oxen::quic
 
         void close_conns();
 
-        virtual std::shared_ptr<uvw::udp_handle> get_handle(Address& addr) = 0;
+        virtual std::shared_ptr<uv_udp_t> get_handle(Address& addr) = 0;
 
-        virtual std::shared_ptr<uvw::udp_handle> get_handle(Path& p) = 0;
+        virtual std::shared_ptr<uv_udp_t> get_handle(Path& p) = 0;
 
       protected:
         std::shared_ptr<uvw::timer_handle> expiry_timer;
@@ -96,7 +94,8 @@ namespace oxen::quic
 
         io_result read_packet(Connection& conn, Packet& pkt);
 
-        io_result send_packet(Address& remote, bstring_view data);
+        io_result send_packets(Path& p, char* buf, size_t* bufsize, size_t& n_pkts);
+        io_result send_packet_libuv(Path& p, const char* buf, size_t bufsize, std::function<void()> after_sent = nullptr);
 
         io_result send_packet(Path& p, bstring_view data);
 

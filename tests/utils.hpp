@@ -109,7 +109,7 @@ namespace oxen::quic
         auto running_fut = running.get_future(), done_fut = done.get_future();
         std::thread ev_thread{[&net, running = std::move(running), done = std::move(done)]() mutable {
             // Run once (non-blocking) to be sure we are up and running before fulfilling the future
-            net.ev_loop->run<uvw::Loop::Mode::NOWAIT>();
+            net.ev_loop->run(uvw::loop::run_mode::NOWAIT);
             running.set_value();
             net.run();
             done.set_value();

@@ -84,18 +84,10 @@ namespace oxen::quic
             {
                 quic_manager->close_all();
 
-                for (const auto& [addr, handle] : mapped_client_addrs)
-                {
-                    const auto& s = handle->sock();
-                    log::debug(log_cat, "closing client UDPHandle bound to {}:{}", s.ip, s.port);
-                    handle->close();
-                }
-                for (const auto& [addr, handle] : mapped_server_addrs)
-                {
-                    const auto& s = handle->sock();
-                    log::debug(log_cat, "closing server UDPHandle bound to {}:{}", s.ip, s.port);
-                    handle->close();
-                }
+                // Destroy all our uv_udp_ts (their shared_ptr destructors will call close, and
+                // actual freeing should happen in the next event loop iteration).
+                mapped_client_addrs.clear();
+                mapped_server_addrs.clear();
 
                 if (loop_thread)
                 {
@@ -127,107 +119,133 @@ namespace oxen::quic
         log::debug(log_cat, "Event loop shut down...");
     }
 
-    void Network::configure_client_handle(std::shared_ptr<uvw::udp_handle> handle)
+    int64_t receive_counter = 0;
+
+    namespace
     {
-        // client receive data
-        handle->on<uvw::udp_data_event>([&](const uvw::udp_data_event& event, uvw::udp_handle& handle) {
-            bstring_view data{reinterpret_cast<const std::byte*>(event.data.get()), event.length};
+        struct udp_data
+        {
+            bool server = true;
+            std::shared_ptr<Handler> quic_manager;
+            char buf[
+#if !defined(OXEN_LIBQUIC_UDP_NO_RECVMMSG) && (defined(__linux__) || defined(__FreeBSD__))
+                    max_bufsize * 8
+#else
+                    max_bufsize
+#endif
+            ];
+        };
 
-            Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
-
-            log::trace(
-                    log_cat,
-                    "Client received packet from sender {}:{} (size = {}) with message: \n{}",
-                    pkt.path.remote.ip.data(),
-                    pkt.path.remote.port,
-                    data.size(),
-                    buffer_printer{data});
-            log::trace(
-                    log_cat,
-                    "Searching client mapping for local address {}:{}",
-                    pkt.path.local.ip.data(),
-                    pkt.path.local.port);
-
-            for (auto ctx : quic_manager->clients)
+        extern "C" void recv_alloc(uv_handle_t* handle, size_t /*suggested_size*/, uv_buf_t* buf)
+        {
+            auto& data_buf = static_cast<udp_data*>(handle->data)->buf;
+            buf->base = data_buf;
+            buf->len = sizeof(data_buf);
+        }
+        // uvw's receive callback is completely broken w.r.t handling the RECVMMSG flag, so we do
+        // our own C callback on the raw handle.  These warts with uvw come up so often, perhaps we
+        // should just ditch uvw entirely?
+        extern "C" void recv_callback(
+                uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf_raw, const sockaddr* addr, unsigned flags)
+        {
+            if (nread > 0 || (nread == 0 && addr != nullptr))
             {
-                if (ctx->local == handle.sock())
-                {
-                    ctx->client->handle_packet(pkt);
-                    return;
-                }
+                receive_counter++;
+                Packet pkt{};
+                pkt.data = {reinterpret_cast<const std::byte*>(buf_raw->base), static_cast<size_t>(nread)};
+                sockaddr_storage local_s_store;
+                sockaddr* local_s = reinterpret_cast<sockaddr*>(&local_s_store);
+                int namelen = sizeof(local_s_store);
+                uv_udp_getsockname(handle, local_s, &namelen);
+                pkt.path.local = local_s;
+                assert(namelen == pkt.path.local.socklen());
+                pkt.path.remote = addr;
+
+                auto& data = *static_cast<udp_data*>(handle->data);
+                auto& quic_manager = *data.quic_manager;
+
+                log::trace(
+                        log_cat,
+                        "{} received packet from sender {} (size = {}) with message: \n{}",
+                        data.server ? "Server" : "Client",
+                        pkt.path.remote,
+                        pkt.data.size(),
+                        buffer_printer{pkt.data});
+                log::trace(
+                        log_cat,
+                        "Searching {} mapping for local address {}",
+                        data.server ? "server" : "client",
+                        pkt.path.local);
+
+                Endpoint* endpoint;
+                if (data.server)
+                    endpoint = quic_manager.find_server(pkt.path.local);
+                else
+                    endpoint = quic_manager.find_client(pkt.path.local);
+
+                if (endpoint)
+                    endpoint->handle_packet(pkt);
+                else
+                    log::warning(log_cat, "{} packet handling unsuccessful", data.server ? "Server" : "Client");
             }
-            log::warning(log_cat, "Client handle forwarding unsuccessful");
-        });
-    }
-
-    void Network::configure_server_handle(std::shared_ptr<uvw::udp_handle> handle)
-    {
-        // server receive data
-        handle->on<uvw::udp_data_event>([&](const uvw::udp_data_event& event, uvw::udp_handle& handle) {
-            bstring_view data{reinterpret_cast<const std::byte*>(event.data.get()), event.length};
-
-            Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
-
-            log::trace(
-                    log_cat,
-                    "Server received packet from sender {}:{} (size = {}) with message: \n{}",
-                    pkt.path.remote.ip.data(),
-                    pkt.path.remote.port,
-                    data.size(),
-                    buffer_printer{data});
-            log::trace(
-                    log_cat,
-                    "Searching server mapping for local address {}:{}",
-                    pkt.path.local.ip.data(),
-                    pkt.path.local.port);
-
-            auto itr = quic_manager->servers.find(pkt.path.local);
-
-            if (itr != quic_manager->servers.end())
+            else if (nread == 0)
             {
-                itr->second->server->handle_packet(pkt);
-                return;
+                // This is libuv telling us its done with the recvmmsg batch
             }
             else
-                log::warning(log_cat, "Server handle forwarding unsuccessful");
-        });
+            {
+                log::warning(log_cat, "recv_callback error {}", nread);
+            }
+        }
+    }  // namespace
+
+    std::shared_ptr<uv_udp_t> Network::start_udp_handle(uv_loop_t* loop, bool server, const Address& bind)
+    {
+        log::info(log_cat, "Starting new UDP handle on {}", bind);
+        std::shared_ptr<uv_udp_t> udp{new uv_udp_t{}, [](uv_udp_t* udp) {
+                                          auto* handle = reinterpret_cast<uv_handle_t*>(udp);
+                                          if (uv_is_active(handle))
+                                              uv_udp_recv_stop(udp);
+                                          uv_close(handle, [](uv_handle_t* handle) {
+                                              auto* udp = reinterpret_cast<uv_udp_t*>(handle);
+                                              if (udp->data != nullptr)
+                                                  delete static_cast<udp_data*>(udp->data);
+                                              delete udp;
+                                          });
+                                      }};
+
+        uv_udp_init_ex(
+                loop,
+                udp.get(),
+#if !defined(OXEN_LIBQUIC_UDP_NO_RECVMMSG) && (defined(__linux__) || defined(__FreeBSD__))
+                UV_UDP_RECVMMSG
+#else
+                0
+#endif
+        );
+        udp->data = new udp_data{server, quic_manager};
+        // binding is done here rather than after returning, so an already bound
+        // uv_udp_t isn't bound to the same address twice
+        int rv = uv_udp_bind(udp.get(), bind, 0);
+        if (rv != 0)
+            throw std::runtime_error{"Failed to bind UDP handle: " + std::string{uv_strerror(rv)}};
+        rv = uv_udp_recv_start(udp.get(), recv_alloc, recv_callback);
+        if (rv != 0)
+            throw std::runtime_error{"Failed to start listening on UDP handle: " + std::string{uv_strerror(rv)}};
+        return udp;
     }
 
-    std::shared_ptr<uvw::udp_handle> Network::handle_client_mapping(Address& local)
+    std::shared_ptr<uv_udp_t> Network::handle_mapping(bool server, const Address& local)
     {
-        auto q = mapped_client_addrs.find(local);
+        auto& udp = (server ? mapped_server_addrs : mapped_client_addrs)[local];
 
-        if (q == mapped_client_addrs.end())
+        if (!udp)
         {
-            log::trace(log_cat, "Creating dedicated client udp_handle...");
-            auto handle = quic_manager->loop()->resource<uvw::udp_handle>();
-            configure_client_handle(handle);
-            // binding is done here rather than after returning, so an already bound
-            // UDPhandle isn't bound to the same address twice
-            handle->bind(local);
-            handle->recv();
-            mapped_client_addrs[local] = handle;
-            return handle;
+            log::trace(log_cat, "Creating dedicated {} uv_udp_t on {}...", server ? "server" : "client", local);
+            udp = start_udp_handle(quic_manager->loop()->raw(), server, local);
         }
 
-        return q->second;
+        return udp;
     }
 
-    std::shared_ptr<uvw::udp_handle> Network::handle_server_mapping(Address& local)
-    {
-        auto q = mapped_server_addrs.find(local);
-
-        if (q == mapped_server_addrs.end())
-        {
-            log::trace(log_cat, "Creating dedicated server udp_handle...");
-            auto handle = quic_manager->loop()->resource<uvw::udp_handle>();
-            configure_server_handle(handle);
-            handle->bind(local);
-            handle->recv();
-            mapped_server_addrs[local] = handle;
-            return handle;
-        }
-
-        return q->second;
-    }
 }  // namespace oxen::quic

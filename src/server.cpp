@@ -21,7 +21,7 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-    std::shared_ptr<uvw::udp_handle> Server::get_handle(Address& addr)
+    std::shared_ptr<uv_udp_t> Server::get_handle(Address& addr)
     {
         // server handles are indexed by local bind addr
         auto handle = context->udp_handles.find(addr);
@@ -29,7 +29,7 @@ namespace oxen::quic
         return (handle != context->udp_handles.end()) ? handle->second.first : nullptr;
     }
 
-    std::shared_ptr<uvw::udp_handle> Server::get_handle(Path& p)
+    std::shared_ptr<uv_udp_t> Server::get_handle(Path& p)
     {
         // because server handles are indexed by local bind addr, when we call connection::send(),
         // the remote address is passed. as a result, this overload allows us to pass a path (s.t.

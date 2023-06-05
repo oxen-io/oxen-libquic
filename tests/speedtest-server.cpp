@@ -2,13 +2,14 @@
     Test server binary
 */
 
+#include <oxenc/endian.h>
+#include <oxenc/hex.h>
 #include <sodium/crypto_generichash_blake2b.h>
+
 #include <CLI/Validators.hpp>
 #include <future>
 #include <quic.hpp>
 #include <thread>
-#include <oxenc/endian.h>
-#include <oxenc/hex.h>
 
 #include "utils.hpp"
 
@@ -43,6 +44,13 @@ int main(int argc, char* argv[])
             ->capture_default_str()
             ->check(CLI::ExistingFile);
 
+    bool no_blake2b = false;
+    cli.add_flag(
+            "-2,--no-blake2b",
+            no_blake2b,
+            "Disable blake2b data hashing (just use a simple xor byte checksum).  Can make a difference on extremely low "
+            "latency (e.g. localhost) connections.  Should be specified on the client as well.");
+
     try
     {
         cli.parse(argc, argv);
@@ -66,13 +74,16 @@ int main(int argc, char* argv[])
         return 0;
     };
 
-    struct stream_info {
-        explicit stream_info(uint64_t expected) : expected{expected} {
+    struct stream_info
+    {
+        explicit stream_info(uint64_t expected) : expected{expected}
+        {
             crypto_generichash_blake2b_init(&hasher, nullptr, 0, 32);
         }
 
         uint64_t expected;
         uint64_t received = 0;
+        unsigned char checksum = 0;
         crypto_generichash_blake2b_state hasher;
     };
 
@@ -80,8 +91,10 @@ int main(int argc, char* argv[])
     auto stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.conn.source_cid];
         auto it = sd.find(s.stream_id);
-        if (it == sd.end()) {
-            if (data.size() < sizeof(uint64_t)) {
+        if (it == sd.end())
+        {
+            if (data.size() < sizeof(uint64_t))
+            {
                 log::critical(test_cat, "Well this was unexpected: I got {} < 8 bytes", data.size());
                 return;
             }
@@ -95,22 +108,40 @@ int main(int argc, char* argv[])
 
         bool need_more = info.received < info.expected;
         info.received += data.size();
-        if (info.received > info.expected) {
+        if (info.received > info.expected)
+        {
             log::critical(test_cat, "Received too much data ({}B > {}B)!");
             if (!need_more)
                 return;
             data.remove_suffix(info.received - info.expected);
         }
-        crypto_generichash_blake2b_update(
-            &info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
 
-        if (info.received >= info.expected) {
+        uint64_t csum = 0;
+        const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
+        for (size_t i = 0; i < data.size() / 8; i++)
+            csum ^= stuff[i];
+        for (int i = 0; i < 8; i++)
+            info.checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
+        for (size_t i = (data.size() / 8) * 8; i < data.size(); i++)
+            info.checksum ^= static_cast<uint8_t>(data[i]);
+
+        if (!no_blake2b)
+            crypto_generichash_blake2b_update(
+                    &info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+
+        if (info.received >= info.expected)
+        {
             std::basic_string<unsigned char> final_hash;
-            final_hash.resize(32);
+            final_hash.resize(33);
             crypto_generichash_blake2b_final(&info.hasher, final_hash.data(), 32);
+            final_hash[32] = info.checksum;
 
-            log::warning(test_cat, "Data from stream {} complete ({} B).  Final hash: {}",
-                    s.stream_id, info.received, oxenc::to_hex(final_hash.begin(), final_hash.end()));
+            log::warning(
+                    test_cat,
+                    "Data from stream {} complete ({} B).  Final hash: {}",
+                    s.stream_id,
+                    info.received,
+                    oxenc::to_hex(final_hash.begin(), final_hash.end()));
 
             s.send(std::move(final_hash));
         }
@@ -122,8 +153,10 @@ int main(int argc, char* argv[])
     log::debug(test_cat, "Starting event loop thread...");
     auto [ev_thread, running, done] = spawn_event_loop(server_net);
 
-    while (done.wait_for(3s) != std::future_status::ready)
-        log::info(test_cat, "waiting...");
+    while (done.wait_for(1s) != std::future_status::ready)
+    {
+        log::debug(test_cat, "waiting...");
+    }
 
     ev_thread.join();
 

@@ -33,9 +33,9 @@ namespace oxen::quic
 
         ~Server();
 
-        std::shared_ptr<uvw::udp_handle> get_handle(Address& addr) override;
+        std::shared_ptr<uv_udp_t> get_handle(Address& addr) override;
 
-        std::shared_ptr<uvw::udp_handle> get_handle(Path& p) override;
+        std::shared_ptr<uv_udp_t> get_handle(Path& p) override;
 
       protected:
         Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid) override;
