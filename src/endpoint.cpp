@@ -265,24 +265,43 @@ namespace oxen::quic
         assert(handle != nullptr);
 
         auto raw_handle = handle->raw();
-        std::array<uv_buf_t, 8> raw_bufs;
-        auto send_req = uv_udp_send_t{};
+
+        // We need to allocate the data until libuv is ready to send it; we do *one* allocation into
+        // a big vector with the packet data appended end-to-end, i.e. [PKT1][PKT2]...
+        auto packet_data = std::make_unique<std::vector<char>>();
+        size_t agg_size = 0;
+        for (int i = 0; i < n_pkts; i++)
+            agg_size += buf[i].second;
+        packet_data->resize(agg_size);
+
+        std::array<uv_buf_t, batch_size> raw_bufs;
 
         log::info(log_cat, "Sending udp batch to {}:{}...", p.remote.ip.c_str(), p.remote.port);
 
+        char* packet_data_pos = packet_data->data();
         for (int i = 0; i < n_pkts; ++i)
         {
-            if (!buf[i].second) 
-                continue;
-            bstring_view send_data{buf[i].first.data(), buf[i].second};
+            assert(buf[i].second > 0);
 
-            raw_bufs[i].base = const_cast<char*>(reinterpret_cast<const char*>(buf[i].first.data()));
+            std::memcpy(packet_data_pos, buf[i].first.data(), buf[i].second);
+            raw_bufs[i].base = packet_data_pos;
             raw_bufs[i].len = buf[i].second;
+            packet_data_pos += buf[i].second;
 
+#ifndef NDEBUG
             buf[i].second = 0;
+#endif
         }
+        assert(packet_data_pos - packet_data->data() == agg_size);
 
-        auto rv = uv_udp_send(&send_req, raw_handle, raw_bufs.data(), n_pkts, p.remote, [](uv_udp_send_t*, int){});
+        auto* send_req = new uv_udp_send_t{};
+        send_req->data = packet_data.release();
+        auto deleter = [](uv_udp_send_t* send_req, int) {
+            delete static_cast<std::vector<char>*>(send_req->data);
+            // delete send_req;
+        };
+
+        auto rv = uv_udp_send(send_req, raw_handle, raw_bufs.data(), n_pkts, p.remote, deleter);
 
         return io_result{rv};
     }

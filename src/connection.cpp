@@ -254,6 +254,8 @@ namespace oxen::quic
     io_result Connection::send(uint64_t ts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        if (n_packets == 0)
+            return io_result{0};
 
         auto sent = endpoint.send_packets(path, send_buffer, n_packets);
         if (sent.blocked())
