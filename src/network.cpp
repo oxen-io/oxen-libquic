@@ -176,9 +176,4 @@ namespace oxen::quic
 
         return q->second;
     }
-
-    Handler* Network::get_quic()
-    {
-        return (quic_manager) ? quic_manager.get() : nullptr;
-    }
 }  // namespace oxen::quic

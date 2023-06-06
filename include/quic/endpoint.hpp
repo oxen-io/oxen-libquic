@@ -38,8 +38,6 @@ namespace oxen::quic
         virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
 
         std::shared_ptr<Handler> handler;
-        std::array<std::byte, 1500> buf;
-        size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
         std::shared_ptr<uvw::Loop> get_loop();
 
@@ -96,7 +94,7 @@ namespace oxen::quic
 
         io_result read_packet(Connection& conn, Packet& pkt);
 
-        io_result send_packet(Address& remote, bstring_view data);
+        io_result send_packets(Path& p, send_buffer_t& buf, size_t n_pkts);
 
         io_result send_packet(Path& p, bstring_view data);
 

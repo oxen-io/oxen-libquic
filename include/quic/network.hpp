@@ -28,8 +28,6 @@ namespace oxen::quic
 
         std::shared_ptr<uvw::Loop> ev_loop;
 
-        Handler* get_quic();
-
         void run();
 
         // Main client endpoint creation function. If a local address is passed, then a dedicated

@@ -34,8 +34,9 @@ namespace oxen::quic
 
         int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
-        std::array<std::byte, NGTCP2_MAX_UDP_PAYLOAD_SIZE> send_buffer{};
+        send_buffer_t send_buffer{};
         size_t send_buffer_size = 0;
+        size_t n_packets = 0;
         ngtcp2_pkt_info pkt_info{};
 
       public:
@@ -89,7 +90,7 @@ namespace oxen::quic
 
         void on_io_ready();
 
-        io_result send();
+        io_result send(uint64_t ts);
 
         void flush_streams();
 
