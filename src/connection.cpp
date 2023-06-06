@@ -489,7 +489,7 @@ namespace oxen::quic
             }
 
             log::info(log_cat, "Sending data packet with non-stream data frames");
-            if (auto rv = send_packet(nwrite); rv != 0)
+            if (auto rv = send_packet(nwrite); rv.failure())
                 return;
             ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
         }

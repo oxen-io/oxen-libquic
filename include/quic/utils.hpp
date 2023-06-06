@@ -314,11 +314,12 @@ namespace oxen::quic
     struct io_result
     {
         int error_code{0};
-        // returns true if this was successful
-        operator bool() const { return error_code == 0; }
-        // returns true if error value indicates a failure to write
-        // without blocking
-        bool blocked() const { return error_code == 11; }  // EAGAIN = 11
+        // Returns true if this indicates success, i.e. error code of 0
+        bool success() const { return error_code == 0; }
+        // Returns true if this indicates failure, i.e. error code not 0
+        bool failure() const { return !success(); }
+        // returns true if error value indicates a failure to write without blocking
+        bool blocked() const { return error_code == EAGAIN || error_code == EWOULDBLOCK; }
         // returns error code as string
         std::string_view str() const { return strerror(error_code); }
     };

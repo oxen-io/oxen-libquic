@@ -142,12 +142,12 @@ namespace oxen::quic
         // ensure we have enough write space
         assert(written <= (long)conn.conn_buffer.size());
 
-        if (auto rv = send_packet(conn.path, conn.conn_buffer); not rv)
+        if (auto rv = send_packet(conn.path, conn.conn_buffer); rv.failure())
         {
             log::warning(
                     log_cat,
                     "Error: failed to send close packet [code: {}]; removing connection [CID: {}]",
-                    strerror(rv.error_code),
+                    rv.str(),
                     *conn.source_cid.data);
             delete_connection(conn.source_cid);
         }
@@ -213,7 +213,10 @@ namespace oxen::quic
             log::debug(log_cat, "Error: connection is already draining; dropping");
         }
 
-        log::trace(log_cat, "{}", (read_packet(conn, pkt)) ? "Done with incoming packet"s : "Read packet failed"s);
+        if (read_packet(conn, pkt).success())
+            log::trace(log_cat, "done with incoming packet");
+        else
+            log::trace(log_cat, "read packet failed"); // error will be already logged
     }
 
     io_result Endpoint::read_packet(Connection& conn, Packet& pkt)
