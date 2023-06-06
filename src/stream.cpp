@@ -69,7 +69,7 @@ namespace oxen::quic
 
     void Stream::close(uint64_t error_code)
     {
-        conn.quic_manager->call([this, error_code](){
+        conn.quic_manager->call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
@@ -124,7 +124,7 @@ namespace oxen::quic
 
     void Stream::when_available(unblocked_callback_t unblocked_cb)
     {
-        conn.quic_manager->call([this, unblocked_cb](){
+        conn.quic_manager->call([this, unblocked_cb]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             unblocked_callbacks.push(std::move(unblocked_cb));
         });
@@ -206,7 +206,7 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        conn.quic_manager->call([this, data, keep_alive](){
+        conn.quic_manager->call([this, data, keep_alive]() {
             log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);
         });
@@ -214,8 +214,6 @@ namespace oxen::quic
 
     void Stream::set_user_data(std::shared_ptr<void> data)
     {
-        conn.quic_manager->call([this, data](){
-            user_data = std::move(data);
-        });
+        conn.quic_manager->call([this, data]() { user_data = std::move(data); });
     }
 }  // namespace oxen::quic

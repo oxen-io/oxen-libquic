@@ -8,8 +8,8 @@ extern "C"
 
 #include <cstdio>
 #include <cstring>
-#include <stdexcept>
 #include <future>
+#include <stdexcept>
 
 #include "connection.hpp"
 #include "context.hpp"
@@ -63,7 +63,7 @@ namespace oxen::quic
 
         std::promise<std::shared_ptr<Stream>> p;
         auto f = p.get_future();
-        handler->call([&data_cb, &close_cb, &p, this](){
+        handler->call([&data_cb, &close_cb, &p, this]() {
             try
             {
                 auto ctx = reinterpret_cast<ClientContext*>(context.get());

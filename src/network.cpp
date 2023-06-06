@@ -27,9 +27,9 @@ namespace oxen::quic
         log::trace(log_cat, __PRETTY_FUNCTION__);
         ev_loop = uvw::Loop::create();
 
-        signal_config(); // TODO: probably remove this, as the library user should handle signals
+        signal_config();  // TODO: probably remove this, as the library user should handle signals
 
-        loop_thread = std::make_unique<std::thread>([this](){ ev_loop->run(); });
+        loop_thread = std::make_unique<std::thread>([this]() { ev_loop->run(); });
         running.store(true);
         quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
     }
@@ -73,8 +73,9 @@ namespace oxen::quic
 
         std::promise<void> p;
         auto f = p.get_future();
-        quic_manager->call([this, &p](){
-            try {
+        quic_manager->call([this, &p]() {
+            try
+            {
                 quic_manager->close_all();
 
                 for (auto& [addr, handle] : mapped_client_addrs)
@@ -95,11 +96,11 @@ namespace oxen::quic
                     // uvw::loop parent class uvw::emitter (unregisters all event listeners)
                     ev_loop->clear();
                     ev_loop->stop();
-
                 }
                 p.set_value();
             }
-            catch (...) {
+            catch (...)
+            {
                 p.set_exception(std::current_exception());
             }
         });

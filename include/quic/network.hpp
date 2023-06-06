@@ -5,11 +5,11 @@ extern "C"
 #include <gnutls/gnutls.h>
 }
 
-#include <cstdint>
-#include <memory>
 #include <atomic>
-#include <thread>
+#include <cstdint>
 #include <future>
+#include <memory>
+#include <thread>
 #include <uvw.hpp>
 
 #include "client.hpp"
@@ -62,8 +62,9 @@ namespace oxen::quic
         {
             std::promise<std::shared_ptr<Client>> p;
             auto f = p.get_future();
-            quic_manager->call([&opts...,&p,this]() mutable {
-                try {
+            quic_manager->call([&opts..., &p, this]() mutable {
+                try
+                {
                     // initialize client context and client tls context simultaneously
                     std::shared_ptr<ClientContext> client_ctx =
                             std::make_shared<ClientContext>(quic_manager, std::forward<Opt>(opts)...);
@@ -84,8 +85,8 @@ namespace oxen::quic
 
                     // create client and then copy assign it to the client context so we can return
                     // the shared ptr from this function
-                    auto client_ptr =
-                            std::make_shared<Client>(quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
+                    auto client_ptr = std::make_shared<Client>(
+                            quic_manager, client_ctx, (*client_ctx).conn_id, client_ctx->udp_handle);
                     client_ctx->client = client_ptr;
 
                     quic_manager->clients.emplace_back(std::move(client_ctx));
@@ -93,7 +94,8 @@ namespace oxen::quic
 
                     p.set_value(client_ptr);
                 }
-                catch (...) {
+                catch (...)
+                {
                     p.set_exception(std::current_exception());
                 }
             });
@@ -131,8 +133,9 @@ namespace oxen::quic
         {
             std::promise<std::shared_ptr<Server>> p;
             auto f = p.get_future();
-            quic_manager->call([&opts...,&p,this]() mutable {
-                try {
+            quic_manager->call([&opts..., &p, this]() mutable {
+                try
+                {
                     // initialize server context and server tls context simultaneously
                     std::shared_ptr<ServerContext> server_ctx =
                             std::make_shared<ServerContext>(quic_manager, std::forward<Opt>(opts)...);
@@ -159,7 +162,8 @@ namespace oxen::quic
                     log::trace(log_cat, "Server context emplaced");
                     p.set_value(server_ptr);
                 }
-                catch (...) {
+                catch (...)
+                {
                     p.set_exception(std::current_exception());
                 }
             });

@@ -29,7 +29,8 @@ extern "C"
 
 namespace oxen::quic
 {
-    Handler::Handler(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id, Network& net) : net{net}, loop_thread_id{loop_thread_id}
+    Handler::Handler(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id, Network& net) :
+            net{net}, loop_thread_id{loop_thread_id}
     {
         ev_loop = loop_ptr;
         universal_handle = ev_loop->resource<uvw::udp_handle>();
@@ -121,7 +122,7 @@ namespace oxen::quic
 
     void Handler::close_all()
     {
-        call([this](){
+        call([this]() {
             if (!clients.empty())
             {
                 for (const auto& ctx : clients)

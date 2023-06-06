@@ -11,12 +11,12 @@ extern "C"
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <queue>
+#include <thread>
 #include <unordered_set>
 #include <uvw.hpp>
 #include <vector>
-#include <mutex>
-#include <thread>
 
 #include "crypto.hpp"
 #include "utils.hpp"

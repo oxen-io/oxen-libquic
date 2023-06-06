@@ -68,6 +68,5 @@ namespace oxen::quic::test
         auto conn = client->get_conn(client->context->conn_id);
         REQUIRE(conn->pending_streams.size() == 1);
         test_net.close();
-
     };
 }  // namespace oxen::quic::test
