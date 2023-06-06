@@ -398,7 +398,7 @@ namespace oxen::quic
 
                 if (nwrite == 0)  //  we are congested
                 {
-                    log::info(log_cat, "Done stream writing to {} (stream is congested)", stream.stream_id);
+                    log::info(log_cat, "Done stream writing to {} (connection is congested)", stream.stream_id);
 
                     ngtcp2_conn_update_pkt_tx_time(conn.get(), ts);
                     //  we are congested, so clear pending streams to exit outer loop
