@@ -271,7 +271,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         // Maximum number of stream data packets to send out at once; if we reach this then we'll
         // schedule another event loop call of ourselves (so that we don't starve the loop)
-        auto max_udp_payload_size = ngtcp2_conn_get_max_tx_udp_payload_size(conn.get());
+        auto max_udp_payload_size = ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get());
         auto max_stream_packets = ngtcp2_conn_get_send_quantum(conn.get()) / max_udp_payload_size;
         ngtcp2_ssize ndatalen;
         uint16_t stream_packets = 0;
@@ -699,7 +699,7 @@ namespace oxen::quic
 
         settings.initial_ts = get_timestamp();
         settings.log_printf = log_printer;
-        settings.max_tx_udp_payload_size = 1200;
+        settings.max_tx_udp_payload_size = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;
         settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
 
         ngtcp2_transport_params_default(&params);
