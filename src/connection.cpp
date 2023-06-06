@@ -351,7 +351,7 @@ namespace oxen::quic
                         stream.stream_id,
                         bufs.data(),
                         bufs.size(),
-                        (!ts) ? get_timestamp() : ts);
+                        ts);
 
                 log::debug(log_cat, "add_stream_data for stream {} returned [{},{}]", stream.stream_id, nwrite, ndatalen);
 
@@ -443,7 +443,7 @@ namespace oxen::quic
                     -1,
                     nullptr,
                     0,
-                    (!ts) ? get_timestamp() : ts);
+                    ts);
 
             log::info(log_cat, "add_stream_data for non-stream returned [{},{}]", nwrite, ndatalen);
             assert(ndatalen <= 0);
