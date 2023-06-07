@@ -34,17 +34,17 @@ namespace oxen::quic
         friend class Network;
 
       public:
-        explicit Handler(std::shared_ptr<uvw::Loop> loop_ptr, Network& net);
+        explicit Handler(std::shared_ptr<uvw::loop> loop_ptr, Network& net);
         ~Handler();
 
         Network& net;
 
-        std::shared_ptr<uvw::UDPHandle> universal_handle;
+        std::shared_ptr<uvw::udp_handle> universal_handle;
         Address default_local{"127.0.0.1", 4433};
-        std::shared_ptr<uvw::AsyncHandle> io_trigger;
-        std::shared_ptr<uvw::Loop> ev_loop;
+        std::shared_ptr<uvw::async_handle> io_trigger;
+        std::shared_ptr<uvw::loop> ev_loop;
 
-        std::shared_ptr<uvw::Loop> loop();
+        std::shared_ptr<uvw::loop> loop();
 
         void client_call_async(async_callback_t async_cb);
 

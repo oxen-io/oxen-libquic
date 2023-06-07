@@ -39,7 +39,7 @@ namespace oxen::quic
         Connection& conn;
 
         int64_t stream_id;
-        std::shared_ptr<uvw::UDPHandle> udp_handle;
+        std::shared_ptr<uvw::udp_handle> udp_handle;
         std::vector<uint8_t> data;
         size_t datalen;
         size_t nwrite;
@@ -269,7 +269,7 @@ namespace oxen::quic
         bool ready{false};
 
         // Async trigger for batch scheduling callbacks
-        std::shared_ptr<uvw::AsyncHandle> avail_trigger;
+        std::shared_ptr<uvw::async_handle> avail_trigger;
 
         // TOTHINK: maybe should store a ptr to network or handler here?
         std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;

@@ -41,7 +41,7 @@ namespace oxen::quic
         std::array<std::byte, 1500> buf;
         size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
-        std::shared_ptr<uvw::Loop> get_loop();
+        std::shared_ptr<uvw::loop> get_loop();
 
         void handle_packet(Packet& pkt);
 
@@ -55,12 +55,12 @@ namespace oxen::quic
 
         void close_conns();
 
-        virtual std::shared_ptr<uvw::UDPHandle> get_handle(Address& addr) = 0;
+        virtual std::shared_ptr<uvw::udp_handle> get_handle(Address& addr) = 0;
 
-        virtual std::shared_ptr<uvw::UDPHandle> get_handle(Path& p) = 0;
+        virtual std::shared_ptr<uvw::udp_handle> get_handle(Path& p) = 0;
 
       protected:
-        std::shared_ptr<uvw::TimerHandle> expiry_timer;
+        std::shared_ptr<uvw::timer_handle> expiry_timer;
 
         // Data structures used to keep track of various types of connections
         //

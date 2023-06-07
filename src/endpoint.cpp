@@ -20,8 +20,8 @@ namespace oxen::quic
     {
         handler = quic_manager;
 
-        expiry_timer = get_loop()->resource<uvw::TimerHandle>();
-        expiry_timer->on<uvw::TimerEvent>([this](const auto&, auto&) { check_timeouts(); });
+        expiry_timer = get_loop()->resource<uvw::timer_handle>();
+        expiry_timer->on<uvw::timer_event>([this](const auto&, auto&) { check_timeouts(); });
         expiry_timer->start(250ms, 250ms);
 
         log::info(log_cat, "Successfully created QUIC endpoint");
@@ -40,7 +40,7 @@ namespace oxen::quic
     void Endpoint::call_async_all(async_callback_t async_cb)
     {
         for (const auto& c : conns)
-            c.second->io_trigger->on<uvw::AsyncEvent>(async_cb);
+            c.second->io_trigger->on<uvw::async_event>(async_cb);
 
         // for (const auto& c : conns)
         //     c.second->io_ready();
@@ -54,7 +54,7 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<uvw::Loop> Endpoint::get_loop()
+    std::shared_ptr<uvw::loop> Endpoint::get_loop()
     {
         return (handler->ev_loop) ? handler->ev_loop : nullptr;
     }
@@ -119,8 +119,8 @@ namespace oxen::quic
                     *conn.source_cid.data);
         }
 
-        ngtcp2_connection_close_error err;
-        ngtcp2_connection_close_error_set_transport_error_liberr(
+        ngtcp2_ccerr err;
+        ngtcp2_ccerr_set_liberr(
                 &err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
 
         conn.conn_buffer.resize(max_pkt_size_v4);
@@ -201,7 +201,7 @@ namespace oxen::quic
 
     void Endpoint::handle_conn_packet(Connection& conn, Packet& pkt)
     {
-        if (auto rv = ngtcp2_conn_is_in_closing_period(conn); rv != 0)
+        if (auto rv = ngtcp2_conn_in_closing_period(conn); rv != 0)
         {
             log::debug(
                     log_cat, "Error: connection (CID: {}) is in closing period; dropping connection", *conn.source_cid.data);

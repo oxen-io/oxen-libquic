@@ -47,17 +47,15 @@ add_library(ngtcp2::crypto
     ALIAS 
     ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
 
-# uvw
-set(BUILD_UVW_LIBS ON CACHE BOOL "")
-set(FETCH_LIBUV OFF CACHE BOOL "")
-set(BUILD_TESTING OFF CACHE BOOL "")
-set(FIND_GTEST_PACKAGE OFF CACHE BOOL "")
-add_subdirectory(uvw)
-
 # libuv
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
-add_subdirectory(libuv)
+system_or_submodule(LIBUV uv_a libuv>=1.45.0 libuv)
 
 # oxen-logging
 set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 add_subdirectory(oxen-logging)
+
+# uvw
+add_library(uvw INTERFACE)
+target_include_directories(uvw INTERFACE uvw/src)
+target_link_libraries(uvw INTERFACE uv_a::uv_a)

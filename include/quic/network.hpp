@@ -23,10 +23,10 @@ namespace oxen::quic
         friend class Handler;
 
       public:
-        Network(std::shared_ptr<uvw::Loop> loop_ptr = nullptr);
+        Network(std::shared_ptr<uvw::loop> loop_ptr = nullptr);
         ~Network();
 
-        std::shared_ptr<uvw::Loop> ev_loop;
+        std::shared_ptr<uvw::loop> ev_loop;
 
         Handler* get_quic();
 
@@ -126,7 +126,7 @@ namespace oxen::quic
             // UDP mapping
             auto udp_handle = handle_server_mapping(server_ctx->local);
             if (server_ctx->server_data_cb)
-                udp_handle->once<uvw::UDPDataEvent>(server_ctx->server_data_cb);
+                udp_handle->on<uvw::udp_data_event>(server_ctx->server_data_cb);
 
             server_ctx->udp_handles[Address{server_ctx->local}] =
                     std::make_pair(udp_handle, std::move(server_ctx->temp_ctx));
@@ -147,16 +147,16 @@ namespace oxen::quic
 
       private:
         std::shared_ptr<Handler> quic_manager;
-        std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_client_addrs;
-        std::unordered_map<Address, std::shared_ptr<uvw::UDPHandle>> mapped_server_addrs;
+        std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_client_addrs;
+        std::unordered_map<Address, std::shared_ptr<uvw::udp_handle>> mapped_server_addrs;
 
-        std::shared_ptr<uvw::UDPHandle> handle_client_mapping(Address& local);
+        std::shared_ptr<uvw::udp_handle> handle_client_mapping(Address& local);
 
-        std::shared_ptr<uvw::UDPHandle> handle_server_mapping(Address& local);
+        std::shared_ptr<uvw::udp_handle> handle_server_mapping(Address& local);
 
-        void configure_client_handle(std::shared_ptr<uvw::UDPHandle> handle);
+        void configure_client_handle(std::shared_ptr<uvw::udp_handle> handle);
 
-        void configure_server_handle(std::shared_ptr<uvw::UDPHandle> handle);
+        void configure_server_handle(std::shared_ptr<uvw::udp_handle> handle);
 
         void signal_config();
     };

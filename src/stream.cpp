@@ -18,10 +18,10 @@ namespace oxen::quic
             conn{conn},
             stream_id{stream_id},
             data_callback{data_cb},
-            avail_trigger{conn.quic_manager->loop()->resource<uvw::AsyncHandle>()}
+            avail_trigger{conn.quic_manager->loop()->resource<uvw::async_handle>()}
     {
         log::trace(log_cat, "Creating Stream object...");
-        avail_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { handle_unblocked(); });
+        avail_trigger->on<uvw::async_event>([this](auto&, auto&) { handle_unblocked(); });
 
         // copy-assignment of connection UDP handle carries over packet forwarding -> endpoint
         udp_handle = conn.udp_handle;
@@ -79,7 +79,7 @@ namespace oxen::quic
         {
             is_closing = is_shutdown = true;
             log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
-            ngtcp2_conn_shutdown_stream(conn, stream_id, error_code);
+            ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
         }
         if (is_shutdown)
             data_callback = {};

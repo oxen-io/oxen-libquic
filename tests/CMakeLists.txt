@@ -8,7 +8,7 @@ add_executable(test_all
     005-chunked-sender.cpp
 )
 target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
-set_target_properties(test_all PROPERTIES OUTPUT_NAME all)
+set_target_properties(test_all PROPERTIES OUTPUT_NAME alltests)
 
 add_executable(
     test_client

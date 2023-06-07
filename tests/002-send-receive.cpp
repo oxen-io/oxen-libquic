@@ -17,7 +17,7 @@ namespace oxen::quic::test
 
         std::atomic<bool> good{false};
 
-        server_data_callback_t server_data_cb = [&](const uvw::UDPDataEvent& event, uvw::UDPHandle& udp) {
+        server_data_callback_t server_data_cb = [&](const uvw::udp_data_event& event, uvw::udp_handle& udp) {
             log::debug(log_cat, "Calling server data callback... data received...");
             good = true;
         };
