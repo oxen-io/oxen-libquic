@@ -90,6 +90,7 @@ namespace oxen::quic
                     log::debug(log_cat, "closing server UDPHandle bound to {}:{}", s.ip, s.port);
                     handle->close();
                 }
+
                 if (loop_thread)
                 {
                     // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying

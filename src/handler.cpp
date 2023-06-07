@@ -79,6 +79,7 @@ namespace oxen::quic
         return std::this_thread::get_id() == loop_thread_id;
     }
 
+    // TODO: when closing, when to stop accepting new jobs and stop/close async handle?
     void Handler::call_soon(std::function<void(void)> f, source_location src)
     {
         loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
@@ -122,6 +123,7 @@ namespace oxen::quic
         {}
     }
 
+    // TODO: for graceful shutdown, how best to wait until clients and servers have properly disconnected
     void Handler::close_all()
     {
         call([this]() {
