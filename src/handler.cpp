@@ -79,11 +79,11 @@ namespace oxen::quic
         return std::this_thread::get_id() == loop_thread_id;
     }
 
-    void Handler::call_soon(std::function<void(void)> f)
+    void Handler::call_soon(std::function<void(void)> f, source_location src)
     {
-        log::trace(log_cat, "{}", __PRETTY_FUNCTION__);
+        loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
         std::lock_guard<std::mutex> lock{job_queue_mutex};
-        job_queue.push(std::move(f));
+        job_queue.emplace(std::move(f), std::move(src));
         job_waker->send();
     }
 
@@ -100,9 +100,11 @@ namespace oxen::quic
 
         while (not swapped_queue.empty())
         {
-            auto f = swapped_queue.front();
+            auto job = swapped_queue.front();
             swapped_queue.pop();
-            f();
+            const auto& src = job.second;
+            loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+            job.first();
         }
     }
 
