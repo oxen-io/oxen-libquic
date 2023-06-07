@@ -78,15 +78,15 @@ namespace oxen::quic
             {
                 quic_manager->close_all();
 
-                for (auto& [addr, handle] : mapped_client_addrs)
+                for (const auto& [addr, handle] : mapped_client_addrs)
                 {
-                    auto s = handle->sock();
+                    const auto& s = handle->sock();
                     log::debug(log_cat, "closing client UDPHandle bound to {}:{}", s.ip, s.port);
                     handle->close();
                 }
-                for (auto& [addr, handle] : mapped_server_addrs)
+                for (const auto& [addr, handle] : mapped_server_addrs)
                 {
-                    auto s = handle->sock();
+                    const auto& s = handle->sock();
                     log::debug(log_cat, "closing server UDPHandle bound to {}:{}", s.ip, s.port);
                     handle->close();
                 }
