@@ -49,7 +49,7 @@ add_library(ngtcp2::crypto
 
 # libuv
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
-system_or_submodule(LIBUV uv_a libuv>=1.44.2 libuv)
+system_or_submodule(LIBUV uv_a libuv>=1.45.0 libuv)
 
 # oxen-logging
 set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")

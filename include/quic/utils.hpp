@@ -49,12 +49,12 @@ namespace oxen::quic
     namespace log = oxen::log;
 
     // Callbacks for async calls
-    using async_callback_t = std::function<void(const uvw::AsyncEvent& event, uvw::AsyncHandle& udp)>;
+    using async_callback_t = std::function<void(const uvw::async_event& event, uvw::async_handle& udp)>;
     // Callbacks for opening quic connections and closing tunnels
     using open_callback = std::function<void(bool success, void* user_data)>;
     using close_callback = std::function<void(int rv, void* user_data)>;
     // Callbacks for ev timer functionality
-    using read_callback = std::function<void(uvw::Loop* loop, uvw::TimerEvent* ev, int revents)>;
+    using read_callback = std::function<void(uvw::loop* loop, uvw::timer_event* ev, int revents)>;
     using timer_callback = std::function<void(int nwrite, void* user_data)>;
     // Callbacks for client/server TLS connectivity and authentication
     using server_tls_callback_t = std::function<int(
@@ -70,7 +70,7 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
     // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
-    using server_data_callback_t = std::function<void(const uvw::UDPDataEvent& event, uvw::UDPHandle& udp)>;
+    using server_data_callback_t = std::function<void(const uvw::udp_data_event& event, uvw::udp_handle& udp)>;
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
     using stream_close_callback_t = std::function<void(Stream&, uint64_t error_code)>;
@@ -185,7 +185,7 @@ namespace oxen::quic
     // interface and in the constructors. The string/uint16_t representation is stored in a two
     // other formats for ease of use with ngtcp2: sockaddr_in and ngtcp2_addr. ngtcp2_addr store
     // a member of type ngtcp2_sockaddr, which is itself a typedef of sockaddr
-    struct Address : public uvw::Addr
+    struct Address : public uvw::socket_address
     {
       private:
         sockaddr_in _sock_addr{};
@@ -200,20 +200,20 @@ namespace oxen::quic
       public:
         Address() = default;
         explicit Address(std::string addr, uint16_t port);
-        explicit Address(uvw::Addr addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
+        explicit Address(uvw::socket_address addr) : Address{addr.ip, static_cast<uint16_t>(addr.port)} {};
 
-        Address(const Address& obj) : uvw::Addr{obj} { _copy_internals(obj); }
-        Address(Address&& obj) : uvw::Addr{std::move(obj)} { _copy_internals(obj); }
+        Address(const Address& obj) : uvw::socket_address{obj} { _copy_internals(obj); }
+        Address(Address&& obj) : uvw::socket_address{std::move(obj)} { _copy_internals(obj); }
 
         Address& operator=(const Address& obj)
         {
-            uvw::Addr::operator=(obj);
+            uvw::socket_address::operator=(obj);
             _copy_internals(obj);
             return *this;
         }
         Address& operator=(Address&& obj)
         {
-            uvw::Addr::operator=(std::move(obj));
+            uvw::socket_address::operator=(std::move(obj));
             _copy_internals(obj);
             return *this;
         }
@@ -239,7 +239,7 @@ namespace oxen::quic
         inline operator ngtcp2_addr&() { return _addr; }
         inline operator const ngtcp2_addr&() const { return _addr; }
 
-        inline bool operator==(const uvw::Addr& other) const { return ip == other.ip && port == other.port; }
+        inline bool operator==(const uvw::socket_address& other) const { return ip == other.ip && port == other.port; }
 
         inline ngtcp2_socklen sockaddr_size() const { return sizeof(sockaddr_in); }
 
@@ -268,7 +268,7 @@ namespace oxen::quic
 
         Path() = default;
         Path(const Address& l, const Address& r) : _local{l}, _remote{r} {}
-        Path(const uvw::Addr& l, const uvw::Addr& r) : _local{l}, _remote{r} {}
+        Path(const uvw::socket_address& l, const uvw::socket_address& r) : _local{l}, _remote{r} {}
         Path(const Path& p) : Path{p.local, p.remote} {}
         Path(Path&& p) : Path{std::move(p.local), std::move(p.remote)} {}
 

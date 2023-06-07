@@ -57,7 +57,7 @@ namespace oxen::quic
         return cid;
     }
 
-    Address::Address(std::string addr, uint16_t port) : uvw::Addr{addr, port}
+    Address::Address(std::string addr, uint16_t port) : uvw::socket_address{addr, port}
     {
         memset(&_sock_addr, 0, sizeof(_sock_addr));
         _sock_addr.sin_family = AF_INET;

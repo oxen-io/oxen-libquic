@@ -20,7 +20,7 @@ namespace oxen::quic
             std::shared_ptr<Handler> quic_manager,
             std::shared_ptr<ClientContext> ctx,
             ConnectionID& id,
-            std::shared_ptr<uvw::UDPHandle> handle) :
+            std::shared_ptr<uvw::udp_handle> handle) :
             Endpoint{quic_manager}, context{ctx}
     {
         Path path{ctx->local, ctx->remote};
@@ -66,12 +66,12 @@ namespace oxen::quic
         return conn->get_new_stream(std::move(data_cb), std::move(close_cb));
     }
 
-    std::shared_ptr<uvw::UDPHandle> Client::get_handle(Address& addr)
+    std::shared_ptr<uvw::udp_handle> Client::get_handle(Address& addr)
     {
         return reinterpret_cast<ClientContext*>(context.get())->udp_handle;
     }
 
-    std::shared_ptr<uvw::UDPHandle> Client::get_handle(Path& p)
+    std::shared_ptr<uvw::udp_handle> Client::get_handle(Path& p)
     {
         return reinterpret_cast<ClientContext*>(context.get())->udp_handle;
     }

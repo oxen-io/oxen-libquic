@@ -29,10 +29,10 @@ extern "C"
 
 namespace oxen::quic
 {
-    Handler::Handler(std::shared_ptr<uvw::Loop> loop_ptr, Network& net) : net{net}
+    Handler::Handler(std::shared_ptr<uvw::loop> loop_ptr, Network& net) : net{net}
     {
         ev_loop = loop_ptr;
-        universal_handle = ev_loop->resource<uvw::UDPHandle>();
+        universal_handle = ev_loop->resource<uvw::udp_handle>();
 
         universal_handle->bind(default_local);
         net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
@@ -52,8 +52,8 @@ namespace oxen::quic
 
         if (ev_loop)
         {
-            ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle&& h) { h.close(); }, [](auto&&) {}});
-            ev_loop->clear();
+            ev_loop->walk(uvw::overloaded{[](uvw::udp_handle&& h) { h.close(); }, [](auto&&) {}});
+            ev_loop->reset();
             ev_loop->stop();
             ev_loop->close();
             log::debug(log_cat, "Event loop shut down...");
@@ -63,7 +63,7 @@ namespace oxen::quic
         servers.clear();
     }
 
-    std::shared_ptr<uvw::Loop> Handler::loop()
+    std::shared_ptr<uvw::loop> Handler::loop()
     {
         return (ev_loop) ? ev_loop : nullptr;
     }

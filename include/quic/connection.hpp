@@ -43,12 +43,12 @@ namespace oxen::quic
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
         // ngtcp2_crypto_conn_ref conn_ref;
         std::shared_ptr<TLSContext> tls_context;
-        std::shared_ptr<uvw::UDPHandle> udp_handle;
+        std::shared_ptr<uvw::udp_handle> udp_handle;
 
         Address local;
         Address remote;
 
-        std::shared_ptr<uvw::TimerHandle> retransmit_timer;
+        std::shared_ptr<uvw::timer_handle> retransmit_timer;
 
         // Create and establish a new connection from local client to remote server
         //      ep: tunnel object managing this connection
@@ -60,7 +60,7 @@ namespace oxen::quic
                 std::shared_ptr<Handler> ep,
                 const ConnectionID& scid,
                 const Path& path,
-                std::shared_ptr<uvw::UDPHandle> handle);
+                std::shared_ptr<uvw::udp_handle> handle);
 
         // Construct and initialize a new incoming connection from remote client to local server
         //      ep: tunnel objec tmanaging this connection
@@ -146,9 +146,9 @@ namespace oxen::quic
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
 
-        ngtcp2_connection_close_error last_error;
+        ngtcp2_ccerr last_error;
 
-        std::shared_ptr<uvw::AsyncHandle> io_trigger;
+        std::shared_ptr<uvw::async_handle> io_trigger;
 
         // pass Connection as ngtcp2_conn object
         operator const ngtcp2_conn*() const { return conn.get(); }

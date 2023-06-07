@@ -148,13 +148,13 @@ namespace oxen::quic
         return 0;
     }
 
-    int recv_rx_key(ngtcp2_conn* conn, ngtcp2_crypto_level level, void* user_data)
+    int recv_rx_key(ngtcp2_conn* conn, ngtcp2_encryption_level level, void* user_data)
     {
         // fix this
         return 0;
     }
 
-    int recv_tx_key(ngtcp2_conn* conn, ngtcp2_crypto_level levl, void* user_data)
+    int recv_tx_key(ngtcp2_conn* conn, ngtcp2_encryption_level level, void* user_data)
     {
         // same
         return 0;
@@ -547,7 +547,7 @@ namespace oxen::quic
         if (rv != 0)
         {
             log::info(log_cat, "stream_open_callback returned failure, dropping stream {}", id);
-            ngtcp2_conn_shutdown_stream(conn.get(), id, 1);
+            ngtcp2_conn_shutdown_stream(conn.get(), 0, id, 1);
             io_ready();
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
@@ -669,11 +669,11 @@ namespace oxen::quic
     int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
     {
         auto loop = quic_manager->loop();
-        io_trigger = loop->resource<uvw::AsyncHandle>();
-        io_trigger->on<uvw::AsyncEvent>([this](auto&, auto&) { on_io_ready(); });
+        io_trigger = loop->resource<uvw::async_handle>();
+        io_trigger->on<uvw::async_event>([this](auto&, auto&) { on_io_ready(); });
 
-        retransmit_timer = loop->resource<uvw::TimerHandle>();
-        retransmit_timer->on<uvw::TimerEvent>([this](auto&, auto&) {
+        retransmit_timer = loop->resource<uvw::timer_handle>();
+        retransmit_timer->on<uvw::timer_event>([this](auto&, auto&) {
             log::info(log_cat, "Retransmit timer fired!");
             if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
             {
@@ -740,7 +740,7 @@ namespace oxen::quic
             std::shared_ptr<Handler> ep,
             const ConnectionID& scid,
             const Path& path,
-            std::shared_ptr<uvw::UDPHandle> handle) :
+            std::shared_ptr<uvw::udp_handle> handle) :
             endpoint{client},
             quic_manager{ep},
             source_cid{scid},

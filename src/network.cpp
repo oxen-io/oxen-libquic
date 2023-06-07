@@ -14,10 +14,10 @@
 
 namespace oxen::quic
 {
-    Network::Network(std::shared_ptr<uvw::Loop> loop_ptr)
+    Network::Network(std::shared_ptr<uvw::loop> loop_ptr)
     {
         log::trace(log_cat, "Beginning context creation");
-        ev_loop = (loop_ptr) ? loop_ptr : uvw::Loop::create();
+        ev_loop = (loop_ptr) ? loop_ptr : uvw::loop::create();
         signal_config();
 
         quic_manager = std::make_shared<Handler>(ev_loop, *this);
@@ -29,8 +29,8 @@ namespace oxen::quic
 
         if (ev_loop)
         {
-            ev_loop->walk(uvw::Overloaded{[](uvw::UDPHandle&& h) { h.close(); }, [](auto&&) {}});
-            ev_loop->clear();
+            ev_loop->walk(uvw::overloaded{[](uvw::udp_handle&& h) { h.close(); }, [](auto&&) {}});
+            ev_loop->reset();
             ev_loop->stop();
             ev_loop->close();
             log::debug(log_cat, "Event loop shut down...");
@@ -39,21 +39,21 @@ namespace oxen::quic
 
     void Network::signal_config()
     {
-        auto signal = ev_loop->resource<uvw::SignalHandle>();
-        signal->on<uvw::ErrorEvent>([](const auto&, auto&) { log::warning(log_cat, "Error event in signal handle"); });
-        signal->on<uvw::SignalEvent>([&](const auto&, auto&) {
+        auto signal = ev_loop->resource<uvw::signal_handle>();
+        signal->on<uvw::error_event>([](const auto&, auto&) { log::warning(log_cat, "Error event in signal handle"); });
+        signal->on<uvw::signal_event>([&](const auto&, auto&) {
             log::debug(log_cat, "Signal event triggered in signal handle");
-            ev_loop->walk(uvw::Overloaded{
-                    [](uvw::UDPHandle&& h) {
+            ev_loop->walk(uvw::overloaded{
+                    [](uvw::udp_handle&& h) {
                         h.close();
                         h.stop();
                     },
-                    [](uvw::AsyncHandle&& h) { h.close(); },
+                    [](uvw::async_handle&& h) { h.close(); },
                     [](auto&&) {}});
 
             signal->stop();
 
-            ev_loop->clear();
+            ev_loop->reset();
             ev_loop->stop();
             ev_loop->close();
         });
@@ -73,10 +73,10 @@ namespace oxen::quic
         ev_loop->run();
     }
 
-    void Network::configure_client_handle(std::shared_ptr<uvw::UDPHandle> handle)
+    void Network::configure_client_handle(std::shared_ptr<uvw::udp_handle> handle)
     {
         // client receive data
-        handle->on<uvw::UDPDataEvent>([&](const uvw::UDPDataEvent& event, uvw::UDPHandle& handle) {
+        handle->on<uvw::udp_data_event>([&](const uvw::udp_data_event& event, uvw::udp_handle& handle) {
             bstring_view data{reinterpret_cast<const std::byte*>(event.data.get()), event.length};
 
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
@@ -106,10 +106,10 @@ namespace oxen::quic
         });
     }
 
-    void Network::configure_server_handle(std::shared_ptr<uvw::UDPHandle> handle)
+    void Network::configure_server_handle(std::shared_ptr<uvw::udp_handle> handle)
     {
         // server receive data
-        handle->on<uvw::UDPDataEvent>([&](const uvw::UDPDataEvent& event, uvw::UDPHandle& handle) {
+        handle->on<uvw::udp_data_event>([&](const uvw::udp_data_event& event, uvw::udp_handle& handle) {
             bstring_view data{reinterpret_cast<const std::byte*>(event.data.get()), event.length};
 
             Packet pkt{.path = Path{handle.sock(), event.sender}, .data = data};
@@ -139,14 +139,14 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<uvw::UDPHandle> Network::handle_client_mapping(Address& local)
+    std::shared_ptr<uvw::udp_handle> Network::handle_client_mapping(Address& local)
     {
         auto q = mapped_client_addrs.find(local);
 
         if (q == mapped_client_addrs.end())
         {
             log::trace(log_cat, "Creating dedicated client udp_handle...");
-            auto handle = quic_manager->loop()->resource<uvw::UDPHandle>();
+            auto handle = quic_manager->loop()->resource<uvw::udp_handle>();
             configure_client_handle(handle);
             // binding is done here rather than after returning, so an already bound
             // UDPhandle isn't bound to the same address twice
@@ -159,14 +159,14 @@ namespace oxen::quic
         return q->second;
     }
 
-    std::shared_ptr<uvw::UDPHandle> Network::handle_server_mapping(Address& local)
+    std::shared_ptr<uvw::udp_handle> Network::handle_server_mapping(Address& local)
     {
         auto q = mapped_server_addrs.find(local);
 
         if (q == mapped_server_addrs.end())
         {
             log::trace(log_cat, "Creating dedicated server udp_handle...");
-            auto handle = quic_manager->loop()->resource<uvw::UDPHandle>();
+            auto handle = quic_manager->loop()->resource<uvw::udp_handle>();
             configure_server_handle(handle);
             handle->bind(local);
             handle->recv();
