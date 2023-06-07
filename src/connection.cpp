@@ -305,19 +305,8 @@ namespace oxen::quic
 
         std::list<Stream*> strs;
         for (auto& [stream_id, stream_ptr] : streams)
-        {
             if (stream_ptr and not stream_ptr->sent_fin)
-            {
-                try
-                {
-                    strs.push_back(stream_ptr.get());
-                }
-                catch (std::exception& e)
-                {
-                    log::error(log_cat, "Exception caught: {}", e.what());
-                }
-            }
-        }
+                strs.push_back(stream_ptr.get());
 
         while (!strs.empty() && stream_packets < max_stream_packets)
         {
