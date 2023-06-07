@@ -53,8 +53,19 @@ endif()
 
 include(GNUInstallDirs)
 include(combine_archives)
-include_directories(cmake)
-include_directories(include)
+
+# Interface target for any general includes, flags, etc. that is meant to be inherited publicly.
+add_library(common INTERFACE)
+# Interface target for internal flags, include paths, etc. that are PRIVATE for project source
+# compilation, but not for potential external targets that depend on us.
+add_library(internal INTERFACE)
+
+target_include_directories(common INTERFACE include)
+target_include_directories(internal INTERFACE include/quic)
+
+if(WARNINGS_AS_ERRORS)
+    target_compile_options(internal INTERFACE -Werror)
+endif()
 
 add_subdirectory(external)
 add_subdirectory(src)
