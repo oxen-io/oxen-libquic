@@ -25,13 +25,14 @@ namespace oxen::quic
     Network::Network()
     {
         log::trace(log_cat, __PRETTY_FUNCTION__);
-        ev_loop = uvw::Loop::create();
+        ev_loop = uvw::loop::create();
 
         signal_config();  // TODO: probably remove this, as the library user should handle signals
 
-        loop_thread = std::make_unique<std::thread>([this]() { ev_loop->run(); });
-        running.store(true);
+        loop_thread = std::make_unique<std::thread>([this]() { while (not running) {}; ev_loop->run(); log::debug(log_cat, "Event Loop `run` returned, thread finished"); });
         quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
+
+        running.store(true);
     }
 
     Network::~Network()
@@ -95,7 +96,7 @@ namespace oxen::quic
                 {
                     // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
                     // uvw::loop parent class uvw::emitter (unregisters all event listeners)
-                    ev_loop->clear();
+                    ev_loop->reset();
                     ev_loop->stop();
                 }
                 p.set_value();

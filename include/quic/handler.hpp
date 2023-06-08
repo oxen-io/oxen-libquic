@@ -109,7 +109,7 @@ namespace oxen::quic
         using Job = std::pair<std::function<void()>, source_location>;
 
         std::thread::id loop_thread_id;
-        std::shared_ptr<uvw::AsyncHandle> job_waker;
+        std::shared_ptr<uvw::async_handle> job_waker;
         std::queue<Job> job_queue;
         std::mutex job_queue_mutex;
     };

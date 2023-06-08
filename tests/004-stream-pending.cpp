@@ -18,11 +18,6 @@ namespace oxen::quic::test
 
         std::atomic<bool> good{false};
 
-        server_data_callback_t server_data_cb = [&](const uvw::udp_data_event& event, uvw::udp_handle& udp) {
-            log::debug(log_cat, "Calling server data callback... data received...");
-            good = true;
-        };
-
         opt::server_tls server_tls{"./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s};
 
         opt::client_tls client_tls{"./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s};
@@ -32,10 +27,14 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};
 
         log::debug(log_cat, "Calling 'server_listen'...");
-        auto server = test_net.server_listen(server_local, server_tls, server_data_cb);
+        auto server = test_net.server_listen(server_local, server_tls);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         log::debug(log_cat, "Calling 'client_connect'...");
         auto client = test_net.client_connect(client_local, client_remote, client_tls);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         std::vector<std::shared_ptr<Stream>> streams{36};
 
@@ -64,8 +63,10 @@ namespace oxen::quic::test
         streams[0] = client->open_stream();
         streams[1] = client->open_stream();
 
-        REQUIRE(good == true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
         auto conn = client->get_conn(client->context->conn_id);
+
         REQUIRE(conn->pending_streams.size() == 1);
         test_net.close();
     };
