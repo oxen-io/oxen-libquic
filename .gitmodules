@@ -6,10 +6,10 @@
 	url = https://github.com/ngtcp2/ngtcp2.git
 [submodule "tests/Catch2"]
 	path = tests/Catch2
-	url = git@github.com:catchorg/Catch2.git
+	url = https://github.com/catchorg/Catch2.git
 [submodule "external/oxen-logging"]
 	path = external/oxen-logging
-	url = git@github.com:oxen-io/oxen-logging.git
+	url = https://github.com/oxen-io/oxen-logging.git
 [submodule "external/uvw"]
 	path = external/uvw
-	url = git@github.com:skypjack/uvw.git
+	url = https://github.com/skypjack/uvw.git
