@@ -48,6 +48,42 @@ namespace oxen::quic
     using bstring_view = std::basic_string_view<std::byte>;
     namespace log = oxen::log;
 
+    // SI (1000) and non-SI (1024-based) modifier prefix operators.  E.g.
+    // 50_M is 50'000'000 and 50_Mi is 52'428'800.
+    constexpr unsigned long long operator""_k(unsigned long long int x)
+    {
+        return x * 1000;
+    }
+    constexpr unsigned long long operator""_M(unsigned long long int x)
+    {
+        return x * 1000 * 1_k;
+    }
+    constexpr unsigned long long operator""_G(unsigned long long int x)
+    {
+        return x * 1000 * 1_M;
+    }
+    constexpr unsigned long long operator""_T(unsigned long long int x)
+    {
+        return x * 1000 * 1_G;
+    }
+
+    constexpr unsigned long long operator""_ki(unsigned long long int x)
+    {
+        return x * 1024;
+    }
+    constexpr unsigned long long operator""_Mi(unsigned long long int x)
+    {
+        return x * 1024 * 1_ki;
+    }
+    constexpr unsigned long long operator""_Gi(unsigned long long int x)
+    {
+        return x * 1024 * 1_Mi;
+    }
+    constexpr unsigned long long operator""_Ti(unsigned long long int x)
+    {
+        return x * 1024 * 1_Gi;
+    }
+
     // Callbacks for async calls
     using async_callback_t = std::function<void(const uvw::async_event& event, uvw::async_handle& udp)>;
     // Callbacks for opening quic connections and closing tunnels
@@ -92,7 +128,7 @@ namespace oxen::quic
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
 
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
-    static constexpr size_t max_bufsize = 64 * 1024;
+    static constexpr size_t max_bufsize = 64_ki;
     // Max size of a UDP packet that we'll send
     static constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
     static constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
@@ -121,7 +157,7 @@ namespace oxen::quic
 
     // We pause reading from the local TCP socket if we have more than this amount of outstanding
     // unacked data in the quic tunnel, then resume once it drops below this.
-    inline constexpr size_t PAUSE_SIZE = 64 * 1024;
+    inline constexpr size_t PAUSE_SIZE = 64_ki;
 
     // For templated parameter strict type checking
     template <typename Base, typename T>

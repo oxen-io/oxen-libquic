@@ -705,13 +705,13 @@ namespace oxen::quic
         ngtcp2_transport_params_default(&params);
 
         // Connection flow level control window
-        params.initial_max_data = 1024 * 1024;
+        params.initial_max_data = 1_Mi;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
         // Max send buffer for streams (local = streams we initiate, remote = streams initiated to
         // us)
-        params.initial_max_stream_data_bidi_local = 64 * 1024;
-        params.initial_max_stream_data_bidi_remote = 64 * 1024;
+        params.initial_max_stream_data_bidi_local = 64_ki;
+        params.initial_max_stream_data_bidi_remote = 64_ki;
         params.max_idle_timeout = std::chrono::nanoseconds(5min).count();
         params.active_connection_id_limit = 8;
 
