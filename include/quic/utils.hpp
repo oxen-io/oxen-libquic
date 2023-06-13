@@ -114,11 +114,18 @@ namespace oxen::quic
     using stream_open_callback_t = std::function<uint64_t(Stream&)>;
     using unblocked_callback_t = std::function<bool(Stream&)>;
 
-    static constexpr std::byte CLIENT_TO_SERVER{1};
-    static constexpr std::byte SERVER_TO_CLIENT{2};
-    static constexpr size_t dgram_size = 1200;
-    static constexpr size_t ev_loop_queue_size = 1024;
-    static constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
+    inline constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
+    inline constexpr size_t DATAGRAM_BATCH_SIZE =
+#if !defined(OXEN_LIBQUIC_UDP_NO_SENDMMSG) && (defined(__linux__) || defined(__FreeBSD__))
+            8;
+#else
+            1;
+#endif
+
+    inline constexpr std::byte CLIENT_TO_SERVER{1};
+    inline constexpr std::byte SERVER_TO_CLIENT{2};
+    inline constexpr size_t dgram_size = 1200;
+    inline constexpr size_t ev_loop_queue_size = 1024;
 
     // Check if T is an instantiation of templated class `Class`; for example,
     // `is_instantiation<std::basic_string, std::string>` is true.
@@ -128,22 +135,22 @@ namespace oxen::quic
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
 
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
-    static constexpr size_t max_bufsize = 64_ki;
+    inline constexpr size_t max_bufsize = 64_ki;
     // Max size of a UDP packet that we'll send
-    static constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-    static constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    inline constexpr size_t max_pkt_size_v4 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+    inline constexpr size_t max_pkt_size_v6 = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
 
     // Remote TCP connection was established and is now accepting stream data; the client is not
     // allowed to send any other data down the stream until this comes back (any data sent down the
     // stream before then is discarded)
-    static constexpr std::byte CONNECT_INIT{0x00};
+    inline constexpr std::byte CONNECT_INIT{0x00};
     // Failure to establish an initial connection:
-    static constexpr uint64_t ERROR_CONNECT{0x5471907};
+    inline constexpr uint64_t ERROR_CONNECT{0x5471907};
     // Error for something other than CONNECT_INIT as the initial stream data from the server
-    static constexpr uint64_t ERROR_BAD_INIT{0x5471908};
+    inline constexpr uint64_t ERROR_BAD_INIT{0x5471908};
     // Close error code sent if we get an error on the TCP socket (other than an initial connect
     // failure)
-    static constexpr uint64_t ERROR_TCP{0x5471909};
+    inline constexpr uint64_t ERROR_TCP{0x5471909};
     // Application error code we close with if the data handle throws
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = (1ULL << 62) - 2;
     // Error code we send to a stream close callback if the stream's connection expires
