@@ -62,7 +62,8 @@ namespace oxen::quic
             {
                 auto conn = get_conn(context->conn_id);
 
-                p.set_value(conn->get_new_stream(std::move(data_cb), std::move(close_cb)));
+                p.set_value(conn->get_new_stream(
+                        context->stream_data_cb ? context->stream_data_cb : std::move(data_cb), std::move(close_cb)));
             }
             catch (...)
             {

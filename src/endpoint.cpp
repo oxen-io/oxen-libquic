@@ -45,9 +45,16 @@ namespace oxen::quic
     {
         for (const auto& c : conns)
             c.second->io_trigger->on<uvw::async_event>(async_cb);
+    }
 
-        // for (const auto& c : conns)
-        //     c.second->io_ready();
+    std::list<std::pair<ConnectionID, Address>> Endpoint::get_conn_addrs()
+    {
+        std::list<std::pair<ConnectionID, Address>> ret{};
+
+        for (const auto& c : conns)
+            ret.emplace_back(c.first, c.second->remote);
+
+        return ret;
     }
 
     void Endpoint::close_conns()
@@ -651,5 +658,16 @@ namespace oxen::quic
             return nullptr;
 
         return it->second.get();
+    }
+
+    Connection* Endpoint::get_conn(const Address& addr)
+    {
+        for (const auto& c : conns)
+        {
+            if (c.second->remote == addr)
+                return c.second.get();
+        }
+
+        return nullptr;
     }
 }  // namespace oxen::quic

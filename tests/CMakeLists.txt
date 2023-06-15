@@ -9,6 +9,8 @@ add_executable(test_all
     003-multiclient.cpp
     004-streams.cpp
     005-chunked-sender.cpp
+    006-server-send.cpp
+    007-server-streams.cpp
 )
 target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
 set_target_properties(test_all PROPERTIES OUTPUT_NAME alltests)

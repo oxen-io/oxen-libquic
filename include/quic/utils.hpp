@@ -223,7 +223,11 @@ namespace oxen::quic
         }
         inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
         static ConnectionID random();
+
+        std::string to_string() const;
     };
+    template <>
+    constexpr inline bool IsToStringFormattable<ConnectionID> = true;
 
     // Wrapper for address types with helper functionalities, operators, etc. By inheriting from
     // uvw::Addr, we are able to use string/uint16_t representations of host/port through the API

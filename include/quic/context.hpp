@@ -47,6 +47,8 @@ namespace oxen::quic
         std::shared_ptr<uv_udp_t> udp_handle;
         ConnectionID conn_id;
         client_tls_callback_t client_tls_cb;
+        stream_data_callback_t stream_data_cb;
+        stream_open_callback_t stream_open_cb;
 
         // Client endpoint linked to this instance
         std::shared_ptr<Endpoint> endpoint() override;
@@ -72,6 +74,9 @@ namespace oxen::quic
         void handle_clientctx_opt(opt::client_tls tls);
         void handle_clientctx_opt(client_tls_callback_t func);
         void handle_clientctx_opt(opt::max_streams ms);
+        void handle_clientctx_opt(stream_data_callback_t func);
+        void handle_clientctx_opt(stream_open_callback_t func);
+
         inline void set_local(Address& addr) { local = Address{addr}; };
         inline void set_remote(Address& addr) { remote = Address{addr}; };
     };

@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
     auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
     opt::local_addr server_local{listen_addr, listen_port};
 
-    auto stream_opened = [&](Stream& s) {
+    stream_open_callback_t stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id);
         return 0;
     };
@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
     };
 
     std::unordered_map<ConnectionID, std::map<int64_t, stream_info>> csd;
-    auto stream_data = [&](Stream& s, bstring_view data) {
+    stream_data_callback_t stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.conn.source_cid];
         auto it = sd.find(s.stream_id);
         if (it == sd.end())

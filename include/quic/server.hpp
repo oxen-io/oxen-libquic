@@ -33,6 +33,17 @@ namespace oxen::quic
 
         ~Server();
 
+        std::shared_ptr<Stream> open_stream(
+                Connection* conn, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+
+        std::shared_ptr<Stream> open_stream(
+                ConnectionID conn_id, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+
+        std::shared_ptr<Stream> open_stream(
+                const Address& remote_addr,
+                stream_data_callback_t data_cb = nullptr,
+                stream_close_callback_t close_cb = nullptr);
+
         std::shared_ptr<uv_udp_t> get_handle(Address& addr) override;
 
         std::shared_ptr<uv_udp_t> get_handle(Path& p) override;

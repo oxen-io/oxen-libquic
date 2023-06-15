@@ -242,8 +242,16 @@ namespace oxen::quic
             chunk_sender<T>::make(simultaneous, *this, std::move(next_chunk), std::move(done));
         }
 
-        inline void set_ready() { ready = true; };
-        inline void set_not_ready() { ready = false; };
+        inline void set_ready()
+        {
+            log::trace(log_cat, "Setting stream ready");
+            ready = true;
+        };
+        inline void set_not_ready()
+        {
+            log::trace(log_cat, "Setting stream not ready");
+            ready = false;
+        };
 
       private:
         std::vector<ngtcp2_vec> pending();

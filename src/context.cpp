@@ -50,6 +50,18 @@ namespace oxen::quic
         log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);
     }
 
+    void ClientContext::handle_clientctx_opt(stream_data_callback_t func)
+    {
+        log::trace(log_cat, "Client given stream data callback");
+        stream_data_cb = std::move(func);
+    }
+
+    void ClientContext::handle_clientctx_opt(stream_open_callback_t func)
+    {
+        log::trace(log_cat, "Client given stream open callback");
+        stream_open_cb = std::move(func);
+    }
+
     void ServerContext::handle_serverctx_opt(opt::local_addr addr)
     {
         local = std::move(addr);
@@ -80,13 +92,13 @@ namespace oxen::quic
 
     void ServerContext::handle_serverctx_opt(stream_data_callback_t func)
     {
-        log::trace(log_cat, "Server given data callback");
+        log::trace(log_cat, "Server given stream data callback");
         stream_data_cb = std::move(func);
     }
 
     void ServerContext::handle_serverctx_opt(stream_open_callback_t func)
     {
-        log::trace(log_cat, "Server given data callback");
+        log::trace(log_cat, "Server given stream open callback");
         stream_open_cb = std::move(func);
     }
 

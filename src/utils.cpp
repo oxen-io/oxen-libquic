@@ -62,6 +62,11 @@ namespace oxen::quic
         return cid;
     }
 
+    std::string ConnectionID::to_string() const
+    {
+        return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
+    }
+
     Address::Address(const std::string& addr, uint16_t port)
     {
         if (addr.empty())

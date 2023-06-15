@@ -17,7 +17,7 @@ namespace oxen::quic::test
 
         std::atomic<bool> good{false};
 
-        stream_data_callback_t stream_data_cb = [&](Stream s, bstring_view dat) {
+        stream_data_callback_t stream_data_cb = [&](Stream& s, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             good.store(true);
         };
@@ -38,9 +38,9 @@ namespace oxen::quic::test
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         std::thread stream_thread([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             auto stream = client->open_stream();
             stream->send(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         });
 
         stream_thread.join();
