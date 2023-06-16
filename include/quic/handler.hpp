@@ -26,18 +26,18 @@ using oxen::log::slns::source_location;
 namespace oxen::quic
 {
     template <typename... T>
-    void loop_trace_log(const log::logger_ptr& cat_logger,
-          [[maybe_unused]] const source_location& location,
-          [[maybe_unused]] fmt::format_string<T...> fmt,
-          [[maybe_unused]] T&&... args)
+    void loop_trace_log(
+            const log::logger_ptr& cat_logger,
+            [[maybe_unused]] const source_location& location,
+            [[maybe_unused]] fmt::format_string<T...> fmt,
+            [[maybe_unused]] T&&... args)
     {
 #if defined(NDEBUG) && !defined(OXEN_LOGGING_RELEASE_TRACE)
         // Using [[maybe_unused]] on the *first* ctor argument breaks gcc 8/9
         (void)cat_logger;
 #else
         if (cat_logger)
-            cat_logger->log(
-                    log::detail::spdlog_sloc(location), log::Level::trace, fmt, std::forward<T>(args)...);
+            cat_logger->log(log::detail::spdlog_sloc(location), log::Level::trace, fmt, std::forward<T>(args)...);
 #endif
     }
 

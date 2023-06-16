@@ -66,9 +66,7 @@ namespace oxen::quic
         handler->call([&data_cb, &close_cb, &p, this]() {
             try
             {
-                auto ctx = reinterpret_cast<ClientContext*>(context.get());
-
-                auto conn = get_conn(ctx->conn_id);
+                auto conn = get_conn(context->conn_id);
 
                 p.set_value(conn->get_new_stream(std::move(data_cb), std::move(close_cb)));
             }

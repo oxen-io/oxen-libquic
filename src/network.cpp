@@ -29,7 +29,12 @@ namespace oxen::quic
 
         signal_config();  // TODO: probably remove this, as the library user should handle signals
 
-        loop_thread = std::make_unique<std::thread>([this]() { while (not running) {}; ev_loop->run(); log::debug(log_cat, "Event Loop `run` returned, thread finished"); });
+        loop_thread = std::make_unique<std::thread>([this]() {
+            while (not running)
+            {};
+            ev_loop->run();
+            log::debug(log_cat, "Event Loop `run` returned, thread finished");
+        });
         quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
 
         running.store(true);
@@ -110,7 +115,7 @@ namespace oxen::quic
 
         if (loop_thread)
         {
-            quic_manager->call([this](){
+            quic_manager->call([this]() {
                 ev_loop->walk([](auto&& h) { h.close(); });
                 ev_loop->stop();
             });

@@ -83,7 +83,7 @@ namespace oxen::quic
                 ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
             }
             if (is_shutdown)
-                data_callback = {};
+                data_callback = nullptr;
 
             conn.io_ready();
         });
@@ -124,7 +124,7 @@ namespace oxen::quic
 
     void Stream::when_available(unblocked_callback_t unblocked_cb)
     {
-        conn.quic_manager->call([this, unblocked_cb]() {
+        conn.quic_manager->call([this, unblocked_cb = std::move(unblocked_cb)]() mutable {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             unblocked_callbacks.push(std::move(unblocked_cb));
         });
