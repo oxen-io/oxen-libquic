@@ -120,8 +120,7 @@ namespace oxen::quic
         }
 
         ngtcp2_ccerr err;
-        ngtcp2_ccerr_set_liberr(
-                &err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+        ngtcp2_ccerr_set_liberr(&err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
 
         conn.conn_buffer.resize(max_pkt_size_v4);
         Path path;

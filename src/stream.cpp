@@ -69,22 +69,24 @@ namespace oxen::quic
 
     void Stream::close(uint64_t error_code)
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        conn.quic_manager->call([this, error_code]() {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        if (is_shutdown)
-            log::info(log_cat, "Stream is already shutting down");
-        else if (is_closing)
-            log::debug(log_cat, "Stream is already closing");
-        else
-        {
-            is_closing = is_shutdown = true;
-            log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
-            ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
-        }
-        if (is_shutdown)
-            data_callback = {};
+            if (is_shutdown)
+                log::info(log_cat, "Stream is already shutting down");
+            else if (is_closing)
+                log::debug(log_cat, "Stream is already closing");
+            else
+            {
+                is_closing = is_shutdown = true;
+                log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
+                ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
+            }
+            if (is_shutdown)
+                data_callback = nullptr;
 
-        conn.io_ready();
+            conn.io_ready();
+        });
     }
 
     void Stream::append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive)
@@ -122,8 +124,10 @@ namespace oxen::quic
 
     void Stream::when_available(unblocked_callback_t unblocked_cb)
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        unblocked_callbacks.push(std::move(unblocked_cb));
+        conn.quic_manager->call([this, unblocked_cb = std::move(unblocked_cb)]() mutable {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            unblocked_callbacks.push(std::move(unblocked_cb));
+        });
     }
 
     void Stream::handle_unblocked()
@@ -202,12 +206,14 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
-        append_buffer(data, keep_alive);
+        conn.quic_manager->call([this, data, keep_alive]() {
+            log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
+            append_buffer(data, keep_alive);
+        });
     }
 
     void Stream::set_user_data(std::shared_ptr<void> data)
     {
-        user_data = std::move(data);
+        conn.quic_manager->call([this, data]() { user_data = std::move(data); });
     }
 }  // namespace oxen::quic

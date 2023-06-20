@@ -29,13 +29,19 @@ extern "C"
 
 namespace oxen::quic
 {
-    Handler::Handler(std::shared_ptr<uvw::loop> loop_ptr, Network& net) : net{net}
+    Handler::Handler(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id, Network& net) :
+            net{net}, loop_thread_id{loop_thread_id}
     {
         ev_loop = loop_ptr;
         universal_handle = ev_loop->resource<uvw::udp_handle>();
 
         universal_handle->bind(default_local);
         net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
+
+        if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
+            throw std::runtime_error{"Failed to create job queue uvw async handle"};
+
+        job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
 
         log::info(log_cat, "{}", (ev_loop) ? "Event loop successfully created" : "Error: event loop creation failed");
     }
@@ -68,6 +74,43 @@ namespace oxen::quic
         return (ev_loop) ? ev_loop : nullptr;
     }
 
+    bool Handler::in_event_loop() const
+    {
+        return std::this_thread::get_id() == loop_thread_id;
+    }
+
+    // TODO: when closing, when to stop accepting new jobs and stop/close async handle?
+    void Handler::call_soon(std::function<void(void)> f, source_location src)
+    {
+        loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
+        std::lock_guard<std::mutex> lock{job_queue_mutex};
+        job_queue.emplace(std::move(f), std::move(src));
+        log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
+        job_waker->send();
+    }
+
+    void Handler::process_job_queue()
+    {
+        log::trace(log_cat, "Event loop processing job queue");
+        assert(in_event_loop());
+
+        decltype(job_queue) swapped_queue;
+
+        {
+            std::lock_guard<std::mutex> lock{job_queue_mutex};
+            job_queue.swap(swapped_queue);
+        }
+
+        while (not swapped_queue.empty())
+        {
+            auto job = swapped_queue.front();
+            swapped_queue.pop();
+            const auto& src = job.second;
+            loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+            job.first();
+        }
+    }
+
     void Handler::client_call_async(async_callback_t async_cb)
     {
         for (const auto& itr : clients)
@@ -82,13 +125,16 @@ namespace oxen::quic
         {}
     }
 
+    // TODO: for graceful shutdown, how best to wait until clients and servers have properly disconnected
     void Handler::close_all()
     {
-        if (!clients.empty())
-        {
-            for (const auto& ctx : clients)
-                ctx->client->close_conns();
-        }
+        call([this]() {
+            if (!clients.empty())
+            {
+                for (const auto& ctx : clients)
+                    ctx->client->close_conns();
+            }
+        });
     }
 
 }  // namespace oxen::quic

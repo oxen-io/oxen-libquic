@@ -602,6 +602,7 @@ namespace oxen::quic
 
     int Connection::stream_receive(int64_t id, bstring_view data, bool fin)
     {
+        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
         auto str = get_stream(id);
 
         if (!str->data_callback)

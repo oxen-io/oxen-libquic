@@ -34,8 +34,6 @@ namespace oxen::quic::test
         log::debug(log_cat, "Calling 'client_connect'...");
         auto client = test_net.client_connect(client_local, client_remote, client_tls);
 
-        std::thread ev_thread{[&]() { test_net.run(); }};
-
         auto stream = client->open_stream();
         stream->send("HELLO!"s);
 
@@ -98,7 +96,6 @@ namespace oxen::quic::test
                   "Goodbye.");
         }
 
-        test_net.ev_loop->stop();
-        ev_thread.join();
+        test_net.close();
     };
 }  // namespace oxen::quic::test

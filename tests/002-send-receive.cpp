@@ -36,8 +36,6 @@ namespace oxen::quic::test
         log::debug(log_cat, "Calling 'client_connect'...");
         auto client = test_net.client_connect(client_local, client_remote, client_tls);
 
-        std::thread ev_thread{[&]() { test_net.run(); }};
-
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         std::thread stream_thread([&]() {
@@ -46,11 +44,9 @@ namespace oxen::quic::test
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         });
 
+        stream_thread.join();
+
         REQUIRE(good == true);
         test_net.close();
-
-        test_net.ev_loop->close();
-        stream_thread.join();
-        ev_thread.detach();
     };
 }  // namespace oxen::quic::test

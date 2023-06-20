@@ -1,5 +1,7 @@
 #include "utils.hpp"
 
+#include <atomic>
+
 extern "C"
 {
 #include <netinet/in.h>
@@ -13,8 +15,13 @@ namespace oxen::quic
 {
     void logger_config(std::string out, log::Type type, log::Level reset)
     {
-        oxen::log::add_sink(type, out);
-        oxen::log::reset_level(reset);
+        static std::atomic<bool> run_once{false};
+
+        if (not run_once.exchange(true))
+        {
+            oxen::log::add_sink(type, out);
+            oxen::log::reset_level(reset);
+        }
     }
 
     uint64_t get_timestamp()
