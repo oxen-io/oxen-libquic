@@ -51,6 +51,12 @@ namespace oxen::quic
         }
     }
 
+    void ClientContext::handle_clientctx_opt(opt::max_streams ms)
+    {
+        config.max_streams = ms.stream_count;
+        log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);
+    }
+
     void ServerContext::handle_serverctx_opt(opt::local_addr addr)
     {
         local = std::move(addr);
@@ -95,6 +101,12 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Server given data callback");
         stream_open_cb = std::move(func);
+    }
+
+    void ServerContext::handle_serverctx_opt(opt::max_streams ms)
+    {
+        config.max_streams = ms.stream_count;
+        log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);
     }
 
     ServerContext::~ServerContext()
