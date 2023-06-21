@@ -92,7 +92,7 @@ namespace oxen::quic
         {
             if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
             {
-                auto conn = std::make_unique<Connection>(*this, handler, itr->first, hdr, pkt.path, ctx);
+                auto conn = std::make_unique<Connection>(*this, handler, itr->first, hdr, pkt.path, ctx, context->config);
                 log::debug(
                         log_cat,
                         "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})",

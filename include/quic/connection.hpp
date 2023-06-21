@@ -38,6 +38,8 @@ namespace oxen::quic
         size_t send_buffer_size = 0;
         ngtcp2_pkt_info pkt_info{};
 
+        config_t user_config;
+
       public:
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
@@ -60,7 +62,8 @@ namespace oxen::quic
                 std::shared_ptr<Handler> ep,
                 const ConnectionID& scid,
                 const Path& path,
-                std::shared_ptr<uvw::udp_handle> handle);
+                std::shared_ptr<uvw::udp_handle> handle,
+                config_t u_config);
 
         // Construct and initialize a new incoming connection from remote client to local server
         //      ep: tunnel objec tmanaging this connection
@@ -73,7 +76,8 @@ namespace oxen::quic
                 const ConnectionID& scid,
                 ngtcp2_pkt_hd& hdr,
                 const Path& path,
-                std::shared_ptr<TLSContext> ctx);
+                std::shared_ptr<TLSContext> ctx,
+                config_t u_config);
 
         ~Connection();
 

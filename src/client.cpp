@@ -34,7 +34,7 @@ namespace oxen::quic
                 path.remote.ip.data(),
                 path.remote.port);
 
-        auto conn = std::make_unique<Connection>(*this, handler, id, std::move(path), handle);
+        auto conn = std::make_unique<Connection>(*this, handler, id, std::move(path), handle, context->config);
 
         log::trace(
                 log_cat,

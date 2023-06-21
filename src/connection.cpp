@@ -705,11 +705,6 @@ namespace oxen::quic
         callbacks.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
-        // callbacks.recv_rx_key = recv_rx_key;
-        // callbacks.recv_tx_key = recv_tx_key;
-        // callbacks.dcid_status = NULL;
-        // callbacks.handshake_completed = NULL;
-        // callbacks.handshake_confirmed = NULL;
 
         ngtcp2_settings_default(&settings);
 
@@ -724,13 +719,15 @@ namespace oxen::quic
         params.initial_max_data = 1024 * 1024;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
-        params.initial_max_streams_bidi = 32;
         // Max send buffer for streams (local = streams we initiate, remote = streams initiated to
         // us)
         params.initial_max_stream_data_bidi_local = 64 * 1024;
         params.initial_max_stream_data_bidi_remote = 64 * 1024;
         params.max_idle_timeout = std::chrono::nanoseconds(5min).count();
         params.active_connection_id_limit = 8;
+
+        // config values
+        params.initial_max_streams_bidi = (user_config.max_streams) ? user_config.max_streams : DEFAULT_MAX_BIDI_STREAMS;
 
         return 0;
     }
@@ -741,7 +738,8 @@ namespace oxen::quic
             std::shared_ptr<Handler> ep,
             const ConnectionID& scid,
             const Path& path,
-            std::shared_ptr<uvw::udp_handle> handle) :
+            std::shared_ptr<uvw::udp_handle> handle,
+            config_t u_config) :
             endpoint{client},
             quic_manager{ep},
             source_cid{scid},
@@ -750,7 +748,8 @@ namespace oxen::quic
             local{client.context->local},
             remote{client.context->remote},
             udp_handle{handle},
-            tls_context{client.context->tls_ctx}
+            tls_context{client.context->tls_ctx},
+            user_config{u_config}
     {
         log::trace(log_cat, "Creating new client connection object");
 
@@ -791,7 +790,8 @@ namespace oxen::quic
             const ConnectionID& cid,
             ngtcp2_pkt_hd& hdr,
             const Path& path,
-            std::shared_ptr<TLSContext> ctx) :
+            std::shared_ptr<TLSContext> ctx,
+            config_t u_config) :
             endpoint{server},
             quic_manager{ep},
             source_cid{cid},
@@ -799,7 +799,8 @@ namespace oxen::quic
             path{path},
             local{server.context->local},
             remote{path.remote},
-            tls_context{ctx}
+            tls_context{ctx},
+            user_config{u_config}
     {
         log::trace(log_cat, "Creating new server connection object");
 

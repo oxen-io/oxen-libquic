@@ -16,10 +16,20 @@ namespace oxen::quic
     class Client;
     class Endpoint;
 
+    // created to store user configuration values; more values to be added later
+    struct config_t
+    {
+        // max streams
+        int max_streams = 0;
+
+        config_t() = default;
+    };
+
     struct ContextBase
     {
         Address local, remote;
         std::shared_ptr<Handler> quic_manager;
+        config_t config{};
 
         virtual ~ContextBase() = default;
 
@@ -63,7 +73,7 @@ namespace oxen::quic
         void handle_clientctx_opt(opt::remote_addr addr);
         void handle_clientctx_opt(opt::client_tls tls);
         void handle_clientctx_opt(client_tls_callback_t func);
-
+        void handle_clientctx_opt(opt::max_streams ms);
         inline void set_local(Address& addr) { local = Address{addr}; };
         inline void set_remote(Address& addr) { remote = Address{addr}; };
     };
@@ -104,6 +114,7 @@ namespace oxen::quic
         void handle_serverctx_opt(server_data_callback_t func);
         void handle_serverctx_opt(stream_data_callback_t func);
         void handle_serverctx_opt(stream_open_callback_t func);
+        void handle_serverctx_opt(opt::max_streams ms);
         inline void set_addr(Address addr) { local = std::move(addr); }
     };
 

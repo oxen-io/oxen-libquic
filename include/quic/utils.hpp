@@ -82,6 +82,7 @@ namespace oxen::quic
     static constexpr std::byte SERVER_TO_CLIENT{2};
     static constexpr size_t dgram_size = 1200;
     static constexpr size_t ev_loop_queue_size = 1024;
+    static constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
 
     // Check if T is an instantiation of templated class `Class`; for example,
     // `is_instantiation<std::basic_string, std::string>` is true.

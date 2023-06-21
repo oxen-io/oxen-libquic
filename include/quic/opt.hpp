@@ -13,18 +13,29 @@ namespace oxen::quic
         {
             using Address::Address;
         };
+
         struct remote_addr : public Address
         {
             using Address::Address;
         };
+
+        struct max_streams
+        {
+            int stream_count = DEFAULT_MAX_BIDI_STREAMS;
+            max_streams() = default;
+            explicit max_streams(int s) : stream_count(s) {};
+        };
+
         struct remote_tls : public GNUTLSCert
         {
             using GNUTLSCert::GNUTLSCert;
         };
+
         struct local_tls : public GNUTLSCert
         {
             using GNUTLSCert::GNUTLSCert;
         };
+
         struct server_tls : public GNUTLSCert
         {
             explicit server_tls(
@@ -34,6 +45,7 @@ namespace oxen::quic
                     std::string client_ca = "");
             std::shared_ptr<TLSContext> into_context() &&;
         };
+
         struct client_tls : public GNUTLSCert
         {
             explicit client_tls(
