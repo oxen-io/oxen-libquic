@@ -96,6 +96,9 @@ namespace oxen::quic
                 throw std::invalid_argument{"Invalid address: IPv6 addresses require [...] square brackets"};
         }
 
+        if (addr.empty())
+            addr = "::";
+
         result.first = addr;
         return result;
     }
