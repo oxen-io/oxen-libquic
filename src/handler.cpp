@@ -42,29 +42,6 @@ namespace oxen::quic
         log::info(log_cat, "{}", (ev_loop) ? "Event loop successfully created" : "Error: event loop creation failed");
     }
 
-    Handler::~Handler()
-    {
-        log::debug(log_cat, "Shutting down tunnel manager...");
-
-        for (const auto& itr : clients)
-            itr->client->~Client();
-
-        for (const auto& itr : servers)
-            itr.second->server->~Server();
-
-        if (ev_loop)
-        {
-            ev_loop->walk(uvw::overloaded{[](uvw::udp_handle&& h) { h.close(); }, [](auto&&) {}});
-            ev_loop->reset();
-            ev_loop->stop();
-            ev_loop->close();
-            log::debug(log_cat, "Event loop shut down...");
-        }
-
-        clients.clear();
-        servers.clear();
-    }
-
     std::shared_ptr<uvw::loop> Handler::loop()
     {
         return (ev_loop) ? ev_loop : nullptr;

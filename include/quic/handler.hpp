@@ -57,7 +57,6 @@ namespace oxen::quic
 
       public:
         explicit Handler(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id, Network& net);
-        ~Handler();
 
         Network& net;
 
