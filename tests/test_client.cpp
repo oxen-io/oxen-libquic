@@ -25,10 +25,7 @@ int main(int argc, char* argv[])
     Network client_net{};
     auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-    opt::client_tls client_tls{
-            "/home/dan/oxen/libquicinet/tests/certs/clientkey.pem"s,
-            "/home/dan/oxen/libquicinet/tests/certs/clientcert.pem"s,
-            "/home/dan/oxen/libquicinet/tests/certs/servercert.pem"s};
+    auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
     opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
     opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};

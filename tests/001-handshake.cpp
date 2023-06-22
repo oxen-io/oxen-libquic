@@ -16,11 +16,11 @@ namespace oxen::quic::test
 
         std::atomic<bool> good{false};
 
-        client_tls_callback_t client_tls_cb = [&](gnutls_session_t session,
-                                                  unsigned int htype,
-                                                  unsigned int when,
-                                                  unsigned int incoming,
-                                                  const gnutls_datum_t* msg) {
+        gnutls_callback client_tls_cb = [&](gnutls_session_t session,
+                                            unsigned int htype,
+                                            unsigned int when,
+                                            unsigned int incoming,
+                                            const gnutls_datum_t* msg) {
             log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
             const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
@@ -32,9 +32,10 @@ namespace oxen::quic::test
             return 0;
         };
 
-        opt::server_tls server_tls{"./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s};
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
-        opt::client_tls client_tls{"./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s};
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        client_tls->client_tls_policy = std::move(client_tls_cb);
 
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
@@ -44,7 +45,8 @@ namespace oxen::quic::test
         auto server = test_net.server_listen(server_local, server_tls);
 
         log::debug(log_cat, "Calling 'client_connect'...");
-        auto client = test_net.client_connect(client_local, client_remote, client_tls, client_tls_cb);
+        // auto client = test_net.client_connect(client_local, client_remote, client_tls, client_tls_cb);
+        auto client = test_net.client_connect(client_local, client_remote, client_tls);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 

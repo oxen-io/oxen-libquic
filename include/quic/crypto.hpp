@@ -19,13 +19,13 @@ namespace fs = std::filesystem;
 
 namespace oxen::quic
 {
-    namespace opt
-    {
-        struct client_tls;
-        struct server_tls;
-    }  // namespace opt
 
-    enum context_init_scheme { SERVER = 0, CLIENT = 1 };
+    using gnutls_callback = std::function<int(
+            gnutls_session_t session,
+            unsigned int htype,
+            unsigned int when,
+            unsigned int incoming,
+            const gnutls_datum_t* msg)>;
 
     // Struct to wrap cert/key information. Can hold either a string-path, gnutls_datum of the
     // actual key or cert, plus extension and type info.
@@ -76,130 +76,68 @@ namespace oxen::quic
         operator gnutls_x509_crt_fmt_t() { return ext; }
     };
 
-    // Pure virtual TLSContext base class; Derived classes manage all pinned TLS certificates and
-    // wrap system's root CA trust
-    struct TLSContext
+    class TLSSession;
+
+    class TLSCreds
     {
-        ngtcp2_crypto_conn_ref conn_ref;
-        gnutls_session_t session;
-        virtual ~TLSContext() = default;
+      public:
+        virtual std::unique_ptr<TLSSession> make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client) = 0;
     };
 
-    // Pure virtual TLSCert base class
-    struct TLSCert
+    // TODO: tls callback functions
+    // As far as I can tell, simply not setting a CA and not setting a tls
+    // callback function will result in a silent approval, which for our purposes
+    // is fine *except* perhaps in Lokinet relay<->relay connections.
+    class GNUTLSCreds : public TLSCreds
     {
-        virtual ~TLSCert() = default;
-        virtual std::shared_ptr<TLSContext> into_context() && = 0;
-    };
-
-    // Null certificate for unsecured connections
-    struct NullCert : TLSCert
-    {
-        std::shared_ptr<TLSContext> into_context() && override;
-    };
-
-    struct GNUTLSCert : TLSCert
-    {
-        datum private_key{};
-        datum local_cert{};
-        datum remote_cert{};  // if client, this is server cert and vice versa
-        datum remote_ca{};    // if client, this is server CA and vice versa
-        server_tls_callback_t server_tls_cb;
-        client_tls_callback_t client_tls_cb;
-        gnutls_certificate_credentials_t cred;
-        context_init_scheme scheme;
-
-        GNUTLSCert() = default;
-
-        // called by server for subsequent connections
-        GNUTLSCert(GNUTLSCert const& other) :
-                private_key{other.private_key},
-                local_cert{other.local_cert},
-                remote_ca{other.remote_ca},
-                remote_cert{other.remote_cert},
-                cred{other.cred},
-                scheme{other.scheme}
-        {
-            log::trace(log_cat, "GNUTLSCert copy constructor");
-        }
-
-        // direct construction from opt types
-        explicit GNUTLSCert(opt::client_tls client_tls);
-        explicit GNUTLSCert(opt::server_tls server_tls);
-
-        std::shared_ptr<TLSContext> into_context() && override;
-
-        int _client_cred_init();
-        int _server_cred_init();
-    };
-
-    // GnuTLS certificate context
-    struct GNUTLSContext : TLSContext
-    {
-        explicit GNUTLSContext(GNUTLSCert cert) : gcert{cert}
-        {
-            log::trace(log_cat, "Initializing GNUTLSContext with scheme: {}", (int)gcert.scheme);
-
-            switch (gcert.scheme)
-            {
-                case SERVER:
-                    log::debug(log_cat, "Commencing server session initialization");
-                    _server_session_init();
-                    break;
-                case CLIENT:
-                    log::debug(log_cat, "Commencing client session initialization");
-                    _client_session_init();
-                    break;
-                default:
-                    log::warning(log_cat, "GNUTLSContext initialization failed: scheme not recognized");
-                    break;
-            }
-        }
-
-        ~GNUTLSContext();
-
-        gnutls_priority_t priority;
-        gnutls_x509_crt_int* cert;
-        server_tls_callback_t server_tls_cb;
-        client_tls_callback_t client_tls_cb;
-        GNUTLSCert gcert;
-
-        void client_callback_init();
-        void server_callback_init();
-
       private:
-        int _client_session_init();
-        int _server_session_init();
+        GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg);
+
+      public:
+        ~GNUTLSCreds();
+
+        gnutls_certificate_credentials_t cred;
+
+        gnutls_callback client_tls_policy{nullptr};
+        gnutls_callback server_tls_policy{nullptr};
+
+        static std::shared_ptr<GNUTLSCreds> make(
+                std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
+
+        std::unique_ptr<TLSSession> make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client = false) override;
     };
 
-    // Null certificate context
-    struct NullContext : TLSContext
+    class TLSSession
     {
-        explicit NullContext(NullCert ncert) : cert{ncert} {}
+      protected:
+        ngtcp2_crypto_conn_ref conn_ref;
+        TLSSession(const ngtcp2_crypto_conn_ref& conn_ref) : conn_ref{conn_ref} {}
 
-        NullCert cert;
+      public:
+        virtual void* get_session() = 0;
     };
 
-    extern "C"
+    class GNUTLSSession : public TLSSession
     {
-        int server_cb_wrapper(
+      private:
+        gnutls_session_t session;
+
+        const GNUTLSCreds& creds;
+        bool is_client;
+
+        void set_tls_hook_functions();  // TODO: which and when?
+      public:
+        GNUTLSSession(GNUTLSCreds& creds, const ngtcp2_crypto_conn_ref& conn_ref_, bool is_client);
+        ~GNUTLSSession();
+
+        void* get_session() override { return session; };
+
+        int do_tls_callback(
                 gnutls_session_t session,
                 unsigned int htype,
                 unsigned int when,
                 unsigned int incoming,
-                const gnutls_datum_t* ms);
-        int client_cb_wrapper(
-                gnutls_session_t session,
-                unsigned int htype,
-                unsigned int when,
-                unsigned int incoming,
-                const gnutls_datum_t* ms);
-        int server_protocol_hook(
-                gnutls_session_t session,
-                unsigned int type,
-                unsigned int when,
-                unsigned int incoming,
-                const gnutls_datum_t* msg);
-    }
+                const gnutls_datum_t* msg) const;
+    };
 
 }  // namespace oxen::quic

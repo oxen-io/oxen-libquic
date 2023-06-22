@@ -22,8 +22,8 @@ namespace oxen::quic::test
             good.store(true);
         };
 
-        opt::server_tls server_tls{"./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s};
-        opt::client_tls client_tls{"./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s};
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
         opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
         opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};

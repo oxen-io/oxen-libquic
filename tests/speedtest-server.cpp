@@ -64,7 +64,7 @@ int main(int argc, char* argv[])
 
     Network server_net{};
 
-    opt::server_tls server_tls{key, cert, client_cert};
+    auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
 
     auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
     opt::local_addr server_local{listen_addr, listen_port};

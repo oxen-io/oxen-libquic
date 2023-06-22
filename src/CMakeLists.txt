@@ -7,7 +7,6 @@ add_library(quic
     endpoint.cpp
     handler.cpp
     network.cpp
-    opt.cpp
     server.cpp
     stream.cpp
     utils.cpp

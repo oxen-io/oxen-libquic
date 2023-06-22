@@ -28,20 +28,9 @@ namespace oxen::quic
         log::trace(log_cat, "Client stored remote address: {}", remote);
     }
 
-    void ClientContext::handle_clientctx_opt(opt::client_tls tls)
+    void ClientContext::handle_clientctx_opt(std::shared_ptr<TLSCreds> tls)
     {
-        tls_ctx = std::move(tls).into_context();
-    }
-
-    void ClientContext::handle_clientctx_opt(client_tls_callback_t func)
-    {
-        log::trace(log_cat, "Client given server certification callback");
-        auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(tls_ctx);
-        if (func)
-        {
-            ctx->client_tls_cb = std::move(func);
-            ctx->client_callback_init();
-        }
+        tls_creds = std::move(tls);
     }
 
     void ClientContext::handle_clientctx_opt(opt::max_streams ms)
@@ -68,26 +57,9 @@ namespace oxen::quic
         log::trace(log_cat, "Server stored bind address: {}", local);
     }
 
-    void ServerContext::handle_serverctx_opt(Address addr)
+    void ServerContext::handle_serverctx_opt(std::shared_ptr<TLSCreds> tls)
     {
-        local = std::move(addr);
-        log::trace(log_cat, "Server stored bind address: {}", local);
-    }
-
-    void ServerContext::handle_serverctx_opt(server_tls_callback_t func)
-    {
-        log::trace(log_cat, "Server given client certification callback");
-        auto ctx = std::dynamic_pointer_cast<GNUTLSContext>(temp_ctx);
-        if (func)
-        {
-            ctx->server_tls_cb = std::move(func);
-            ctx->server_callback_init();
-        }
-    }
-
-    void ServerContext::handle_serverctx_opt(opt::server_tls tls)
-    {
-        temp_ctx = std::move(tls).into_context();
+        tls_creds = std::move(tls);
     }
 
     void ServerContext::handle_serverctx_opt(stream_data_callback_t func)

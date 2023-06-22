@@ -143,7 +143,7 @@ namespace oxen::quic
 
                     // UDP mapping
                     udp = handle_mapping(true, server_ctx->local);
-                    tls = std::move(server_ctx->temp_ctx);
+                    tls = server_ctx->tls_creds;
 
                     // make server
                     server_ctx->server = std::make_shared<Server>(quic_manager, server_ctx);

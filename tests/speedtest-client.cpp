@@ -100,7 +100,7 @@ int main(int argc, char* argv[])
 
     Network client_net{};
 
-    opt::client_tls client_tls{key, cert, server_cert};
+    auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
 
     opt::local_addr client_local{};
     if (!local_addr.empty())

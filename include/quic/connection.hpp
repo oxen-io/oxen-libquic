@@ -41,9 +41,11 @@ namespace oxen::quic
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
 
+        void setup_tls_session(bool is_client);
+
       public:
-        // ngtcp2_crypto_conn_ref conn_ref;
-        std::shared_ptr<TLSContext> tls_context;
+        std::shared_ptr<TLSCreds> tls_creds;
+        std::unique_ptr<TLSSession> tls_session;
 
         Address local;
         Address remote;
@@ -74,7 +76,7 @@ namespace oxen::quic
                 const ConnectionID& scid,
                 ngtcp2_pkt_hd& hdr,
                 const Path& path,
-                std::shared_ptr<TLSContext> ctx,
+                std::shared_ptr<TLSCreds> creds,
                 config_t u_config);
 
         ~Connection();
