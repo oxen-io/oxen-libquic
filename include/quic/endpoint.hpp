@@ -35,11 +35,9 @@ namespace oxen::quic
 
       public:
         explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
-        virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); }
 
         std::shared_ptr<Handler> handler;
-        std::array<std::byte, 1500> buf;
-        size_t default_stream_bufsize = static_cast<size_t>(64 * 1024);
 
         std::shared_ptr<uvw::loop> get_loop();
 
@@ -50,14 +48,17 @@ namespace oxen::quic
         void delete_connection(const ConnectionID& cid);
 
         Connection* get_conn(ConnectionID ID);
+        Connection* get_conn(const Address& addr);
 
         void call_async_all(async_callback_t async_cb);
 
+        std::list<std::pair<ConnectionID, Address>> get_conn_addrs();
+
         void close_conns();
 
-        virtual std::shared_ptr<uvw::udp_handle> get_handle(Address& addr) = 0;
+        virtual std::shared_ptr<uv_udp_t> get_handle(Address& addr) = 0;
 
-        virtual std::shared_ptr<uvw::udp_handle> get_handle(Path& p) = 0;
+        virtual std::shared_ptr<uv_udp_t> get_handle(Path& p) = 0;
 
       protected:
         std::shared_ptr<uvw::timer_handle> expiry_timer;
@@ -96,7 +97,8 @@ namespace oxen::quic
 
         io_result read_packet(Connection& conn, Packet& pkt);
 
-        io_result send_packet(Address& remote, bstring_view data);
+        io_result send_packets(Path& p, char* buf, size_t* bufsize, size_t& n_pkts);
+        io_result send_packet_libuv(Path& p, const char* buf, size_t bufsize, std::function<void()> after_sent = nullptr);
 
         io_result send_packet(Path& p, bstring_view data);
 
@@ -127,7 +129,7 @@ namespace oxen::quic
         // \param ecn - the ecn value from ngtcp2
         //
         // Returns the number of bytes written to buf
-        virtual size_t write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; };
+        virtual size_t write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; }
     };
 
 }  // namespace oxen::quic

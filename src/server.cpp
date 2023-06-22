@@ -21,7 +21,28 @@ namespace oxen::quic
             expiry_timer->close();
     }
 
-    std::shared_ptr<uvw::udp_handle> Server::get_handle(Address& addr)
+    std::shared_ptr<Stream> Server::open_stream(
+            ConnectionID conn_id, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    {
+        return open_stream(get_conn(conn_id), std::move(data_cb), std::move(close_cb));
+    }
+
+    std::shared_ptr<Stream> Server::open_stream(
+            const Address& remote_addr, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    {
+        return open_stream(get_conn(remote_addr), std::move(data_cb), std::move(close_cb));
+    }
+
+    std::shared_ptr<Stream> Server::open_stream(
+            Connection* conn, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    {
+        log::trace(log_cat, "Opening server stream...");
+
+        return conn->get_new_stream(
+                (context->stream_data_cb) ? context->stream_data_cb : std::move(data_cb), std::move(close_cb));
+    }
+
+    std::shared_ptr<uv_udp_t> Server::get_handle(Address& addr)
     {
         // server handles are indexed by local bind addr
         auto handle = context->udp_handles.find(addr);
@@ -29,7 +50,7 @@ namespace oxen::quic
         return (handle != context->udp_handles.end()) ? handle->second.first : nullptr;
     }
 
-    std::shared_ptr<uvw::udp_handle> Server::get_handle(Path& p)
+    std::shared_ptr<uv_udp_t> Server::get_handle(Path& p)
     {
         // because server handles are indexed by local bind addr, when we call connection::send(),
         // the remote address is passed. as a result, this overload allows us to pass a path (s.t.

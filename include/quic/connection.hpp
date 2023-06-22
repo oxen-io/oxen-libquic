@@ -34,18 +34,16 @@ namespace oxen::quic
 
         int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
-        std::array<std::byte, NGTCP2_MAX_UDP_PAYLOAD_SIZE> send_buffer{};
-        size_t send_buffer_size = 0;
-        ngtcp2_pkt_info pkt_info{};
+        std::shared_ptr<uv_udp_t> udp_handle;
 
         config_t user_config;
 
-      public:
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
+
+      public:
         // ngtcp2_crypto_conn_ref conn_ref;
         std::shared_ptr<TLSContext> tls_context;
-        std::shared_ptr<uvw::udp_handle> udp_handle;
 
         Address local;
         Address remote;
@@ -62,7 +60,7 @@ namespace oxen::quic
                 std::shared_ptr<Handler> ep,
                 const ConnectionID& scid,
                 const Path& path,
-                std::shared_ptr<uvw::udp_handle> handle,
+                std::shared_ptr<uv_udp_t> handle,
                 config_t u_config);
 
         // Construct and initialize a new incoming connection from remote client to local server
@@ -93,11 +91,17 @@ namespace oxen::quic
 
         void on_io_ready();
 
-        io_result send();
+        struct pkt_tx_timer_updater;
+        bool send(pkt_tx_timer_updater* pkt_updater = nullptr);
 
-        void flush_streams();
+        void flush_streams(uint64_t ts);
 
         void io_ready();
+
+        std::array<uint8_t, NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE * DATAGRAM_BATCH_SIZE> send_buffer;
+        std::array<size_t, DATAGRAM_BATCH_SIZE> send_buffer_size;
+        size_t n_packets = 0;
+        uint8_t* send_buffer_pos = send_buffer.data();
 
         /// Returns a pointer to the owning Server, if this is a Server connection, nullptr
         /// otherwise.
@@ -109,11 +113,7 @@ namespace oxen::quic
         Client* client();
         const Client* client() const;
 
-        void schedule_retransmit();
-
-        int init_gnutls(Client& client);
-
-        int init_gnutls(Server& server);
+        void schedule_retransmit(uint64_t ts = 0);
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
 
@@ -126,8 +126,6 @@ namespace oxen::quic
         void stream_closed(int64_t id, uint64_t app_code);
 
         int get_streams_available();
-
-        int recv_initial_crypto(std::basic_string_view<uint8_t> data);
 
         // Buffer used to store non-stream connection data
         //  ex: initial transport params
@@ -155,9 +153,16 @@ namespace oxen::quic
         std::shared_ptr<uvw::async_handle> io_trigger;
 
         // pass Connection as ngtcp2_conn object
-        operator const ngtcp2_conn*() const { return conn.get(); }
-        operator ngtcp2_conn*() { return conn.get(); }
-        operator ngtcp2_conn&() { return *conn.get(); }
+        template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_conn>, int> = 0>
+        operator const T*() const
+        {
+            return conn.get();
+        }
+        template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_conn>, int> = 0>
+        operator T*()
+        {
+            return conn.get();
+        }
     };
 
     extern "C"

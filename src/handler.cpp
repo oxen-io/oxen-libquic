@@ -33,10 +33,6 @@ namespace oxen::quic
             net{net}, loop_thread_id{loop_thread_id}
     {
         ev_loop = loop_ptr;
-        universal_handle = ev_loop->resource<uvw::udp_handle>();
-
-        universal_handle->bind(default_local);
-        net.mapped_client_addrs.emplace(Address{default_local}, universal_handle);
 
         if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
             throw std::runtime_error{"Failed to create job queue uvw async handle"};
@@ -44,29 +40,6 @@ namespace oxen::quic
         job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
 
         log::info(log_cat, "{}", (ev_loop) ? "Event loop successfully created" : "Error: event loop creation failed");
-    }
-
-    Handler::~Handler()
-    {
-        log::debug(log_cat, "Shutting down tunnel manager...");
-
-        for (const auto& itr : clients)
-            itr->client->~Client();
-
-        for (const auto& itr : servers)
-            itr.second->server->~Server();
-
-        if (ev_loop)
-        {
-            ev_loop->walk(uvw::overloaded{[](uvw::udp_handle&& h) { h.close(); }, [](auto&&) {}});
-            ev_loop->reset();
-            ev_loop->stop();
-            ev_loop->close();
-            log::debug(log_cat, "Event loop shut down...");
-        }
-
-        clients.clear();
-        servers.clear();
     }
 
     std::shared_ptr<uvw::loop> Handler::loop()
@@ -135,6 +108,20 @@ namespace oxen::quic
                     ctx->client->close_conns();
             }
         });
+    }
+
+    Server* Handler::find_server(const Address& local)
+    {
+        if (auto it = servers.find(local); it != servers.end())
+            return it->second->server.get();
+        return nullptr;
+    }
+    Client* Handler::find_client(const Address& local)
+    {
+        for (auto& ctx : clients)
+            if (ctx->local == local)
+                return ctx->client.get();
+        return nullptr;
     }
 
 }  // namespace oxen::quic

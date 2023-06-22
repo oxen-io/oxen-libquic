@@ -154,7 +154,7 @@ namespace oxen::quic
                     log::warning(log_cat, "GNUTLSContext initialization failed: scheme not recognized");
                     break;
             }
-        };
+        }
 
         ~GNUTLSContext();
 
@@ -175,7 +175,7 @@ namespace oxen::quic
     // Null certificate context
     struct NullContext : TLSContext
     {
-        explicit NullContext(NullCert ncert) : cert{ncert} {};
+        explicit NullContext(NullCert ncert) : cert{ncert} {}
 
         NullCert cert;
     };

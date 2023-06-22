@@ -16,7 +16,7 @@ namespace oxen::quic::test
 
         std::mutex recv_mut;
         std::string received;
-        auto stream_callback = [&](Stream& s, bstring_view data) {
+        stream_data_callback_t stream_callback = [&](Stream& s, bstring_view data) {
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
         };

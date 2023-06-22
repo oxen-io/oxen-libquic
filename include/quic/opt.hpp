@@ -12,6 +12,9 @@ namespace oxen::quic
         struct local_addr : public Address
         {
             using Address::Address;
+
+            // Constructing from just a port to bind to that port, any address
+            explicit local_addr(uint16_t port) : Address{"", port} {}
         };
 
         struct remote_addr : public Address
@@ -23,7 +26,7 @@ namespace oxen::quic
         {
             int stream_count = DEFAULT_MAX_BIDI_STREAMS;
             max_streams() = default;
-            explicit max_streams(int s) : stream_count(s) {};
+            explicit max_streams(int s) : stream_count(s) {}
         };
 
         struct remote_tls : public GNUTLSCert
