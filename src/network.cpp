@@ -27,8 +27,6 @@ namespace oxen::quic
         log::trace(log_cat, __PRETTY_FUNCTION__);
         ev_loop = uvw::loop::create();
 
-        signal_config();  // TODO: probably remove this, as the library user should handle signals
-
         loop_thread = std::make_unique<std::thread>([this]() {
             while (not running)
             {};
@@ -43,31 +41,6 @@ namespace oxen::quic
     Network::~Network()
     {
         close();
-    }
-
-    void Network::signal_config()
-    {
-        auto signal = ev_loop->resource<uvw::signal_handle>();
-        signal->on<uvw::error_event>([](const auto&, auto&) { log::warning(log_cat, "Error event in signal handle"); });
-        signal->on<uvw::signal_event>([&](const auto&, auto&) {
-            log::debug(log_cat, "Signal event triggered in signal handle");
-            ev_loop->walk(uvw::overloaded{
-                    [](uvw::udp_handle&& h) {
-                        h.close();
-                        h.stop();
-                    },
-                    [](uvw::async_handle&& h) { h.close(); },
-                    [](auto&&) {}});
-
-            signal->stop();
-
-            ev_loop->reset();
-            ev_loop->stop();
-            ev_loop->close();
-        });
-
-        if (signal->init())
-            signal->start(SIGINT);
     }
 
     void Network::close()
