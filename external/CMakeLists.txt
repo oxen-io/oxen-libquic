@@ -25,6 +25,7 @@ if(GIT_FOUND)
     check_submodule(libuv)
     check_submodule(uvw)
     check_submodule(oxen-logging fmt spdlog)
+    check_submodule(oxen-encoding)
 endif()
 
 find_package(PkgConfig REQUIRED)
@@ -54,6 +55,8 @@ system_or_submodule(LIBUV uv_a libuv>=1.45.0 libuv)
 # oxen-logging
 set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 add_subdirectory(oxen-logging)
+
+system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
 
 # uvw
 add_library(uvw INTERFACE)

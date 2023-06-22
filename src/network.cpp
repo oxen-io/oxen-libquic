@@ -72,7 +72,7 @@ namespace oxen::quic
                     // uvw's udp_handle_t is completely broken when you turn RECVMMSG on) get mashed
                     // and dereferenced into the wrong pointer type in this call:
                     //
-                    //ev_loop->walk([](auto&& h) { h.close(); });
+                    // ev_loop->walk([](auto&& h) { h.close(); });
                     ev_loop->stop();
                 }
                 p.set_value();
