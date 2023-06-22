@@ -77,8 +77,8 @@ namespace oxen::quic
         void handle_clientctx_opt(stream_data_callback_t func);
         void handle_clientctx_opt(stream_open_callback_t func);
 
-        inline void set_local(Address& addr) { local = Address{addr}; };
-        inline void set_remote(Address& addr) { remote = Address{addr}; };
+        inline void set_local(Address& addr) { local = Address{addr}; }
+        inline void set_remote(Address& addr) { remote = Address{addr}; }
     };
 
     struct ServerContext : ContextBase

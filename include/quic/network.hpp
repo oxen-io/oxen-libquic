@@ -95,7 +95,7 @@ namespace oxen::quic
             });
 
             return f.get();
-        };
+        }
 
         // Main server endpoint creation function. Binds a dedicated uv_udt_t to the binding
         // address passed. To use this function, two parameter structs can be passed:
@@ -162,7 +162,7 @@ namespace oxen::quic
             });
 
             return f.get();
-        };
+        }
 
         void close();
 

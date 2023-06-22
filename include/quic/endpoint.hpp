@@ -35,7 +35,7 @@ namespace oxen::quic
 
       public:
         explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
-        virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); }
 
         std::shared_ptr<Handler> handler;
 
@@ -129,7 +129,7 @@ namespace oxen::quic
         // \param ecn - the ecn value from ngtcp2
         //
         // Returns the number of bytes written to buf
-        virtual size_t write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; };
+        virtual size_t write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; }
     };
 
 }  // namespace oxen::quic

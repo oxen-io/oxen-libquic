@@ -29,7 +29,7 @@ namespace oxen::quic
         expiry_timer->start(250ms, 250ms);
 
         log::info(log_cat, "Successfully created QUIC endpoint");
-    };
+    }
 
     // Endpoint::~Endpoint()
     // {

@@ -26,7 +26,7 @@ namespace oxen::quic
         {
             int stream_count = DEFAULT_MAX_BIDI_STREAMS;
             max_streams() = default;
-            explicit max_streams(int s) : stream_count(s) {};
+            explicit max_streams(int s) : stream_count(s) {}
         };
 
         struct remote_tls : public GNUTLSCert
