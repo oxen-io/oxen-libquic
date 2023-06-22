@@ -94,6 +94,12 @@ namespace oxen::quic
                     // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
                     // uvw::loop parent class uvw::emitter (unregisters all event listeners)
                     ev_loop->reset();
+                    // FIXME: this walk breaks hard because uvw idiotically assumes without checking
+                    // that it owns all libuv types, so our uv_udp_t's (which we have to use because
+                    // uvw's udp_handle_t is completely broken when you turn RECVMMSG on) get mashed
+                    // and dereferenced into the wrong pointer type in this call:
+                    //
+                    //ev_loop->walk([](auto&& h) { h.close(); });
                     ev_loop->stop();
                 }
                 p.set_value();
@@ -107,10 +113,6 @@ namespace oxen::quic
 
         if (loop_thread)
         {
-            quic_manager->call([this]() {
-                ev_loop->walk([](auto&& h) { h.close(); });
-                ev_loop->stop();
-            });
             loop_thread->join();
             loop_thread.reset();
             ev_loop->close();
