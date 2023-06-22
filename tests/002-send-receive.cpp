@@ -38,9 +38,9 @@ namespace oxen::quic::test
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         std::thread stream_thread([&]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             auto stream = client->open_stream();
             stream->send(msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         });
 
         stream_thread.join();

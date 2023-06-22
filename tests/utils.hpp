@@ -103,22 +103,4 @@ namespace oxen::quic
         return result;
     }
 
-    // Runs the `net` event loop in a new thread; returns the thread and a pair of futures: the
-    // first future is set when the event loop is up and running (after one non-blocking tick); the
-    // second is set when the event loop finishes.
-    inline std::tuple<std::thread, std::future<void>, std::future<void>> spawn_event_loop(Network& net)
-    {
-        std::promise<void> running, done;
-        auto running_fut = running.get_future(), done_fut = done.get_future();
-        std::thread ev_thread{[&net, running = std::move(running), done = std::move(done)]() mutable {
-            // Run once (non-blocking) to be sure we are up and running before fulfilling the future
-            net.ev_loop->run(uvw::loop::run_mode::NOWAIT);
-            running.set_value();
-            net.run();
-            done.set_value();
-        }};
-
-        return {std::move(ev_thread), std::move(running_fut), std::move(done_fut)};
-    }
-
 }  // namespace oxen::quic

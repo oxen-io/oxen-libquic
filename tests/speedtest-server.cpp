@@ -150,15 +150,6 @@ int main(int argc, char* argv[])
     log::debug(test_cat, "Calling 'server_listen'...");
     auto server = server_net.server_listen(server_local, server_tls, stream_opened, stream_data);
 
-    log::debug(test_cat, "Starting event loop thread...");
-    auto [ev_thread, running, done] = spawn_event_loop(server_net);
-
-    while (done.wait_for(1s) != std::future_status::ready)
-    {
-        log::debug(test_cat, "waiting...");
-    }
-
-    ev_thread.join();
-
-    return 0;
+    for (;;)
+        std::this_thread::sleep_for(10min);
 }

@@ -115,11 +115,6 @@ int main(int argc, char* argv[])
     log::debug(test_cat, "Calling 'client_connect'...");
     auto client = client_net.client_connect(client_local, server_addr, client_tls);
 
-    auto [ev_thread, running, done] = spawn_event_loop(client_net);
-
-    // wait for event loop to start
-    running.get();
-
     using RNG = std::mt19937_64;
     struct stream_data
     {
@@ -128,8 +123,9 @@ int main(int argc, char* argv[])
         RNG rng;
         std::vector<std::vector<std::byte>> bufs;
         std::atomic<bool> done_sending = false;
-        std::atomic<bool> got_hash = false;
         std::atomic<bool> done = false;
+        std::promise<void> run_prom;
+        std::future<void> running = run_prom.get_future();
         std::atomic<bool> failed = false;
         size_t next_buf = 0;
 
@@ -155,6 +151,7 @@ int main(int argc, char* argv[])
         size_t i = s.stream_id >> 2;
         log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id, errcode);
     };
+
     auto on_stream_data = [&](Stream& s, bstring_view data) {
         size_t i = s.stream_id >> 2;
         if (i >= parallel)
@@ -164,6 +161,12 @@ int main(int argc, char* argv[])
         }
 
         auto& sd = *streams[i];
+        if (sd.done)
+        {
+            log::error(test_cat, "Already got a hash from the other side of stream {}, what is this nonsense‽", s.stream_id);
+            return;
+        }
+
         if (!sd.done_sending)
         {
             log::error(
@@ -172,25 +175,13 @@ int main(int argc, char* argv[])
                     s.stream_id,
                     data.size());
             sd.failed = true;
-            sd.done = true;
-            return;
         }
-        if (sd.got_hash)
-        {
-            log::error(test_cat, "Already got a hash from the other side of stream {}, what is this nonsense‽", s.stream_id);
-            sd.failed = true;
-            sd.done = true;
-            return;
-        }
-        if (data.size() != 33)
+        else if (data.size() != 33)
         {
             log::error(test_cat, "Got unexpected data from the other side: {}B != 32B", data.size());
             sd.failed = true;
-            sd.done = true;
-            return;
         }
-
-        if (data.substr(0, 32) != sd.hash)
+        else if (data.substr(0, 32) != sd.hash)
         {
             log::critical(
                     test_cat,
@@ -198,24 +189,24 @@ int main(int argc, char* argv[])
                     oxenc::to_hex(data.begin(), data.end()),
                     oxenc::to_hex(sd.hash.begin(), sd.hash.end()));
             sd.failed = true;
-            sd.done = true;
         }
-        if (static_cast<uint8_t>(data[32]) != sd.checksum)
+        else if (static_cast<uint8_t>(data[32]) != sd.checksum)
         {
             log::critical(test_cat, "Checksum mismatch: other size said {}, we say {}", data[32], sd.checksum);
             sd.failed = true;
-            sd.done = true;
         }
-
-        if (!sd.failed)
+        else
+        {
+            sd.failed = false;
             log::critical(
                     test_cat,
                     "Hashes matched ({}, {}), hurray!\n",
                     oxenc::to_hex(sd.hash.begin(), sd.hash.end()),
                     sd.checksum);
+        }
 
-        sd.failed = false;
         sd.done = true;
+        sd.run_prom.set_value();
     };
 
     auto per_stream = size / parallel;
@@ -332,7 +323,7 @@ int main(int argc, char* argv[])
     }
 
     auto last_print = std::chrono::steady_clock::now();
-    while (done.wait_for(20ms) != std::future_status::ready)
+    for (;;)
     {
         bool all_done = true;
         for (auto& s : streams)
@@ -340,6 +331,7 @@ int main(int argc, char* argv[])
             if (!s->done)
             {
                 all_done = false;
+                s->running.get();
                 break;
             }
         }
@@ -364,8 +356,7 @@ int main(int argc, char* argv[])
     fmt::print("Elapsed time: {:.3f}s\n", elapsed);
     fmt::print("Speed: {:.3f}MB/s\n", size / 1'000'000.0 / elapsed);
 
-    client_net.ev_loop->stop();
-    ev_thread.join();
+    client_net.close();
 
     return 0;
 }
