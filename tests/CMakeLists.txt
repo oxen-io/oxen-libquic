@@ -39,5 +39,5 @@ endif()
 
 foreach(x speedtest-client speedtest-server)
     add_executable(${x} ${x}.cpp)
-    target_link_libraries(${x} PRIVATE quic CLI11::CLI11 sodium)
+    target_link_libraries(${x} PRIVATE quic CLI11::CLI11 sodium oxenc)
 endforeach()
