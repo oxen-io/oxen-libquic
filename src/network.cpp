@@ -120,8 +120,6 @@ namespace oxen::quic
         log::debug(log_cat, "Event loop shut down...");
     }
 
-    int64_t receive_counter = 0;
-
     namespace
     {
         struct udp_data
@@ -150,7 +148,6 @@ namespace oxen::quic
         {
             if (nread > 0 || (nread == 0 && addr != nullptr))
             {
-                receive_counter++;
                 Packet pkt{};
                 pkt.data = {reinterpret_cast<const std::byte*>(buf_raw->base), static_cast<size_t>(nread)};
                 sockaddr_storage local_s_store;
