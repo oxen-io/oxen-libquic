@@ -3,6 +3,7 @@
 */
 
 #include <quic.hpp>
+#include <quic/gnutls_crypto.hpp>
 #include <thread>
 
 using namespace oxen::quic;

@@ -3,6 +3,7 @@
 extern "C"
 {
 #include <arpa/inet.h>
+#include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>

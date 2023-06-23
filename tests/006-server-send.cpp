@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <quic.hpp>
+#include <quic/gnutls_crypto.hpp>
 #include <thread>
 
 namespace oxen::quic::test

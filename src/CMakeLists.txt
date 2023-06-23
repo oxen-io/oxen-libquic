@@ -3,7 +3,7 @@ add_library(quic
     client.cpp
     connection.cpp
     context.cpp
-    crypto.cpp
+    gnutls_crypto.cpp
     endpoint.cpp
     handler.cpp
     network.cpp

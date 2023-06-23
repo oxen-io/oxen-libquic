@@ -9,6 +9,7 @@
 #include <CLI/Validators.hpp>
 #include <future>
 #include <quic.hpp>
+#include <quic/gnutls_crypto.hpp>
 #include <thread>
 
 #include "utils.hpp"

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <future>
 #include <quic.hpp>
+#include <quic/gnutls_crypto.hpp>
 #include <random>
 #include <thread>
 

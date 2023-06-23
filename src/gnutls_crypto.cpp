@@ -1,4 +1,4 @@
-#include "crypto.hpp"
+#include "gnutls_crypto.hpp"
 
 extern "C"
 {
