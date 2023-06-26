@@ -101,19 +101,14 @@ namespace oxen::quic
         if (result == context->udp_handles.end())
             return nullptr;
 
-        auto _ctx = std::dynamic_pointer_cast<GNUTLSContext>(result->second.second);
-
-        // if this is the first connection, take the exact TLS context from UDP_handles; if not,
-        // construct a new one in-place using only the cert/key pair to reconfigure gnutls specific details
-        log::debug(log_cat, "Currently active conns: {}", context->server->conns.size() + 1);
-
-        auto ctx = (context->server->conns.size() != 0) ? GNUTLSCert{_ctx->gcert}.into_context() : _ctx;
+        auto creds = result->second.second;
 
         for (;;)
         {
             if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
             {
-                auto conn = std::make_unique<Connection>(*this, handler, itr->first, hdr, pkt.path, ctx, context->config);
+                auto conn = std::make_unique<Connection>(
+                        *this, handler, itr->first, hdr, pkt.path, std::move(creds), context->config);
                 log::debug(
                         log_cat,
                         "Mapping ngtcp2_conn in server registry to source_cid:{} (dcid: {})",

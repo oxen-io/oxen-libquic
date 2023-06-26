@@ -3,6 +3,7 @@
 extern "C"
 {
 #include <arpa/inet.h>
+#include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
@@ -96,20 +97,6 @@ namespace oxen::quic
     // Callbacks for ev timer functionality
     using read_callback = std::function<void(uvw::loop* loop, uvw::timer_event* ev, int revents)>;
     using timer_callback = std::function<void(int nwrite, void* user_data)>;
-    // Callbacks for client/server TLS connectivity and authentication
-    using server_tls_callback_t = std::function<int(
-            gnutls_session_t session,
-            unsigned int htype,
-            unsigned int when,
-            unsigned int incoming,
-            const gnutls_datum_t* msg)>;
-    using client_tls_callback_t = std::function<int(
-            gnutls_session_t session,
-            unsigned int htype,
-            unsigned int when,
-            unsigned int incoming,
-            const gnutls_datum_t* msg)>;
-    // Callbacks for embedding in client/server UVW events (ex: listen events, data events, etc)
 
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;

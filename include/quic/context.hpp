@@ -29,6 +29,7 @@ namespace oxen::quic
     {
         Address local, remote;
         std::shared_ptr<Handler> quic_manager;
+        std::shared_ptr<TLSCreds> tls_creds;
         config_t config{};
 
         virtual ~ContextBase() = default;
@@ -36,17 +37,15 @@ namespace oxen::quic
         virtual std::shared_ptr<Endpoint> endpoint() = 0;
     };
 
-    struct ClientContext : ContextBase
+    struct ClientContext : public ContextBase
     {
         // Cert information for each connection is stored in a map indexed by ConnectionID.
         // As a result, each connection (also mapped in client->conns) can have its own
         // TLS cert info. Each connection also stores within it the gnutls_session_t and
         // gnutls_certificate_credentials_t objects used to initialize its ngtcp2 things
-        std::shared_ptr<TLSContext> tls_ctx;
         std::shared_ptr<Client> client;
         std::shared_ptr<uv_udp_t> udp_handle;
         ConnectionID conn_id;
-        client_tls_callback_t client_tls_cb;
         stream_data_callback_t stream_data_cb;
         stream_open_callback_t stream_open_cb;
 
@@ -71,8 +70,7 @@ namespace oxen::quic
       private:
         void handle_clientctx_opt(opt::local_addr addr);
         void handle_clientctx_opt(opt::remote_addr addr);
-        void handle_clientctx_opt(opt::client_tls tls);
-        void handle_clientctx_opt(client_tls_callback_t func);
+        void handle_clientctx_opt(std::shared_ptr<TLSCreds> tls);
         void handle_clientctx_opt(opt::max_streams ms);
         void handle_clientctx_opt(stream_data_callback_t func);
         void handle_clientctx_opt(stream_open_callback_t func);
@@ -81,12 +79,10 @@ namespace oxen::quic
         inline void set_remote(Address& addr) { remote = Address{addr}; }
     };
 
-    struct ServerContext : ContextBase
+    struct ServerContext : public ContextBase
     {
         std::shared_ptr<Server> server;
-        std::unordered_map<Address, std::pair<std::shared_ptr<uv_udp_t>, std::shared_ptr<TLSContext>>> udp_handles;
-        std::shared_ptr<TLSContext> temp_ctx;
-        server_tls_callback_t server_tls_cb;
+        std::unordered_map<Address, std::pair<std::shared_ptr<uv_udp_t>, std::shared_ptr<TLSCreds>>> udp_handles;
         stream_data_callback_t stream_data_cb;
         stream_open_callback_t stream_open_cb;
 
@@ -109,12 +105,10 @@ namespace oxen::quic
       private:
         void handle_serverctx_opt(opt::local_addr addr);
         void handle_serverctx_opt(Address addr);
-        void handle_serverctx_opt(opt::server_tls tls);
-        void handle_serverctx_opt(server_tls_callback_t func);
+        void handle_serverctx_opt(std::shared_ptr<TLSCreds> tls);
         void handle_serverctx_opt(stream_data_callback_t func);
         void handle_serverctx_opt(stream_open_callback_t func);
         void handle_serverctx_opt(opt::max_streams ms);
-        inline void set_addr(Address addr) { local = std::move(addr); }
     };
 
 }  // namespace oxen::quic

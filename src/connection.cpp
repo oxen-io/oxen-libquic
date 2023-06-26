@@ -793,6 +793,19 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::setup_tls_session(bool is_client)
+    {
+        ngtcp2_crypto_conn_ref conn_ref;
+        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
+        conn_ref.get_conn = get_conn;
+        // store pointer to connection in user_data
+        conn_ref.user_data = this;
+
+        tls_session = tls_creds->make_session(conn_ref, is_client);
+
+        ngtcp2_conn_set_tls_native_handle(conn.get(), tls_session->get_session());
+    }
+
     // client conn
     Connection::Connection(
             Client& client,
@@ -809,7 +822,7 @@ namespace oxen::quic
             local{client.context->local},
             remote{client.context->remote},
             udp_handle{handle},
-            tls_context{client.context->tls_ctx},
+            tls_creds{client.context->tls_creds},
             user_config{u_config}
     {
         log::trace(log_cat, "Creating new client connection object");
@@ -828,13 +841,9 @@ namespace oxen::quic
         int rv = ngtcp2_conn_client_new(
                 &connptr, &dest_cid, &source_cid, path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr, this);
 
-        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
-        tls_context->conn_ref.get_conn = get_conn;
-        // store pointer to connection in user_data
-        tls_context->conn_ref.user_data = this;
-
-        ngtcp2_conn_set_tls_native_handle(connptr, tls_context->session);
         conn.reset(connptr);
+
+        setup_tls_session(true);
 
         if (rv != 0)
         {
@@ -851,7 +860,7 @@ namespace oxen::quic
             const ConnectionID& cid,
             ngtcp2_pkt_hd& hdr,
             const Path& path,
-            std::shared_ptr<TLSContext> ctx,
+            std::shared_ptr<TLSCreds> creds,
             config_t u_config) :
             endpoint{server},
             quic_manager{ep},
@@ -860,7 +869,7 @@ namespace oxen::quic
             path{path},
             local{server.context->local},
             remote{path.remote},
-            tls_context{ctx},
+            tls_creds{std::move(creds)},
             user_config{u_config}
     {
         log::trace(log_cat, "Creating new server connection object");
@@ -883,13 +892,9 @@ namespace oxen::quic
         int rv = ngtcp2_conn_server_new(
                 &connptr, &dest_cid, &source_cid, path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr, this);
 
-        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
-        tls_context->conn_ref.get_conn = get_conn;
-        // store pointer to connection in user_data
-        tls_context->conn_ref.user_data = this;
-
-        ngtcp2_conn_set_tls_native_handle(connptr, tls_context->session);
         conn.reset(connptr);
+
+        setup_tls_session(false);
 
         if (rv != 0)
         {
