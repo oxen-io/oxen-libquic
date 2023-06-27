@@ -1,13 +1,10 @@
 
 add_library(quic
-    client.cpp
     connection.cpp
     context.cpp
     gnutls_crypto.cpp
     endpoint.cpp
-    handler.cpp
     network.cpp
-    server.cpp
     stream.cpp
     utils.cpp
 )
@@ -19,6 +16,7 @@ target_link_libraries(quic
     uvw
     oxen::logging
     common
+    oxenc
     PRIVATE
     internal
 )

@@ -9,22 +9,28 @@
 
 #include "connection.hpp"
 #include "context.hpp"
-#include "handler.hpp"
+#include "endpoint.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    Network::Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id loop_thread_id) : ev_loop{loop_ptr}
+    Network::Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id thread_id) :
+            ev_loop{loop_ptr}, loop_thread_id{thread_id}
     {
         assert(ev_loop);
-        log::trace(log_cat, "Beginning context creation");
+        log::trace(log_cat, "Beginning network context creation with pre-existing ev loop thread");
 
-        quic_manager = std::make_shared<Handler>(ev_loop, loop_thread_id, *this);
+        if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
+            throw std::runtime_error{"Failed to create job queue uvw async handle"};
+
+        job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
+
+        running.store(true);
     }
 
     Network::Network()
     {
-        log::trace(log_cat, __PRETTY_FUNCTION__);
+        log::trace(log_cat, "Beginning network context creation with new ev loop thread");
         ev_loop = uvw::loop::create();
 
         loop_thread = std::make_unique<std::thread>([this]() {
@@ -33,7 +39,13 @@ namespace oxen::quic
             ev_loop->run();
             log::debug(log_cat, "Event Loop `run` returned, thread finished");
         });
-        quic_manager = std::make_shared<Handler>(ev_loop, loop_thread->get_id(), *this);
+
+        loop_thread_id = loop_thread->get_id();
+
+        if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
+            throw std::runtime_error{"Failed to create job queue uvw async handle"};
+
+        job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
 
         running.store(true);
     }
@@ -41,6 +53,20 @@ namespace oxen::quic
     Network::~Network()
     {
         close();
+    }
+
+    std::shared_ptr<Endpoint> Network::endpoint(const Address& local_addr)
+    {
+        if (auto [it, added] = endpoint_map.emplace(local_addr, nullptr); !added)
+        {
+            log::info(log_cat, "Endpoint already exists for listening address {}", local_addr);
+            return it->second;
+        }
+        else
+        {
+            it->second = std::move(std::make_shared<Endpoint>(*this, local_addr));
+            return it->second;
+        }
     }
 
     void Network::close()
@@ -52,15 +78,15 @@ namespace oxen::quic
 
         std::promise<void> p;
         auto f = p.get_future();
-        quic_manager->call([this, &p]() {
+
+        call([this, &p]() {
             try
             {
-                quic_manager->close_all();
+                close_all();
 
                 // Destroy all our uv_udp_ts (their shared_ptr destructors will call close, and
                 // actual freeing should happen in the next event loop iteration).
-                mapped_client_addrs.clear();
-                mapped_server_addrs.clear();
+                endpoint_map.clear();
 
                 if (loop_thread)
                 {
@@ -100,8 +126,7 @@ namespace oxen::quic
     {
         struct udp_data
         {
-            bool server = true;
-            std::shared_ptr<Handler> quic_manager;
+            Endpoint& ep;
             char buf[
 #if !defined(OXEN_LIBQUIC_UDP_NO_RECVMMSG) && (defined(__linux__) || defined(__FreeBSD__))
                     max_bufsize * 8
@@ -137,35 +162,20 @@ namespace oxen::quic
                 pkt.path.remote = addr;
 
                 auto& data = *static_cast<udp_data*>(handle->data);
-                auto& quic_manager = *data.quic_manager;
+                auto& endpoint = data.ep;
 
                 log::trace(
                         log_cat,
-                        "{} received packet from sender {} (size = {}) with message: \n{}",
-                        data.server ? "Server" : "Client",
+                        "Endpoint received packet from sender {} (size = {}) with message: \n{}",
                         pkt.path.remote,
                         pkt.data.size(),
                         buffer_printer{pkt.data});
-                log::trace(
-                        log_cat,
-                        "Searching {} mapping for local address {}",
-                        data.server ? "server" : "client",
-                        pkt.path.local);
 
-                Endpoint* endpoint;
-                if (data.server)
-                    endpoint = quic_manager.find_server(pkt.path.local);
-                else
-                    endpoint = quic_manager.find_client(pkt.path.local);
-
-                if (endpoint)
-                    endpoint->handle_packet(pkt);
-                else
-                    log::warning(log_cat, "{} packet handling unsuccessful", data.server ? "Server" : "Client");
+                endpoint.handle_packet(pkt);
             }
             else if (nread == 0)
             {
-                // This is libuv telling us its done with the recvmmsg batch
+                // This is libuv telling us its done with the recvmmsg batch (libuv sux)
             }
             else
             {
@@ -174,7 +184,7 @@ namespace oxen::quic
         }
     }  // namespace
 
-    std::shared_ptr<uv_udp_t> Network::start_udp_handle(uv_loop_t* loop, bool server, const Address& bind)
+    std::shared_ptr<uv_udp_t> Network::start_udp_handle(uv_loop_t* loop, const Address& bind, Endpoint& ep)
     {
         log::info(log_cat, "Starting new UDP handle on {}", bind);
         std::shared_ptr<uv_udp_t> udp{new uv_udp_t{}, [](uv_udp_t* udp) {
@@ -198,29 +208,92 @@ namespace oxen::quic
                 0
 #endif
         );
-        udp->data = new udp_data{server, quic_manager};
+
+        udp->data = new udp_data{ep};
         // binding is done here rather than after returning, so an already bound
         // uv_udp_t isn't bound to the same address twice
         int rv = uv_udp_bind(udp.get(), bind, 0);
+
         if (rv != 0)
             throw std::runtime_error{"Failed to bind UDP handle: " + std::string{uv_strerror(rv)}};
+
         rv = uv_udp_recv_start(udp.get(), recv_alloc, recv_callback);
+
         if (rv != 0)
             throw std::runtime_error{"Failed to start listening on UDP handle: " + std::string{uv_strerror(rv)}};
+
         return udp;
     }
 
-    std::shared_ptr<uv_udp_t> Network::handle_mapping(bool server, const Address& local)
+    std::shared_ptr<uv_udp_t> Network::map_udp_handle(const Address& local, Endpoint& ep)
     {
-        auto& udp = (server ? mapped_server_addrs : mapped_client_addrs)[local];
+        if (auto itr = handle_map.find(const_cast<Address&>(local)); itr != handle_map.end())
+            return itr->second;
 
-        if (!udp)
-        {
-            log::trace(log_cat, "Creating dedicated {} uv_udp_t on {}...", server ? "server" : "client", local);
-            udp = start_udp_handle(quic_manager->loop()->raw(), server, local);
-        }
+        log::trace(log_cat, "Creating dedicated uv_udp_t handle listening on {}...", local);
+
+        auto udp = start_udp_handle(loop()->raw(), local, ep);
+        handle_map[const_cast<Address&>(local)] = udp;
 
         return udp;
+    }
+
+    std::shared_ptr<uvw::loop> Network::loop()
+    {
+        return (ev_loop) ? ev_loop : nullptr;
+    }
+
+    bool Network::in_event_loop() const
+    {
+        return std::this_thread::get_id() == loop_thread_id;
+    }
+
+    // NOTE (Tom): when closing, when to stop accepting new jobs and stop/close async handle?
+    void Network::call_soon(std::function<void(void)> f, source_location src)
+    {
+        loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
+
+        std::lock_guard<std::mutex> lock{job_queue_mutex};
+
+        job_queue.emplace(std::move(f), std::move(src));
+
+        log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
+
+        job_waker->send();
+    }
+
+    void Network::process_job_queue()
+    {
+        log::trace(log_cat, "Event loop processing job queue");
+        assert(in_event_loop());
+
+        decltype(job_queue) swapped_queue;
+
+        {
+            std::lock_guard<std::mutex> lock{job_queue_mutex};
+            job_queue.swap(swapped_queue);
+        }
+
+        while (not swapped_queue.empty())
+        {
+            auto job = swapped_queue.front();
+            swapped_queue.pop();
+            const auto& src = job.second;
+            loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+            job.first();
+        }
+    }
+
+    // TODO (Tom): for graceful shutdown, how best to wait until clients and servers have properly disconnected
+    void Network::close_all()
+    {
+        call([this]() {
+            if (!endpoint_map.empty())
+            {
+                for (const auto& ep : endpoint_map)
+                    ep.second->close_conns();
+            }
+        });
     }
 
 }  // namespace oxen::quic

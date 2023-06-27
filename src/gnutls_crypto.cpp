@@ -8,11 +8,9 @@ extern "C"
 
 #include <stdexcept>
 
-#include "client.hpp"
 #include "connection.hpp"
 #include "context.hpp"
 #include "endpoint.hpp"
-#include "server.hpp"
 
 namespace oxen::quic
 {
@@ -27,7 +25,7 @@ namespace oxen::quic
         {
             const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
             const auto& conn = static_cast<Connection*>(conn_ref->user_data);
-            const GNUTLSSession* tls_session = dynamic_cast<GNUTLSSession*>(conn->tls_session.get());
+            const GNUTLSSession* tls_session = conn->get_session();
             assert(tls_session);
 
             return tls_session->do_tls_callback(session, htype, when, incoming, msg);
@@ -109,8 +107,9 @@ namespace oxen::quic
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         if (auto rv = gnutls_init(&session, is_client ? GNUTLS_CLIENT : GNUTLS_SERVER); rv < 0)
         {
-            log::warning(log_cat, "Server gnutls_init failed: {}", gnutls_strerror(rv));
-            throw std::runtime_error("Server gnutls_init failed");
+            auto s = (is_client) ? "Client"s : "Server"s;
+            log::warning(log_cat, "{} gnutls_init failed: {}", s, gnutls_strerror(rv));
+            throw std::runtime_error("{} gnutls_init failed"_format(s));
         }
 
         if (auto rv = gnutls_set_default_priority(session); rv < 0)

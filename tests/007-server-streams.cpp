@@ -71,7 +71,7 @@ namespace oxen::quic::test
             log::trace(log_cat, "Server sending stream message with extracted stream");
             server_extracted_stream->send(response);
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            auto strs = server->get_conn_addrs();
+            auto strs = server->get_inbound_conns();
             auto server_stream = server->open_stream(strs.front().first);
             log::trace(log_cat, "Server sending stream message with native stream");
             server_stream->send(msg);

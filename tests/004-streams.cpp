@@ -66,7 +66,7 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(100ms);
 
-        auto conn = client->get_conn(client->context->conn_id);
+        auto conn = client->get_conn_ptr(client->context->conn_id);
 
         REQUIRE(conn->pending_streams.size() == 1);
         test_net.close();

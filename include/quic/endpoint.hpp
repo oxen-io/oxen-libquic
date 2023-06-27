@@ -17,56 +17,120 @@ extern "C"
 #include <queue>
 #include <random>
 #include <string>
-#include <unordered_map>
 #include <uvw.hpp>
 
 #include "connection.hpp"
 #include "context.hpp"
+#include "network.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    class Connection;
-    class Handler;
-
-    class Endpoint
+    class Endpoint : std::enable_shared_from_this<Endpoint>
     {
+        friend class Network;
         friend class Connection;
+        friend class Stream;
+
+      private:
+        const Address local;
+        std::shared_ptr<uvw::timer_handle> expiry_timer;
+        std::shared_ptr<uv_udp_t> handle;
+        config_t user_config{};
+        bool accepting_inbound{false};
+        Network& net;
+
+        Connection* get_conn_ptr(ConnectionID ID);      // query by conn ID
 
       public:
-        explicit Endpoint(std::shared_ptr<Handler>& quic_manager);
-        virtual ~Endpoint() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); }
+        explicit Endpoint(Network& n, const Address& listen_addr);
 
-        std::shared_ptr<Handler> handler;
+        template <typename... Opt>
+        bool listen(Opt&&... opts)
+        {
+            std::promise<bool> p;
+            auto f = p.get_future();
+
+            net.call([&opts..., &p, this]() mutable {
+                try
+                {
+                    // initialize client context and client tls context simultaneously
+                    inbound_ctx = std::make_shared<InboundContext>(std::forward<Opt>(opts)...);
+                    accepting_inbound = true;
+
+                    log::debug(log_cat, "Inbound context ready for incoming connections");
+
+                    p.set_value(true);
+                }
+                catch (...)
+                {
+                    p.set_exception(std::current_exception());
+                }
+            });
+
+            return f.get();
+        }
+
+        // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
+        template <typename... Opt>
+        std::shared_ptr<connection_interface> connect(const Address& remote, Opt&&... opts)
+        {
+            std::promise<std::shared_ptr<Connection>> p;
+            auto f = p.get_future();
+
+            net.call([&opts..., &p, this, raddr = remote]() mutable {
+                try
+                {
+                    // initialize client context and client tls context simultaneously
+                    outbound_ctx = std::make_shared<OutboundContext>(std::forward<Opt>(opts)...);
+
+                    if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
+                    {
+                        itr->second = std::move(Connection::make_conn(
+                                *this,
+                                itr->first,
+                                ConnectionID::random(),
+                                Path{local, raddr},
+                                handle,
+                                outbound_ctx->tls_creds,
+                                user_config,
+                                Direction::OUTBOUND));
+
+                        p.set_value(itr->second);
+                    }
+                    else
+                        p.set_value(nullptr);
+                }
+                catch (...)
+                {
+                    p.set_exception(std::current_exception());
+                }
+            });
+
+            return f.get();
+        };
 
         std::shared_ptr<uvw::loop> get_loop();
 
+        // query a list of all active inbound and outbound connections paired with a conn_interface
+        std::list<std::pair<ConnectionID, std::shared_ptr<connection_interface>>> get_all_conns(std::optional<Direction> d = std::nullopt);
+
         void handle_packet(Packet& pkt);
+
+      protected:
+        std::shared_ptr<ContextBase> outbound_ctx = nullptr;
+        std::shared_ptr<ContextBase> inbound_ctx = nullptr;
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
         void delete_connection(const ConnectionID& cid);
 
-        Connection* get_conn(ConnectionID ID);
-        Connection* get_conn(const Address& addr);
-
-        void call_async_all(async_callback_t async_cb);
-
-        std::list<std::pair<ConnectionID, Address>> get_conn_addrs();
-
-        void close_conns();
-
-        virtual std::shared_ptr<uv_udp_t> get_handle(Address& addr) = 0;
-
-        virtual std::shared_ptr<uv_udp_t> get_handle(Path& p) = 0;
-
-      protected:
-        std::shared_ptr<uvw::timer_handle> expiry_timer;
+        void close_conns(std::optional<Direction> d = std::nullopt);
 
         // Data structures used to keep track of various types of connections
         //
         // conns:
-        //      When a client establishes a new connection, it provides its own source CID (scid)
+        //      When an establishes a new connection, it provides its own source CID (scid)
         //      and destination CID (dcid), which it sends to the server. The primary Connection
         //      instance is stored as a shared_ptr indexd by scid
         //          dcid is entirely random string of <=160 bits
@@ -87,8 +151,8 @@ namespace oxen::quic
         //      a short period of time allowing any lagging packets to be caught
         //
         //      They are indexed by connection ID, storing the removal time as a uint64_t value
-        //
-        std::unordered_map<ConnectionID, std::unique_ptr<Connection>> conns;
+        std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
+
         std::queue<std::pair<ConnectionID, uint64_t>> draining;
 
         std::optional<ConnectionID> handle_initial_packet(Packet& pkt);
@@ -99,37 +163,14 @@ namespace oxen::quic
 
         io_result send_packets(Path& p, char* buf, size_t* bufsize, size_t& n_pkts);
         io_result send_packet_libuv(Path& p, const char* buf, size_t bufsize, std::function<void()> after_sent = nullptr);
-
-        io_result send_packet(Path& p, bstring_view data);
+        io_result send_packet(const Path& p, bstring_view data);
 
         void send_version_negotiation(const ngtcp2_version_cid& vid, Path& p);
 
         void check_timeouts();
 
-        // Accepts new connection, returning either a ptr to the Connection
-        // object or nullptr if error. Virtual function returns nothing --
-        // overrided by Client and Server classes
-        virtual Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid) = 0;
+        Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid);
 
-        // NOTE: this may not be necessary for a generalizable quic library,
-        //      as it is a lokinet-specific implementation. However, it may be
-        //      useful in the future to be able to add our own headers to quic
-        //      packets for whatever purpose
-        //
-        // Writes packet header to the beginning of this.buf; this header is
-        // prepended to quic packets to handle quic server routing, consists of:
-        // - type [1 byte]: 1 for client->server packets; 2 for server->client packets
-        //      (other values reserved)
-        // - port [2 bytes, network order]: client pseudoport (i.e. either a source or
-        //      destination port depending on type)
-        // - ecn value [1 byte]: provided by ngtcp2 (Only the lower 2 bits are actually used).
-        //
-        // \param psuedo_port - the remote's pseudo-port (will be 0 if the remote is a
-        //      server, > 0 for a client remote)
-        // \param ecn - the ecn value from ngtcp2
-        //
-        // Returns the number of bytes written to buf
-        virtual size_t write_packet_header(uint16_t pseudo_port, uint8_t ecn) { return 0; }
     };
 
 }  // namespace oxen::quic

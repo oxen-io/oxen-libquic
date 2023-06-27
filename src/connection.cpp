@@ -19,11 +19,8 @@
 #include <random>
 #include <stdexcept>
 
-#include "client.hpp"
 #include "endpoint.hpp"
-#include "handler.hpp"
 #include "internal.hpp"
-#include "server.hpp"
 #include "stream.hpp"
 
 namespace oxen::quic
@@ -170,22 +167,14 @@ namespace oxen::quic
         return 0;
     }
 
-    Server* Connection::server()
+    Endpoint* Connection::endpoint()
     {
-        return dynamic_cast<Server*>(&endpoint);
-    }
-    const Server* Connection::server() const
-    {
-        return dynamic_cast<const Server*>(&endpoint);
+        return dynamic_cast<Endpoint*>(&_endpoint);
     }
 
-    Client* Connection::client()
+    const Endpoint* Connection::endpoint() const
     {
-        return dynamic_cast<Client*>(&endpoint);
-    }
-    const Client* Connection::client() const
-    {
-        return dynamic_cast<const Client*>(&endpoint);
+        return dynamic_cast<const Endpoint*>(&_endpoint);
     }
 
     void Connection::io_ready()
@@ -222,7 +211,7 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
-        auto stream = std::make_shared<Stream>(*this, std::move(data_cb), std::move(close_cb));
+        auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
         {
@@ -292,8 +281,8 @@ namespace oxen::quic
 
         sent_counter += n_packets;
 
-        auto rv =
-                endpoint.send_packets(path, reinterpret_cast<char*>(send_buffer.data()), send_buffer_size.data(), n_packets);
+        auto rv = _endpoint.send_packets(
+                _path, reinterpret_cast<char*>(send_buffer.data()), send_buffer_size.data(), n_packets);
 
         if (rv.blocked())
         {
@@ -315,7 +304,7 @@ namespace oxen::quic
                         n_packets = 0;
                         on_io_ready();
                     };
-                endpoint.send_packet_libuv(path, buf, send_buffer_size[i], std::move(callback));
+                _endpoint.send_packet_libuv(_path, buf, send_buffer_size[i], std::move(callback));
                 buf += send_buffer_size[i];
             }
             return false;
@@ -423,7 +412,7 @@ namespace oxen::quic
             ngtcp2_ssize ndatalen;
             auto nwrite = ngtcp2_conn_writev_stream(
                     conn.get(),
-                    path,
+                    _path,
                     &pkt_info,
                     buf_pos,
                     NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE,
@@ -566,37 +555,23 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, id);
+        auto stream = std::make_shared<Stream>(*this, _endpoint, id);
         stream->set_ready();
 
         stream->stream_id = id;
         uint64_t rv{0};
 
-        auto srv = stream->conn.server();
+        auto ep = stream->conn.endpoint();
 
-        if (srv)
+        if (ep)
         {
-            log::debug(log_cat, "Server creating stream to match remote");
-            stream->data_callback = srv->context->stream_data_cb;
+            log::debug(log_cat, "Local endpoint creating stream to match remote");
+            auto& ctx = (dir == Direction::INBOUND) ? _endpoint.inbound_ctx : _endpoint.outbound_ctx;
 
-            if (srv->context->stream_open_cb)
-                rv = srv->context->stream_open_cb(*stream);
-        }
-        else
-        {
-            auto client = stream->conn.client();
+            stream->data_callback = ctx->stream_data_cb;
 
-            if (!client)
-            {
-                log::warning(log_cat, "Error: Local endpoint resolved as neither server nor client; failed to open stream");
-                return -1;
-            }
-
-            log::debug(log_cat, "Client creating stream to match remote");
-            stream->data_callback = client->context->stream_data_cb;
-
-            if (client->context->stream_open_cb)
-                rv = client->context->stream_open_cb(*stream);
+            if (ctx->stream_open_cb)
+                rv = ctx->stream_open_cb(*stream);
         }
 
         if (rv != 0)
@@ -724,7 +699,7 @@ namespace oxen::quic
 
     int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
     {
-        auto loop = quic_manager->loop();
+        auto loop = _endpoint.get_loop();
         io_trigger = loop->resource<uvw::async_handle>();
         io_trigger->on<uvw::async_event>([this](auto&, auto&) { on_io_ready(); });
 
@@ -733,7 +708,7 @@ namespace oxen::quic
             if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
             {
                 log::warning(log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                endpoint.close_connection(*this, rv);
+                _endpoint.close_connection(*this, rv);
             }
             else
             {
@@ -793,6 +768,89 @@ namespace oxen::quic
         return 0;
     }
 
+    Connection::Connection(
+            Endpoint& ep,
+            const ConnectionID& scid,
+            const ConnectionID& dcid,
+            const Path& path,
+            std::shared_ptr<uv_udp_t> handle,
+            std::shared_ptr<TLSCreds> creds,
+            config_t u_config,
+            Direction dir,
+            ngtcp2_pkt_hd* hdr) :
+            _endpoint{ep},
+            _source_cid{scid},
+            _dest_cid{dcid},
+            _path{path},
+            _local{ep.local},
+            _remote{path.remote},
+            udp_handle{handle},
+            tls_creds{creds},
+            user_config{u_config},
+            dir{dir}
+    {
+        const auto outbound = (dir == Direction::OUTBOUND);
+        const auto d_str = outbound ? "outbound"s : "inbound"s;
+        log::trace(log_cat, "Creating new {} connection object", d_str);
+
+        ngtcp2_settings settings;
+        ngtcp2_transport_params params;
+        ngtcp2_callbacks callbacks{};
+        ngtcp2_conn* connptr;
+        int rv = 0;
+
+        if (rv = init(settings, params, callbacks); rv != 0)
+            log::critical(log_cat, "Error: {} connection not created", d_str);
+
+        if (outbound)
+        {
+            callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
+            callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
+
+            rv = ngtcp2_conn_client_new(
+                    &connptr,
+                    &_dest_cid,
+                    &_source_cid,
+                    path,
+                    NGTCP2_PROTO_VER_V1,
+                    &callbacks,
+                    &settings,
+                    &params,
+                    nullptr,
+                    this);
+        }
+        else
+        {
+            callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
+            params.original_dcid = ngtcp2_cid{hdr->dcid};
+            params.original_dcid_present = 1;
+            settings.token = hdr->token;
+
+            rv = ngtcp2_conn_server_new(
+                    &connptr,
+                    &_dest_cid,
+                    &_source_cid,
+                    path,
+                    NGTCP2_PROTO_VER_V1,
+                    &callbacks,
+                    &settings,
+                    &params,
+                    nullptr,
+                    this);
+        }
+
+        conn.reset(connptr);
+
+        setup_tls_session(outbound);
+
+        if (rv != 0)
+        {
+            throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
+        }
+
+        log::info(log_cat, "Successfully created new {} connection object", d_str);
+    }
+
     void Connection::setup_tls_session(bool is_client)
     {
         ngtcp2_crypto_conn_ref conn_ref;
@@ -806,104 +864,6 @@ namespace oxen::quic
         ngtcp2_conn_set_tls_native_handle(conn.get(), tls_session->get_session());
     }
 
-    // client conn
-    Connection::Connection(
-            Client& client,
-            std::shared_ptr<Handler> ep,
-            const ConnectionID& scid,
-            const Path& path,
-            std::shared_ptr<uv_udp_t> handle,
-            config_t u_config) :
-            endpoint{client},
-            quic_manager{ep},
-            source_cid{scid},
-            dest_cid{ConnectionID::random()},
-            path{path},
-            local{client.context->local},
-            remote{client.context->remote},
-            udp_handle{handle},
-            tls_creds{client.context->tls_creds},
-            user_config{u_config}
-    {
-        log::trace(log_cat, "Creating new client connection object");
-
-        ngtcp2_settings settings;
-        ngtcp2_transport_params params;
-        ngtcp2_callbacks callbacks{};
-        ngtcp2_conn* connptr;
-
-        if (auto rv = init(settings, params, callbacks); rv != 0)
-            log::warning(log_cat, "Error: Client-based connection not created");
-
-        callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
-        callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
-
-        int rv = ngtcp2_conn_client_new(
-                &connptr, &dest_cid, &source_cid, path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr, this);
-
-        conn.reset(connptr);
-
-        setup_tls_session(true);
-
-        if (rv != 0)
-        {
-            throw std::runtime_error{"Failed to initialize client connection to server: "s + ngtcp2_strerror(rv)};
-        }
-
-        log::info(log_cat, "Successfully created new client connection object");
-    }
-
-    // server conn
-    Connection::Connection(
-            Server& server,
-            std::shared_ptr<Handler> ep,
-            const ConnectionID& cid,
-            ngtcp2_pkt_hd& hdr,
-            const Path& path,
-            std::shared_ptr<TLSCreds> creds,
-            config_t u_config) :
-            endpoint{server},
-            quic_manager{ep},
-            source_cid{cid},
-            dest_cid{hdr.scid},
-            path{path},
-            local{server.context->local},
-            remote{path.remote},
-            tls_creds{std::move(creds)},
-            user_config{u_config}
-    {
-        log::trace(log_cat, "Creating new server connection object");
-
-        ngtcp2_settings settings;
-        ngtcp2_transport_params params;
-        ngtcp2_callbacks callbacks{};
-        ngtcp2_conn* connptr;
-
-        if (auto rv = init(settings, params, callbacks); rv != 0)
-            log::warning(log_cat, "Error: Server-based connection not created");
-
-        callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
-
-        params.original_dcid = hdr.dcid;
-        params.original_dcid_present = 1;
-
-        settings.token = hdr.token;
-
-        int rv = ngtcp2_conn_server_new(
-                &connptr, &dest_cid, &source_cid, path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr, this);
-
-        conn.reset(connptr);
-
-        setup_tls_session(false);
-
-        if (rv != 0)
-        {
-            throw std::runtime_error{"Failed to initialize server connection to client: "s + ngtcp2_strerror(rv)};
-        }
-
-        log::info(log_cat, "Successfully created new server connection object");
-    }
-
     Connection::~Connection()
     {
         if (io_trigger)
@@ -914,5 +874,36 @@ namespace oxen::quic
             retransmit_timer->close();
         }
     }
+
+    std::shared_ptr<Connection> Connection::make_conn(
+            Endpoint& ep,
+            const ConnectionID& scid,
+            const ConnectionID& dcid,
+            const Path& path,
+            std::shared_ptr<uv_udp_t> handle,
+            std::shared_ptr<TLSCreds> creds,
+            config_t u_config,
+            Direction dir,
+            ngtcp2_pkt_hd* hdr)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        
+        std::shared_ptr<Connection> conn =
+                std::make_shared<Connection>(ep, scid, dcid, path, handle, std::move(creds), u_config, dir, hdr);
+
+        conn->io_ready();
+
+        return conn;
+    }
+
+    // std::shared_ptr<Stream> connection_interface::get_new_stream(
+    //         stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    // {
+    //     if (auto conn_ptr = conn.lock())
+    //         return conn_ptr->_get_new_stream(std::move(data_cb), std::move(close_cb));
+    //     else
+    //         log::critical(log_cat, "Connection interface (SCID: {}) failed to create stream", scid);
+    //     return nullptr;
+    // }
 
 }  // namespace oxen::quic
