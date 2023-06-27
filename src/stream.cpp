@@ -32,8 +32,6 @@ namespace oxen::quic
         log::trace(log_cat, "Stream object created");
     }
 
-    Stream::Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
-
     Stream::~Stream()
     {
         log::debug(log_cat, "Destroying stream {}", stream_id);

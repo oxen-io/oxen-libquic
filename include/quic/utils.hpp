@@ -12,9 +12,10 @@ extern "C"
 #include <sys/socket.h>
 }
 
+#include <event2/event.h>
+#include <fmt/core.h>
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
-#include <fmt/core.h>
 
 #include <algorithm>
 #include <cassert>
@@ -31,7 +32,6 @@ extern "C"
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <uvw.hpp>
 
 /*
  * Example 1: Handshake with www.google.com
@@ -93,14 +93,9 @@ namespace oxen::quic
         return x * 1024 * 1_Gi;
     }
 
-    // Callbacks for async calls
-    using async_callback_t = std::function<void(const uvw::async_event& event, uvw::async_handle& udp)>;
     // Callbacks for opening quic connections and closing tunnels
     using open_callback = std::function<void(bool success, void* user_data)>;
     using close_callback = std::function<void(int rv, void* user_data)>;
-    // Callbacks for ev timer functionality
-    using read_callback = std::function<void(uvw::loop* loop, uvw::timer_event* ev, int revents)>;
-    using timer_callback = std::function<void(int nwrite, void* user_data)>;
     // Callbacks for client/server TLS connectivity and authentication
     using session_tls_callback_t = std::function<int(
             gnutls_session_t session,
@@ -118,8 +113,15 @@ namespace oxen::quic
 
     inline constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
 
-    // Maximum number of packets we can send in one batch when using sendmmsg/GSO
+    // Maximum number of packets we can send in one batch when using sendmmsg/GSO, and maximum we
+    // receive in one batch when using recvmmsg.
     inline constexpr size_t DATAGRAM_BATCH_SIZE = 24;
+
+    // Maximum number of packets we will receive at once before returning control to the event loop
+    // to re-call the packet receiver if there are additional packets.  (This limit is to prevent
+    // loop starvation in the face of heavy incoming packets.).  Note that When using recvmmsg then
+    // we can overrun up to the next integer multiple of DATAGRAM_BATCH_SIZE.
+    inline constexpr size_t MAX_RECEIVE_PER_LOOP = 64;
 
     inline constexpr std::byte CLIENT_TO_SERVER{1};
     inline constexpr std::byte SERVER_TO_CLIENT{2};
@@ -135,8 +137,8 @@ namespace oxen::quic
 
     // Max theoretical size of a UDP packet is 2^16-1 minus IP/UDP header overhead
     inline constexpr size_t max_bufsize = 64_ki;
-    // Max size of a UDP packet that we'll send
-    inline constexpr size_t max_pkt_size = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;
+    // Max payload size of a UDP packet that we'll send
+    inline constexpr size_t max_payload_size = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;
 
     // Remote TCP connection was established and is now accepting stream data; the client is not
     // allowed to send any other data down the stream until this comes back (any data sent down the
@@ -186,7 +188,7 @@ namespace oxen::quic
     void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
 
     std::chrono::steady_clock::time_point get_time();
-    uint64_t get_timestamp();
+    std::chrono::nanoseconds get_timestamp();
 
     std::string str_tolower(std::string s);
 
@@ -229,11 +231,7 @@ namespace oxen::quic
     template <>
     constexpr inline bool IsToStringFormattable<ConnectionID> = true;
 
-    // Wrapper for address types with helper functionalities, operators, etc. By inheriting from
-    // uvw::Addr, we are able to use string/uint16_t representations of host/port through the API
-    // interface and in the constructors. The string/uint16_t representation is stored in a two
-    // other formats for ease of use with ngtcp2: sockaddr_in and ngtcp2_addr. ngtcp2_addr store
-    // a member of type ngtcp2_sockaddr, which is itself a typedef of sockaddr
+    // Holds an address, with a ngtcp2_addr held for easier passing into ngtcp2 functions.
     struct Address
     {
       private:
@@ -248,7 +246,11 @@ namespace oxen::quic
 
       public:
         // Default constructor yields [::]:0
-        Address() { _addr.addrlen = sizeof(sockaddr_in6); }
+        Address()
+        {
+            _sock_addr.ss_family = AF_INET6;
+            _addr.addrlen = sizeof(sockaddr_in6);
+        }
 
         Address(const sockaddr* s, socklen_t n)
         {
@@ -309,23 +311,13 @@ namespace oxen::quic
             return reinterpret_cast<const sockaddr_in6&>(_sock_addr);
         }
 
-        inline uint16_t port_horder() const
-        {
-            assert(is_ipv4() || is_ipv6());
-            return is_ipv4() ? ntohs(reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port)
-                             : reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port;
-        }
-
         inline uint16_t port() const
         {
             assert(is_ipv4() || is_ipv6());
 
             return oxenc::big_to_host(
-                is_ipv4() ? 
-                    reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port : 
-                    reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port
-            );
-
+                    is_ipv4() ? reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port
+                              : reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port);
         }
 
         // template code to implicitly convert to sockaddr*, sockaddr_in*, sockaddr_in6* so that
@@ -334,6 +326,8 @@ namespace oxen::quic
         //
         // Because this is a deducated templated type, dangerous implicit conversions from the
         // pointer to other things (like bool) won't occur.
+        //
+        // If the given pointer is mutated you *must* call update_socklen() afterwards.
         template <
                 typename T,
                 std::enable_if_t<
@@ -382,6 +376,15 @@ namespace oxen::quic
 
         // Returns the size of the sockaddr
         socklen_t socklen() const { return _addr.addrlen; }
+
+        // Returns a pointer to the sockaddr size; typically you want this when updating the address
+        // via a function like `getsockname`.
+        socklen_t* socklen_ptr() { return &_addr.addrlen; }
+
+        // Updates the socklen of the sockaddr; this must be called if directly modifying the
+        // address via one of the sockaddr* pointer operators.  (It is not needed when assigning a
+        // sockaddr pointer).
+        void update_socklen(socklen_t len) { _addr.addrlen = len; }
 
         // Convenience method for debugging, etc.  This is usually called implicitly by passing the
         // Address to fmt to format it.
@@ -432,26 +435,12 @@ namespace oxen::quic
     template <>
     inline constexpr bool IsToStringFormattable<Path> = true;
 
-    // Simple struct wrapping a packet and its corresponding information
-    struct Packet
-    {
-        Path path;
-        bstring_view data;
-        ngtcp2_pkt_info pkt_info;
-    };
-
-    struct libuv_error_code_t final
-    {};
     struct ngtcp2_error_code_t final
     {};
 
-    // Tag values to pass into the constructor to indicate a libuv or ngtcp2 error code.
-    //
-    // (On unixy systems, libuv error codes are the negatives of errno codes, but on Windows they
-    // are arbitrary values, so they have to be handled differently).
+    // Tag value to pass into the constructor to indicate an ngtcp2 error code.
     //
     // (For ngtcp2, error codes are arbitrary negative values without any connection to errno).
-    static inline constexpr libuv_error_code_t libuv_error_code{};
     static inline constexpr ngtcp2_error_code_t ngtcp2_error_code{};
 
     // Struct returned as a result of send_packet that either is implicitly
@@ -465,22 +454,16 @@ namespace oxen::quic
         // Constructs an io_result with an `errno` value.
         explicit io_result(int errno_val) : error_code{errno_val} {}
 
-        // Constructs an io_result with a libuv error value.
-        io_result(int err, libuv_error_code_t) : error_code{err}, is_libuv{true} {}
-
         // Constructs an io_result with an ngtcp2 error value.
-        io_result(int err, ngtcp2_error_code_t) : error_code{err}, is_libuv{true} {}
-
-        // Same as the libuv error code constructor
-        static io_result libuv(int err) { return io_result{err, libuv_error_code}; }
+        io_result(int err, ngtcp2_error_code_t) : error_code{err}, is_ngtcp2{true} {}
 
         // Same as the ngtcp2 error code constructor
         static io_result ngtcp2(int err) { return io_result{err, ngtcp2_error_code}; }
 
         // The numeric error code
         int error_code{0};
-        // If true then `error_code` is a libuv/ngtcp2 error code, rather than an errno value.
-        bool is_libuv = false, is_ngtcp2 = false;
+        // If true then `error_code` is an ngtcp2 error code, rather than an errno value.
+        bool is_ngtcp2 = false;
         // Returns true if this indicates success, i.e. error code of 0
         bool success() const { return error_code == 0; }
         // Returns true if this indicates failure, i.e. error code not 0
@@ -488,8 +471,7 @@ namespace oxen::quic
         // returns true if error value indicates a failure to write without blocking
         bool blocked() const
         {
-            return is_libuv  ? error_code == UV_EAGAIN
-                 : is_ngtcp2 ? error_code == NGTCP2_ERR_STREAM_DATA_BLOCKED
+            return is_ngtcp2 ? error_code == NGTCP2_ERR_STREAM_DATA_BLOCKED
                              : (error_code == EAGAIN || error_code == EWOULDBLOCK);
         }
         // returns the error message string describing error_code
@@ -507,6 +489,16 @@ namespace oxen::quic
                 std::conditional_t<std::is_const_v<std::remove_pointer_t<decltype(c.data())>>, const uint8_t, uint8_t>;
         return reinterpret_cast<u8_sameconst_t*>(c.data());
     }
+
+    struct event_deleter final
+    {
+        void operator()(::event* e) const
+        {
+            if (e)
+                ::event_free(e);
+        }
+    };
+    using event_ptr = std::unique_ptr<::event, event_deleter>;
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type

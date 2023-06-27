@@ -6,6 +6,11 @@
 #include <quic/gnutls_crypto.hpp>
 #include <thread>
 
+extern "C"
+{
+#include <signal.h>
+}
+
 using namespace oxen::quic;
 
 bool run{true};

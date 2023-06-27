@@ -12,7 +12,6 @@ extern "C"
 #include <functional>
 #include <memory>
 #include <queue>
-#include <uvw.hpp>
 #include <variant>
 #include <vector>
 
@@ -33,7 +32,7 @@ namespace oxen::quic
                stream_data_callback_t data_cb = nullptr,
                stream_close_callback_t close_cb = nullptr,
                int64_t stream_id = -1);
-        Stream(Connection& conn, Endpoint& ep, int64_t stream_id);
+        Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
         ~Stream();
 
         stream_data_callback_t data_callback;

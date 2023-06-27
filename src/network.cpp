@@ -1,11 +1,14 @@
 #include "network.hpp"
 
+#include <event2/event.h>
+#include <event2/thread.h>
+
+#include <exception>
 #include <memory>
 #include <oxen/log.hpp>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
-#include <uvw.hpp>
 
 #include "connection.hpp"
 #include "context.hpp"
@@ -14,16 +17,36 @@
 
 namespace oxen::quic
 {
-    Network::Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id thread_id) :
-            ev_loop{loop_ptr}, loop_thread_id{thread_id}
+    static auto ev_cat = log::Cat("libevent");
+    static void setup_libevent_logging()
+    {
+        event_set_log_callback([](int severity, const char* msg) {
+            switch (severity)
+            {
+                case _EVENT_LOG_ERR:
+                    log::error(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_WARN:
+                    log::warning(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_MSG:
+                    log::info(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_DEBUG:
+                    log::debug(ev_cat, "{}", msg);
+                    break;
+            }
+            std::abort();
+        });
+    }
+
+    Network::Network(std::shared_ptr<event_base> loop_ptr, std::thread::id thread_id) :
+            ev_loop{std::move(loop_ptr)}, loop_thread_id{thread_id}
     {
         assert(ev_loop);
         log::trace(log_cat, "Beginning network context creation with pre-existing ev loop thread");
 
-        if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
-            throw std::runtime_error{"Failed to create job queue uvw async handle"};
-
-        job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
+        setup_job_waker();
 
         running.store(true);
     }
@@ -31,28 +54,67 @@ namespace oxen::quic
     Network::Network()
     {
         log::trace(log_cat, "Beginning network context creation with new ev loop thread");
-        ev_loop = uvw::loop::create();
 
-        loop_thread = std::make_unique<std::thread>([this]() {
-            while (not running)
-            {};
-            ev_loop->run();
-            log::debug(log_cat, "Event Loop `run` returned, thread finished");
+        if (static bool once = false; !once)
+        {
+            once = true;
+            setup_libevent_logging();
+
+            // Older versions of libevent do not like having this called multiple times
+            evthread_use_pthreads();
+        }
+
+        std::vector<std::string_view> ev_methods_avail;
+        for (const char** methods = event_get_supported_methods(); *methods != nullptr; methods++)
+            ev_methods_avail.push_back(*methods);
+        log::debug(
+                log_cat,
+                "Starting libevent {}; available backends: {}",
+                event_get_version(),
+                "{}"_format(fmt::join(ev_methods_avail, ", ")));
+
+        std::unique_ptr<event_config, decltype(&event_config_free)> ev_conf{event_config_new(), event_config_free};
+        event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_PRECISE_TIMER);
+        event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST);
+
+        ev_loop = std::shared_ptr<event_base>{event_base_new_with_config(ev_conf.get()), event_base_free};
+
+        log::info(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
+
+        setup_job_waker();
+
+        loop_thread.emplace([this]() mutable {
+            log::debug(log_cat, "Starting event loop run");
+            event_base_loop(ev_loop.get(), EVLOOP_NO_EXIT_ON_EMPTY);
+            log::debug(log_cat, "Event loop run returned, thread finished");
         });
-
         loop_thread_id = loop_thread->get_id();
 
-        if (job_waker = ev_loop->resource<uvw::async_handle>(); !job_waker)
-            throw std::runtime_error{"Failed to create job queue uvw async handle"};
-
-        job_waker->on<uvw::async_event>([this](const auto&, const auto&) { process_job_queue(); });
-
         running.store(true);
+        log::info(log_cat, "Network is started");
     }
 
     Network::~Network()
     {
-        close();
+        log::info(log_cat, "Shutting down network...");
+        close().get();
+        if (loop_thread)
+            loop_thread->join();
+        log::info(log_cat, "Network shutdown complete");
+    }
+
+    void Network::setup_job_waker()
+    {
+        job_waker.reset(event_new(
+                ev_loop.get(),
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self) {
+                    log::trace(log_cat, "processing job queue");
+                    static_cast<Network*>(self)->process_job_queue();
+                },
+                this));
+        assert(job_waker);
     }
 
     std::shared_ptr<Endpoint> Network::endpoint(const Address& local_addr)
@@ -69,175 +131,40 @@ namespace oxen::quic
         }
     }
 
-    void Network::close()
+    std::future<void> Network::close(bool graceful)
     {
+        auto prom = std::make_shared<std::promise<void>>();
+        auto fut = prom->get_future();
         if (not running.exchange(false))
-            return;
+        {
+            prom->set_value();
+            return fut;
+        }
 
-        log::info(log_cat, "Shutting down context...");
+        log::info(log_cat, "Shutting down Network...");
 
-        std::promise<void> p;
-        auto f = p.get_future();
+        call([this, prom, &graceful]() mutable {
+            // If we have no endpoints we can just shut down immediately
+            if (endpoint_map.empty() || !graceful)
+                return close_final(std::move(prom));
 
-        call([this, &p]() {
-            try
-            {
-                close_all();
-
-                // Destroy all our uv_udp_ts (their shared_ptr destructors will call close, and
-                // actual freeing should happen in the next event loop iteration).
-                endpoint_map.clear();
-
-                if (loop_thread)
-                {
-                    // this does not reset the ev_loop shared_ptr, but rather "reset"s the underlying
-                    // uvw::loop parent class uvw::emitter (unregisters all event listeners)
-                    ev_loop->reset();
-                    // FIXME: this walk breaks hard because uvw idiotically assumes without checking
-                    // that it owns all libuv types, so our uv_udp_t's (which we have to use because
-                    // uvw's udp_handle_t is completely broken when you turn RECVMMSG on) get mashed
-                    // and dereferenced into the wrong pointer type in this call:
-                    //
-                    // ev_loop->walk([](auto&& h) { h.close(); });
-                    ev_loop->stop();
-                }
-                p.set_value();
-            }
-            catch (...)
-            {
-                p.set_exception(std::current_exception());
-            }
+            // Otherwise we need to initiate closing
+            close_all(std::move(prom));
         });
-        f.get();
+
+        return fut;
+    }
+
+    void Network::close_final(std::shared_ptr<std::promise<void>> done)
+    {
+
+        endpoint_map.clear();
 
         if (loop_thread)
-        {
-            loop_thread->join();
-            loop_thread.reset();
-            ev_loop->close();
-        }
+            event_base_loopexit(ev_loop.get(), nullptr);
 
-        log::debug(log_cat, "Event loop shut down...");
-    }
-
-    namespace
-    {
-        struct udp_data
-        {
-            Endpoint& ep;
-            char buf[
-#if !defined(OXEN_LIBQUIC_UDP_NO_RECVMMSG) && (defined(__linux__) || defined(__FreeBSD__))
-                    max_bufsize * 8
-#else
-                    max_bufsize
-#endif
-            ];
-        };
-
-        extern "C" void recv_alloc(uv_handle_t* handle, size_t /*suggested_size*/, uv_buf_t* buf)
-        {
-            auto& data_buf = static_cast<udp_data*>(handle->data)->buf;
-            buf->base = data_buf;
-            buf->len = sizeof(data_buf);
-        }
-        // uvw's receive callback is completely broken w.r.t handling the RECVMMSG flag, so we do
-        // our own C callback on the raw handle.  These warts with uvw come up so often, perhaps we
-        // should just ditch uvw entirely?
-        extern "C" void recv_callback(
-                uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf_raw, const sockaddr* addr, unsigned flags)
-        {
-            if (nread > 0 || (nread == 0 && addr != nullptr))
-            {
-                Packet pkt{};
-                pkt.data = {reinterpret_cast<const std::byte*>(buf_raw->base), static_cast<size_t>(nread)};
-                sockaddr_storage local_s_store;
-                sockaddr* local_s = reinterpret_cast<sockaddr*>(&local_s_store);
-                int namelen = sizeof(local_s_store);
-                uv_udp_getsockname(handle, local_s, &namelen);
-                pkt.path.local = local_s;
-                assert(namelen == pkt.path.local.socklen());
-                pkt.path.remote = addr;
-
-                auto& data = *static_cast<udp_data*>(handle->data);
-                auto& endpoint = data.ep;
-
-                log::trace(
-                        log_cat,
-                        "Endpoint received packet from sender {} (size = {}) with message: \n{}",
-                        pkt.path.remote,
-                        pkt.data.size(),
-                        buffer_printer{pkt.data});
-
-                endpoint.handle_packet(pkt);
-            }
-            else if (nread == 0)
-            {
-                // This is libuv telling us its done with the recvmmsg batch (libuv sux)
-            }
-            else
-            {
-                log::warning(log_cat, "recv_callback error {}", nread);
-            }
-        }
-    }  // namespace
-
-    std::shared_ptr<uv_udp_t> Network::start_udp_handle(uv_loop_t* loop, const Address& bind, Endpoint& ep)
-    {
-        log::info(log_cat, "Starting new UDP handle on {}", bind);
-        std::shared_ptr<uv_udp_t> udp{new uv_udp_t{}, [](uv_udp_t* udp) {
-                                          auto* handle = reinterpret_cast<uv_handle_t*>(udp);
-                                          if (uv_is_active(handle))
-                                              uv_udp_recv_stop(udp);
-                                          uv_close(handle, [](uv_handle_t* handle) {
-                                              auto* udp = reinterpret_cast<uv_udp_t*>(handle);
-                                              if (udp->data != nullptr)
-                                                  delete static_cast<udp_data*>(udp->data);
-                                              delete udp;
-                                          });
-                                      }};
-
-        uv_udp_init_ex(
-                loop,
-                udp.get(),
-#if !defined(OXEN_LIBQUIC_UDP_NO_RECVMMSG) && (defined(__linux__) || defined(__FreeBSD__))
-                UV_UDP_RECVMMSG
-#else
-                0
-#endif
-        );
-
-        udp->data = new udp_data{ep};
-        // binding is done here rather than after returning, so an already bound
-        // uv_udp_t isn't bound to the same address twice
-        int rv = uv_udp_bind(udp.get(), bind, 0);
-
-        if (rv != 0)
-            throw std::runtime_error{"Failed to bind UDP handle: " + std::string{uv_strerror(rv)}};
-
-        rv = uv_udp_recv_start(udp.get(), recv_alloc, recv_callback);
-
-        if (rv != 0)
-            throw std::runtime_error{"Failed to start listening on UDP handle: " + std::string{uv_strerror(rv)}};
-
-        return udp;
-    }
-
-    std::shared_ptr<uv_udp_t> Network::map_udp_handle(const Address& local, Endpoint& ep)
-    {
-        if (auto itr = handle_map.find(const_cast<Address&>(local)); itr != handle_map.end())
-            return itr->second;
-
-        log::trace(log_cat, "Creating dedicated uv_udp_t handle listening on {}...", local);
-
-        auto udp = start_udp_handle(loop()->raw(), local, ep);
-        handle_map[const_cast<Address&>(local)] = udp;
-
-        return udp;
-    }
-
-    std::shared_ptr<uvw::loop> Network::loop()
-    {
-        return (ev_loop) ? ev_loop : nullptr;
+        if (done)
+            done->set_value();
     }
 
     bool Network::in_event_loop() const
@@ -249,14 +176,12 @@ namespace oxen::quic
     void Network::call_soon(std::function<void(void)> f, source_location src)
     {
         loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
-
-        std::lock_guard<std::mutex> lock{job_queue_mutex};
-
-        job_queue.emplace(std::move(f), std::move(src));
-
-        log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
-
-        job_waker->send();
+        {
+            std::lock_guard lock{job_queue_mutex};
+            job_queue.emplace(std::move(f), std::move(src));
+            log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
+        }
+        event_active(job_waker.get(), 0, 0);
     }
 
     void Network::process_job_queue()
@@ -282,14 +207,16 @@ namespace oxen::quic
     }
 
     // TODO (Tom): for graceful shutdown, how best to wait until clients and servers have properly disconnected
-    void Network::close_all()
+    void Network::close_all(std::shared_ptr<std::promise<void>> done)
     {
-        call([this]() {
-            if (!endpoint_map.empty())
-            {
-                for (const auto& ep : endpoint_map)
-                    ep.second->close_conns();
-            }
+        call([this, done = std::move(done)]() mutable {
+            for (const auto& ep : endpoint_map)
+                ep.second->close_conns();
+            // FIXME TODO
+            log::critical(
+                    log_cat,
+                    "FIXME: need to properly get a call to close_final() to happen here *after* shutdown is complete");
+            close_final(done);
         });
     }
 

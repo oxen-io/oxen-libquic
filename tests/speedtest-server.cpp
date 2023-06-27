@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
     };
 
     std::unordered_map<ConnectionID, std::map<int64_t, stream_info>> csd;
-    
+
     stream_data_callback_t stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.conn.scid()];
         auto it = sd.find(s.stream_id);

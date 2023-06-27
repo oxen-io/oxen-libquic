@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
     {
         return cli.exit(e);
     }
-    
+
     using RNG = std::mt19937_64;
 
     struct stream_data

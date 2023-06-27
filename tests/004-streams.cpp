@@ -70,10 +70,11 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(100ms);
 
-        auto conn = client_endpoint->get_conn_ptr(conn_interface->scid());
+        auto* conn = client_endpoint->get_conn(conn_interface->scid());
 
-        REQUIRE(conn->num_pending() == 1);
-        REQUIRE(data_check == 12);
+        REQUIRE(conn);
+        CHECK(conn->num_pending() == 1);
+        CHECK(data_check == 12);
 
         test_net.close();
     };

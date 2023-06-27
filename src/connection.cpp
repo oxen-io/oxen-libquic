@@ -7,8 +7,6 @@
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
-#include <uvw/async.h>
-#include <uvw/timer.h>
 
 #include <cassert>
 #include <chrono>
@@ -167,19 +165,9 @@ namespace oxen::quic
         return 0;
     }
 
-    Endpoint* Connection::endpoint()
-    {
-        return dynamic_cast<Endpoint*>(&_endpoint);
-    }
-
-    const Endpoint* Connection::endpoint() const
-    {
-        return dynamic_cast<const Endpoint*>(&_endpoint);
-    }
-
     void Connection::io_ready()
     {
-        io_trigger->send();
+        event_active(io_trigger.get(), 0, 0);
     }
 
     // note: this does not need to return anything, it is never called except in on_stream_available
@@ -211,11 +199,10 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
-        auto stream = std::make_shared<Stream>(
-                *this, 
-                _endpoint, 
-                (data_cb) ? std::move(data_cb) : (context->stream_data_cb) ? context->stream_data_cb : nullptr,
-                std::move(close_cb));
+        if (!data_cb)
+            data_cb = context->stream_data_cb;
+
+        auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
         {
@@ -236,6 +223,9 @@ namespace oxen::quic
 
     void Connection::call_closing()
     {
+        if (!on_closing)
+            return;
+
         log::trace(log_cat, "Calling Connection::on_closing for CID: {}", _source_cid);
         on_closing(*this);
         on_closing = nullptr;
@@ -243,7 +233,7 @@ namespace oxen::quic
 
     void Connection::on_io_ready()
     {
-        auto ts = get_timestamp();
+        auto ts = get_time();
         flush_streams(ts);
         schedule_retransmit(ts);
     }
@@ -292,36 +282,22 @@ namespace oxen::quic
 
         sent_counter += n_packets;
 
-        auto rv = _endpoint.send_packets(
-                _path, reinterpret_cast<char*>(send_buffer.data()), send_buffer_size.data(), n_packets);
+        auto rv = endpoint().send_packets(remote(), send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
         {
-#ifdef OXEN_LIBQUIC_UDP_LIBUV_QUEUING
-            assert(false);  // queuing mode should never give us a blocked status
-#endif
-            assert(n_packets > 0);  // n_packets will be updated to however many are left
-            log::warning(log_cat, "Error: Packet send blocked, queuing packets");
+            assert(n_packets > 0);  // n_packets, buf, bufsize now contain the unsent packets
+            log::debug(log_cat, "Packet send blocked; queuing re-send");
 
-            // libuv won't allow us to poll its socket, so instead we fire the packets into libuv's
-            // queued send and, when the last one is done, we resume sending packets again using our
-            // own approach.
-            auto* buf = reinterpret_cast<const char*>(send_buffer.data());
-            for (size_t i = 0; i < n_packets; i++)
-            {
-                std::function<void()> callback;
-                if (i == n_packets - 1)
-                    callback = [this] {
-                        n_packets = 0;
-                        on_io_ready();
-                    };
-                _endpoint.send_packet_libuv(_path, buf, send_buffer_size[i], std::move(callback));
-                buf += send_buffer_size[i];
-            }
+            endpoint().get_socket()->when_writeable([this] {
+                if (send(nullptr))
+                    on_io_ready();  // Send finished so we can start our timers up again
+                // Otherwise we're still blocked (or an error occured)
+            });
+
             return false;
         }
-
-        if (rv.failure())
+        else if (rv.failure())
         {
             log::warning(log_cat, "Error while trying to send packet: {}", rv.str());
             log::critical(log_cat, "FIXME: close connection here?");  // FIXME TODO
@@ -338,18 +314,20 @@ namespace oxen::quic
     // is predictable, we just want to shuffle it.
     thread_local std::mt19937 stream_start_rng{};
 
-    void Connection::flush_streams(uint64_t ts)
+    void Connection::flush_streams(std::chrono::steady_clock::time_point tp)
     {
         // Maximum number of stream data packets to send out at once; if we reach this then we'll
         // schedule another event loop call of ourselves (so that we don't starve the loop)
         const auto max_udp_payload_size = ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get());
         const auto max_stream_packets = ngtcp2_conn_get_send_quantum(conn.get()) / max_udp_payload_size;
 
+        auto ts = static_cast<uint64_t>(std::chrono::nanoseconds{tp.time_since_epoch()}.count());
+
         if (n_packets > 0)
         {
             // We're blocked from a previous call, and haven't finished sending all our packets yet
-            // so there's nothing to do (when the last pending packet is away libuv will trigger us
-            // again).
+            // so there's nothing to do for now (once the packets are fully sent we'll get called
+            // again so that we can keep working on sending).
             log::trace(log_cat, "Skipping this flush_streams call; we still have {} queued packets", n_packets);
             return;
         }
@@ -385,7 +363,7 @@ namespace oxen::quic
         auto streams_end_it = std::prev(strs.end());
 
         ngtcp2_pkt_info pkt_info{};
-        auto* buf_pos = send_buffer.data();
+        auto* buf_pos = reinterpret_cast<uint8_t*>(send_buffer.data());
         pkt_tx_timer_updater pkt_updater{*this, ts};
         size_t stream_packets = 0;
         while (!strs.empty())
@@ -481,6 +459,7 @@ namespace oxen::quic
 
             buf_pos += nwrite;
             send_buffer_size[n_packets++] = nwrite;
+            send_ecn = pkt_info.ecn;
             stream_packets++;
 
             if (n_packets == MAX_BATCH)
@@ -490,7 +469,7 @@ namespace oxen::quic
                     return;
 
                 assert(n_packets == 0);
-                buf_pos = send_buffer.data();
+                buf_pos = reinterpret_cast<uint8_t*>(send_buffer.data());
             }
 
             if (stream_packets == max_stream_packets)
@@ -523,37 +502,31 @@ namespace oxen::quic
         log::debug(log_cat, "Exiting flush_streams()");
     }
 
-    void Connection::schedule_retransmit(uint64_t ts)
+    void Connection::schedule_retransmit(std::chrono::steady_clock::time_point ts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        auto exp = ngtcp2_conn_get_expiry(conn.get());
+        ngtcp2_tstamp exp_ns = ngtcp2_conn_get_expiry(conn.get());
 
-        if (exp == std::numeric_limits<decltype(exp)>::max())
+        if (exp_ns == std::numeric_limits<ngtcp2_tstamp>::max())
         {
-            log::info(log_cat, "No retransmit needed, expiration passed");
-            retransmit_timer->stop();
+            log::info(log_cat, "No retransmit needed right now");
+            event_del(retransmit_timer.get());
             return;
         }
 
-        if (ts == 0)
-            ts = get_timestamp();
+        auto delta = exp_ns * 1ns - ts.time_since_epoch();
+        log::trace(log_cat, "Expiry delta: {}ns", delta.count());
 
-        uint64_t delta = 0;
-        if (exp < ts)
+        timeval* tv_ptr = nullptr;
+        timeval tv;
+        if (delta > 0s)
         {
-            log::trace(log_cat, "Expiry delta: {}ns ago", ts - exp);
+            delta += 999ns;  // Round up to the next µs (libevent timers have µs precision)
+            tv.tv_sec = delta / 1s;
+            tv.tv_usec = (delta % 1s) / 1us;
+            tv_ptr = &tv;
         }
-        else
-        {
-            delta = exp - ts;
-            log::trace(log_cat, "Expiry delta: {}ns", delta);
-        }
-
-        // truncate to ms for libuv
-        delta /= 1'000'000;
-
-        retransmit_timer->stop();
-        retransmit_timer->start(delta * 1ms, 0ms);
+        event_add(retransmit_timer.get(), tv_ptr);
     }
 
     const std::shared_ptr<Stream>& Connection::get_stream(int64_t ID) const
@@ -566,29 +539,15 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, id);
+        auto stream = std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb, id);
         stream->set_ready();
 
-        stream->stream_id = id;
-        uint64_t rv{0};
+        log::debug(log_cat, "Local endpoint creating stream to match remote");
 
-        auto ep = stream->conn.endpoint();
-
-        if (ep)
+        if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
-            log::debug(log_cat, "Local endpoint creating stream to match remote");
-
-            stream->data_callback = context->stream_data_cb;
-            stream->close_callback = context->stream_close_cb;
-
-            if (context->stream_open_cb)
-                rv = context->stream_open_cb(*stream);
-        }
-
-        if (rv != 0)
-        {
-            log::info(log_cat, "stream_open_callback returned failure, dropping stream {}", id);
-            ngtcp2_conn_shutdown_stream(conn.get(), 0, id, 1);
+            log::info(log_cat, "stream_open_callback returned error code {}, dropping stream {}", app_err_code, id);
+            ngtcp2_conn_shutdown_stream(conn.get(), 0, id, app_err_code);
             io_ready();
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
@@ -616,10 +575,7 @@ namespace oxen::quic
         if (!was_closing && stream.close_callback)
         {
             log::trace(log_cat, "Invoking stream close callback");
-            std::optional<uint64_t> code;
-            if (app_code != 0)
-                code = app_code;
-            stream.close_callback(stream, *code);
+            stream.close_callback(stream, app_code);
         }
 
         log::info(log_cat, "Erasing stream {}", id);
@@ -710,24 +666,30 @@ namespace oxen::quic
 
     int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
     {
-        auto loop = _endpoint.get_loop();
-        io_trigger = loop->resource<uvw::async_handle>();
-        io_trigger->on<uvw::async_event>([this](auto&, auto&) { on_io_ready(); });
-
-        retransmit_timer = loop->resource<uvw::timer_handle>();
-        retransmit_timer->on<uvw::timer_event>([this](auto&, auto&) {
-            if (auto rv = ngtcp2_conn_handle_expiry(conn.get(), get_timestamp()); rv != 0)
-            {
-                log::warning(log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                _endpoint.close_connection(*this, rv);
-            }
-            else
-            {
-                on_io_ready();
-            }
-        });
-
-        retransmit_timer->start(0ms, 0ms);
+        auto* ev_base = endpoint().get_loop().get();
+        io_trigger.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_io_ready(); },
+                this));
+        retransmit_timer.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self_) {
+                    auto& self = *static_cast<Connection*>(self_);
+                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
+                    {
+                        log::warning(
+                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
+                        self.endpoint().close_connection(self, rv);
+                        return;
+                    }
+                    self.on_io_ready();
+                },
+                this));
+        event_add(retransmit_timer.get(), nullptr);
 
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
@@ -749,7 +711,7 @@ namespace oxen::quic
 
         ngtcp2_settings_default(&settings);
 
-        settings.initial_ts = get_timestamp();
+        settings.initial_ts = get_timestamp().count();
 #ifndef NDEBUG
         settings.log_printf = log_printer;
 #endif
@@ -784,20 +746,19 @@ namespace oxen::quic
             const ConnectionID& scid,
             const ConnectionID& dcid,
             const Path& path,
-            std::shared_ptr<uv_udp_t> handle,
             std::shared_ptr<ContextBase> ctx,
             Direction dir,
             ngtcp2_pkt_hd* hdr) :
+
             _endpoint{ep},
             _source_cid{scid},
             _dest_cid{dcid},
             _path{path},
             _local{ep.local},
             _remote{path.remote},
-            udp_handle{handle},
-            context{ctx},
-            tls_creds{ctx->tls_creds},
-            user_config{ctx->config},
+            context{std::move(ctx)},
+            tls_creds{context->tls_creds},
+            user_config{context->config},
             dir{dir}
     {
         const auto outbound = (dir == Direction::OUTBOUND);
@@ -875,36 +836,21 @@ namespace oxen::quic
         ngtcp2_conn_set_tls_native_handle(conn.get(), tls_session->get_session());
     }
 
-    Connection::~Connection()
-    {
-        if (io_trigger)
-            io_trigger->close();
-        if (retransmit_timer)
-        {
-            retransmit_timer->stop();
-            retransmit_timer->close();
-        }
-    }
-
     std::shared_ptr<Connection> Connection::make_conn(
             Endpoint& ep,
             const ConnectionID& scid,
             const ConnectionID& dcid,
             const Path& path,
-            std::shared_ptr<uv_udp_t> handle,
             std::shared_ptr<ContextBase> ctx,
             Direction dir,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        
-        // NOTE: if we std::move the context, we will steal it from the server endpoint; this is
-        // something that needs to be fixed when we fully make the endpoints bidirectional
-        std::shared_ptr<Connection> conn =
-                std::make_shared<Connection>(ep, scid, dcid, path, handle, ctx, dir, hdr);
+        std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), dir, hdr}};
 
         conn->io_ready();
 
         return conn;
     }
+
 }  // namespace oxen::quic
