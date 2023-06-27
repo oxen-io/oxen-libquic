@@ -70,7 +70,7 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(100ms);
 
-        auto conn = client_endpoint->get_conn_ptr(conn_interface->get_conn_id());
+        auto conn = client_endpoint->get_conn_ptr(conn_interface->scid());
 
         REQUIRE(conn->num_pending() == 1);
         REQUIRE(data_check == 12);

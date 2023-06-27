@@ -211,12 +211,10 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
-        auto& ctx = (dir == Direction::INBOUND) ? _endpoint.inbound_ctx : _endpoint.outbound_ctx;
-
         auto stream = std::make_shared<Stream>(
                 *this, 
                 _endpoint, 
-                (data_cb) ? std::move(data_cb) : (ctx->stream_data_cb) ? ctx->stream_data_cb : nullptr,
+                (data_cb) ? std::move(data_cb) : (context->stream_data_cb) ? context->stream_data_cb : nullptr,
                 std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
@@ -234,6 +232,13 @@ namespace oxen::quic
             strm = std::move(stream);
             return strm;
         }
+    }
+
+    void Connection::call_closing()
+    {
+        log::trace(log_cat, "Calling Connection::on_closing for CID: {}", _source_cid);
+        on_closing(*this);
+        on_closing = nullptr;
     }
 
     void Connection::on_io_ready()
@@ -572,12 +577,11 @@ namespace oxen::quic
         if (ep)
         {
             log::debug(log_cat, "Local endpoint creating stream to match remote");
-            auto& ctx = (dir == Direction::INBOUND) ? _endpoint.inbound_ctx : _endpoint.outbound_ctx;
 
-            stream->data_callback = ctx->stream_data_cb;
+            stream->data_callback = context->stream_data_cb;
 
-            if (ctx->stream_open_cb)
-                rv = ctx->stream_open_cb(*stream);
+            if (context->stream_open_cb)
+                rv = context->stream_open_cb(*stream);
         }
 
         if (rv != 0)
@@ -780,8 +784,7 @@ namespace oxen::quic
             const ConnectionID& dcid,
             const Path& path,
             std::shared_ptr<uv_udp_t> handle,
-            std::shared_ptr<TLSCreds> creds,
-            config_t u_config,
+            std::shared_ptr<ContextBase> ctx,
             Direction dir,
             ngtcp2_pkt_hd* hdr) :
             _endpoint{ep},
@@ -791,8 +794,9 @@ namespace oxen::quic
             _local{ep.local},
             _remote{path.remote},
             udp_handle{handle},
-            tls_creds{creds},
-            user_config{u_config},
+            context{ctx},
+            tls_creds{ctx->tls_creds},
+            user_config{ctx->config},
             dir{dir}
     {
         const auto outbound = (dir == Direction::OUTBOUND);
@@ -887,15 +891,16 @@ namespace oxen::quic
             const ConnectionID& dcid,
             const Path& path,
             std::shared_ptr<uv_udp_t> handle,
-            std::shared_ptr<TLSCreds> creds,
-            config_t u_config,
+            std::shared_ptr<ContextBase> ctx,
             Direction dir,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         
+        // NOTE: if we std::move the context, we will steal it from the server endpoint; this is
+        // something that needs to be fixed when we fully make the endpoints bidirectional
         std::shared_ptr<Connection> conn =
-                std::make_shared<Connection>(ep, scid, dcid, path, handle, std::move(creds), u_config, dir, hdr);
+                std::make_shared<Connection>(ep, scid, dcid, path, handle, ctx, dir, hdr);
 
         conn->io_ready();
 

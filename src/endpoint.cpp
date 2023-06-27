@@ -38,19 +38,19 @@ namespace oxen::quic
     //         expiry_timer->close();
     // }
 
-    std::list<std::pair<ConnectionID, std::shared_ptr<connection_interface>>> Endpoint::get_all_conns(std::optional<Direction> d)
+    std::list<std::shared_ptr<connection_interface>> Endpoint::get_all_conns(std::optional<Direction> d)
     {
-        std::list<std::pair<ConnectionID, std::shared_ptr<connection_interface>>> ret{};
+        std::list<std::shared_ptr<connection_interface>> ret{};
 
         for (const auto& c : conns)
         {
             if (d)
             {
                 if (c.second->direction() == d)
-                    ret.emplace_back(c.first, c.second);
+                    ret.emplace_back(c.second);
             }
             else
-                ret.emplace_back(c.first, c.second);
+                ret.emplace_back(c.second);
         }
 
         return ret;
@@ -68,6 +68,18 @@ namespace oxen::quic
             else
                 close_connection(*c.second.get());
         }
+    }
+
+    void Endpoint::drain_connection(Connection& conn)
+    {
+        if (conn.is_draining())
+            return;
+        if (conn.has_closing_cb())
+            conn.call_closing();
+
+        log::debug(log_cat, "Putting CID: {} into draining state", conn.scid());
+        conn.drain();
+        draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.scid());
     }
 
     std::shared_ptr<uvw::loop> Endpoint::get_loop()
@@ -176,11 +188,8 @@ namespace oxen::quic
         {
             auto conn_ptr = itr->second.get();
 
-            if (conn_ptr->on_closing)
-            {
-                conn_ptr->on_closing(*conn_ptr);
-                conn_ptr->on_closing = nullptr;
-            }
+            if (conn_ptr->has_closing_cb())
+                conn_ptr->call_closing();
 
             conns.erase(itr);
             log::debug(log_cat, "Successfully deleted connection [ID: {}]", *cid.data);
@@ -239,8 +248,7 @@ namespace oxen::quic
         {
             log::error(
                     log_cat,
-                    "Error: 0RTT is currently not utilized in this implementation; dropping "
-                    "packet");
+                    "Error: 0RTT is not utilized in this implementation; dropping packet");
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_INITIAL && hdr.tokenlen)
@@ -251,20 +259,11 @@ namespace oxen::quic
 
         for (;;)
         {
-            if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
+            if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
-                std::promise<Connection*> p;
-                auto f = p.get_future();
-
-                net.call([this, pkt, &p, &hdr, it = itr]() {
-                    it->second = std::move(Connection::make_conn(
-                            *this, it->first, hdr.scid, pkt.path, handle, inbound_ctx->tls_creds, inbound_ctx->config, Direction::INBOUND, &hdr));
-
-                    p.set_value(it->second.get());
-                    return;
-                });
-
-                return f.get();
+                itr->second = Connection::make_conn(
+                        *this, itr->first, hdr.scid, pkt.path, handle, inbound_ctx, Direction::INBOUND, &hdr);
+                return itr->second.get();
             }
         };
     };
@@ -302,6 +301,7 @@ namespace oxen::quic
                 break;
             case NGTCP2_ERR_DRAINING:
                 log::debug(log_cat, "Draining connection {}", *conn.scid().data);
+                drain_connection(conn);
                 break;
             case NGTCP2_ERR_PROTO:
                 log::debug(log_cat, "Closing connection {} due to error {}", *conn.scid().data, ngtcp2_strerror(rv));
@@ -689,16 +689,18 @@ namespace oxen::quic
 
     void Endpoint::check_timeouts()
     {
-        auto now = get_timestamp();
+        auto now = get_time();
 
-        while (!draining.empty() && draining.front().second < now)
+        const auto& f = draining.begin();
+
+        while (!draining.empty() && f->first < now)
         {
-            if (auto itr = conns.find(draining.front().first); itr != conns.end())
+            if (auto itr = conns.find(f->second); itr != conns.end())
             {
                 log::debug(log_cat, "Deleting connection {}", *itr->first.data);
                 conns.erase(itr);
             }
-            draining.pop();
+            draining.erase(f);
         }
     }
 

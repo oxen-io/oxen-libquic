@@ -26,14 +26,8 @@ namespace oxen::quic
             - current close mechanism lives in endpoint
 
         - tests
-            - fix 002-007
             - stream test cases for switching # of streams mid connection
-
-        - make retransmit timer private
-        - anything touched by network and endpoint is public
-            - make everything private
-            - anything the user calls are public overrides in connection_interface
-        
+            - fail cases        
     */
 
     class connection_interface
@@ -42,9 +36,7 @@ namespace oxen::quic
         virtual std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
 
-        virtual ConnectionID get_conn_id() = 0;
-
-        // virtual config_t get_user_config() = 0;
+        virtual const ConnectionID& scid() = 0;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -66,8 +58,7 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<uv_udp_t> handle,
-                std::shared_ptr<TLSCreds> creds,
-                config_t u_config,
+                std::shared_ptr<ContextBase> ctx,
                 Direction dir,
                 ngtcp2_pkt_hd* hdr = nullptr);
         ~Connection();
@@ -78,8 +69,7 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<uv_udp_t> handle,
-                std::shared_ptr<TLSCreds> creds,
-                config_t u_config,
+                std::shared_ptr<ContextBase> ctx,
                 Direction dir,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
@@ -95,9 +85,6 @@ namespace oxen::quic
         std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) override;
 
-        ConnectionID get_conn_id() override
-        { return _source_cid; }
-
         Direction direction()
         { return dir; }
 
@@ -105,16 +92,21 @@ namespace oxen::quic
         { return closing; }
         bool is_draining()
         { return draining; }
-        const ConnectionID scid()
+        const ConnectionID& scid() override
         { return _source_cid; }
-        const ConnectionID dcid()
+        const ConnectionID& dcid()
         { return _dest_cid; }
-        const Path path()
+        const Path& path()
         { return _path; }
-
-        std::function<void(Connection&)> on_closing;  // clear immediately after use
+        void drain()
+        { draining = true; }
+        
+        void call_closing();
+        bool has_closing_cb()
+        { return (on_closing != nullptr); }
 
       private:
+        std::shared_ptr<ContextBase> context;
         std::shared_ptr<uv_udp_t> udp_handle;
         config_t user_config;
         Direction dir;
@@ -124,6 +116,7 @@ namespace oxen::quic
         Path _path;
         const Address _local;
         const Address _remote;
+        std::function<void(Connection&)> on_closing;  // clear immediately after use
 
         struct connection_deleter
         {

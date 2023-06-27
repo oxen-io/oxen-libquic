@@ -11,8 +11,6 @@
 
 namespace oxen::quic
 {
-    class Endpoint;
-
     // created to store user configuration values; more values to be added later
     struct config_t
     {
@@ -36,11 +34,6 @@ namespace oxen::quic
 
     struct OutboundContext : public ContextBase
     {
-        // Cert information for each connection is stored in a map indexed by ConnectionID.
-        // As a result, each connection (also mapped in client->conns) can have its own
-        // TLS cert info. Each connection also stores within it the gnutls_session_t and
-        // gnutls_certificate_credentials_t objects used to initialize its ngtcp2 things
-
         template <typename... Opt>
         OutboundContext(Opt&&... opts)
         {
@@ -58,9 +51,6 @@ namespace oxen::quic
         void handle_outbound_opt(opt::max_streams ms);
         void handle_outbound_opt(stream_data_callback_t func);
         void handle_outbound_opt(stream_open_callback_t func);
-
-        inline void set_local(Address& addr) { local = Address{addr}; }
-        inline void set_remote(Address& addr) { remote = Address{addr}; }
     };
 
     struct InboundContext : public ContextBase
@@ -79,9 +69,16 @@ namespace oxen::quic
         void handle_inbound_opt(opt::local_addr addr);
         void handle_inbound_opt(Address addr);
         void handle_inbound_opt(std::shared_ptr<TLSCreds> tls);
+        void handle_inbound_opt(opt::max_streams ms);
         void handle_inbound_opt(stream_data_callback_t func);
         void handle_inbound_opt(stream_open_callback_t func);
-        void handle_inbound_opt(opt::max_streams ms);
     };
+
+    /*
+        1:1 with connection:
+            stream data cb
+            stream open cb
+            max streams
+    */
 
 }  // namespace oxen::quic

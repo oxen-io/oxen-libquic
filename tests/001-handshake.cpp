@@ -15,7 +15,6 @@ namespace oxen::quic::test
 
         Network test_net{};
         std::atomic<bool> good{false};
-        std::atomic<int> data_check{0};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
         std::shared_ptr<Stream> server_extracted;
@@ -36,15 +35,6 @@ namespace oxen::quic::test
             return 0;
         };
 
-        stream_data_callback_t server_data_cb = [&](Stream& s, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received: {}", buffer_printer{dat});
-            data_check += 1;
-        };
-        stream_data_callback_t client_data_cb = [&](Stream& s, bstring_view dat) {
-            log::debug(log_cat, "Calling client stream data callback... data received: {}", buffer_printer{dat});
-            data_check += 1;
-        };
-
         stream_open_callback_t stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling server stream open callback... stream opened...");
             server_extracted = s.shared_from_this();
@@ -61,28 +51,16 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        bool sinit = server_endpoint->listen(server_tls, server_data_cb, stream_open_cb);
+        bool sinit = server_endpoint->listen(server_tls, stream_open_cb);
 
         REQUIRE(sinit);
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        std::this_thread::sleep_for(1s);
-
-        // client make stream and send; message displayed by server_data_cb
-        auto client_stream = conn_interface->get_new_stream(client_data_cb);
-        client_stream->send(msg);
-
-        std::this_thread::sleep_for(1s);
-
-        // server send data using stream; message displayed by client_data_cb
-        server_extracted->send(msg);
-
-        std::this_thread::sleep_for(1s);
+        std::this_thread::sleep_for(100ms);
 
         REQUIRE(good);
-        REQUIRE(data_check == 2);
         test_net.close();
     };
 }  // namespace oxen::quic::test

@@ -75,28 +75,29 @@ namespace oxen::quic
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
-            net.call([&opts..., &p, this, raddr = remote]() mutable {
+            net.call([&opts..., &p, this, remote]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
                     outbound_ctx = std::make_shared<OutboundContext>(std::forward<Opt>(opts)...);
 
-                    if (auto [itr, res] = conns.emplace(ConnectionID::random(), nullptr); res)
+                    for (;;)
                     {
-                        itr->second = std::move(Connection::make_conn(
-                                *this,
-                                itr->first,
-                                ConnectionID::random(),
-                                Path{local, raddr},
-                                handle,
-                                outbound_ctx->tls_creds,
-                                outbound_ctx->config,
-                                Direction::OUTBOUND));
+                        if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
+                        {
+                            itr->second = std::move(Connection::make_conn(
+                                    *this,
+                                    itr->first,
+                                    ConnectionID::random(),
+                                    Path{local, remote},
+                                    handle,
+                                    outbound_ctx,
+                                    Direction::OUTBOUND));
 
-                        p.set_value(itr->second);
+                            p.set_value(itr->second);
+                            return;
+                        }
                     }
-                    else
-                        p.set_value(nullptr);
                 }
                 catch (...)
                 {
@@ -105,12 +106,12 @@ namespace oxen::quic
             });
 
             return f.get();
-        };
+        }
 
         std::shared_ptr<uvw::loop> get_loop();
 
         // query a list of all active inbound and outbound connections paired with a conn_interface
-        std::list<std::pair<ConnectionID, std::shared_ptr<connection_interface>>> get_all_conns(std::optional<Direction> d = std::nullopt);
+        std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
         void handle_packet(Packet& pkt);
         Connection* get_conn_ptr(ConnectionID ID);      // query by conn ID
@@ -121,9 +122,11 @@ namespace oxen::quic
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
+        void close_conns(std::optional<Direction> d = std::nullopt);
+
         void delete_connection(const ConnectionID& cid);
 
-        void close_conns(std::optional<Direction> d = std::nullopt);
+        void drain_connection(Connection& conn);
 
         // Data structures used to keep track of various types of connections
         //
@@ -151,7 +154,7 @@ namespace oxen::quic
         //      They are indexed by connection ID, storing the removal time as a uint64_t value
         std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
 
-        std::queue<std::pair<ConnectionID, uint64_t>> draining;
+        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
 
         std::optional<ConnectionID> handle_initial_packet(Packet& pkt);
 
