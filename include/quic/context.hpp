@@ -27,6 +27,7 @@ namespace oxen::quic
         std::shared_ptr<TLSCreds> tls_creds;
         stream_data_callback_t stream_data_cb;
         stream_open_callback_t stream_open_cb;
+        stream_close_callback_t stream_close_cb;
         config_t config{};
 
         virtual ~ContextBase() = default;
@@ -51,6 +52,7 @@ namespace oxen::quic
         void handle_outbound_opt(opt::max_streams ms);
         void handle_outbound_opt(stream_data_callback_t func);
         void handle_outbound_opt(stream_open_callback_t func);
+        void handle_outbound_opt(stream_close_callback_t func);
     };
 
     struct InboundContext : public ContextBase
@@ -72,6 +74,7 @@ namespace oxen::quic
         void handle_inbound_opt(opt::max_streams ms);
         void handle_inbound_opt(stream_data_callback_t func);
         void handle_inbound_opt(stream_open_callback_t func);
+        void handle_inbound_opt(stream_close_callback_t func);
     };
 
     /*

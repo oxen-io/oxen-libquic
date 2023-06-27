@@ -89,8 +89,9 @@ int main(int argc, char* argv[])
     };
 
     std::unordered_map<ConnectionID, std::map<int64_t, stream_info>> csd;
+    
     stream_data_callback_t stream_data = [&](Stream& s, bstring_view data) {
-        auto& sd = csd[s.conn.source_cid];
+        auto& sd = csd[s.conn.scid()];
         auto it = sd.find(s.stream_id);
         if (it == sd.end())
         {
@@ -149,7 +150,8 @@ int main(int argc, char* argv[])
     };
 
     log::debug(test_cat, "Calling 'server_listen'...");
-    auto server = server_net.server_listen(server_local, server_tls, stream_opened, stream_data);
+    auto _server = server_net.endpoint(server_local);
+    bool sinit = _server->listen(server_tls, stream_opened, stream_data);
 
     for (;;)
         std::this_thread::sleep_for(10min);

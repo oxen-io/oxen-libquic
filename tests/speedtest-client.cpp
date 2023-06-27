@@ -96,27 +96,9 @@ int main(int argc, char* argv[])
     {
         return cli.exit(e);
     }
-
-    setup_logging(log_file, log_level);
-
-    Network client_net{};
-
-    auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
-
-    opt::local_addr client_local{};
-    if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = opt::local_addr{a, p};
-    }
-
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    opt::remote_addr server_addr{server_a, server_p};
-
-    log::debug(test_cat, "Calling 'client_connect'...");
-    auto client = client_net.client_connect(client_local, server_addr, client_tls);
-
+    
     using RNG = std::mt19937_64;
+
     struct stream_data
     {
         std::shared_ptr<Stream> stream;
@@ -145,15 +127,21 @@ int main(int argc, char* argv[])
         }
     };
 
+    setup_logging(log_file, log_level);
+
+    Network client_net{};
+
+    auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
+
     std::vector<std::unique_ptr<stream_data>> streams;
     streams.reserve(parallel);
 
-    auto stream_closed = [&](Stream& s, uint64_t errcode) {
+    stream_close_callback_t stream_closed = [&](Stream& s, uint64_t errcode) {
         size_t i = s.stream_id >> 2;
         log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id, errcode);
     };
 
-    auto on_stream_data = [&](Stream& s, bstring_view data) {
+    stream_data_callback_t on_stream_data = [&](Stream& s, bstring_view data) {
         size_t i = s.stream_id >> 2;
         if (i >= parallel)
         {
@@ -209,6 +197,20 @@ int main(int argc, char* argv[])
         sd.done = true;
         sd.run_prom.set_value();
     };
+
+    opt::local_addr client_local{};
+    if (!local_addr.empty())
+    {
+        auto [a, p] = parse_addr(local_addr);
+        client_local = opt::local_addr{a, p};
+    }
+
+    auto [server_a, server_p] = parse_addr(remote_addr);
+    opt::remote_addr server_addr{server_a, server_p};
+
+    log::debug(test_cat, "Calling 'client_connect'...");
+    auto client = client_net.endpoint(client_local);
+    auto client_ci = client->connect(server_addr, client_tls, on_stream_data, stream_closed);
 
     auto per_stream = size / parallel;
 
@@ -281,7 +283,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < parallel; i++)
     {
         auto& s = *streams[i];
-        s.stream = client->open_stream(on_stream_data, stream_closed);
+        s.stream = client_ci->get_new_stream();
         std::string remaining_str;
         remaining_str.resize(8);
         oxenc::write_host_as_little(s.remaining, remaining_str.data());

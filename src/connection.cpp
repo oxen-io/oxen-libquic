@@ -579,6 +579,7 @@ namespace oxen::quic
             log::debug(log_cat, "Local endpoint creating stream to match remote");
 
             stream->data_callback = context->stream_data_cb;
+            stream->close_callback = context->stream_close_cb;
 
             if (context->stream_open_cb)
                 rv = context->stream_open_cb(*stream);
