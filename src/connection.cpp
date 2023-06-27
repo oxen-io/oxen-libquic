@@ -211,7 +211,13 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
     {
-        auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
+        auto& ctx = (dir == Direction::INBOUND) ? _endpoint.inbound_ctx : _endpoint.outbound_ctx;
+
+        auto stream = std::make_shared<Stream>(
+                *this, 
+                _endpoint, 
+                (data_cb) ? std::move(data_cb) : (ctx->stream_data_cb) ? ctx->stream_data_cb : nullptr,
+                std::move(close_cb));
 
         if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
         {
@@ -895,15 +901,4 @@ namespace oxen::quic
 
         return conn;
     }
-
-    // std::shared_ptr<Stream> connection_interface::get_new_stream(
-    //         stream_data_callback_t data_cb, stream_close_callback_t close_cb)
-    // {
-    //     if (auto conn_ptr = conn.lock())
-    //         return conn_ptr->_get_new_stream(std::move(data_cb), std::move(close_cb));
-    //     else
-    //         log::critical(log_cat, "Connection interface (SCID: {}) failed to create stream", scid);
-    //     return nullptr;
-    // }
-
 }  // namespace oxen::quic

@@ -66,7 +66,6 @@ namespace oxen::quic::test
         REQUIRE(sinit);
 
         auto client_endpoint = test_net.endpoint(client_local);
-
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
         std::this_thread::sleep_for(1s);

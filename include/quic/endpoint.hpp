@@ -36,11 +36,8 @@ namespace oxen::quic
         const Address local;
         std::shared_ptr<uvw::timer_handle> expiry_timer;
         std::shared_ptr<uv_udp_t> handle;
-        config_t user_config{};
         bool accepting_inbound{false};
         Network& net;
-
-        Connection* get_conn_ptr(ConnectionID ID);      // query by conn ID
 
       public:
         explicit Endpoint(Network& n, const Address& listen_addr);
@@ -93,7 +90,7 @@ namespace oxen::quic
                                 Path{local, raddr},
                                 handle,
                                 outbound_ctx->tls_creds,
-                                user_config,
+                                outbound_ctx->config,
                                 Direction::OUTBOUND));
 
                         p.set_value(itr->second);
@@ -116,6 +113,7 @@ namespace oxen::quic
         std::list<std::pair<ConnectionID, std::shared_ptr<connection_interface>>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
         void handle_packet(Packet& pkt);
+        Connection* get_conn_ptr(ConnectionID ID);      // query by conn ID
 
       protected:
         std::shared_ptr<ContextBase> outbound_ctx = nullptr;

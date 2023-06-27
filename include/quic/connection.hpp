@@ -43,6 +43,8 @@ namespace oxen::quic
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
 
         virtual ConnectionID get_conn_id() = 0;
+
+        // virtual config_t get_user_config() = 0;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -140,7 +142,6 @@ namespace oxen::quic
 
         std::shared_ptr<uvw::timer_handle> retransmit_timer;
 
-
         void on_io_ready();
 
         struct pkt_tx_timer_updater;
@@ -157,7 +158,6 @@ namespace oxen::quic
         void schedule_retransmit(uint64_t ts = 0);
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
-
 
         int get_streams_available();
 
@@ -197,6 +197,10 @@ namespace oxen::quic
         {
             return conn.get();
         }
+
+        // returns number of currently pending streams for use in test cases
+        size_t num_pending()
+        { return pending_streams.size(); }
     };
 
     extern "C"

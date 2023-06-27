@@ -258,7 +258,7 @@ namespace oxen::quic
 
                 net.call([this, pkt, &p, &hdr, it = itr]() {
                     it->second = std::move(Connection::make_conn(
-                            *this, it->first, hdr.scid, pkt.path, handle, inbound_ctx->tls_creds, user_config, Direction::INBOUND, &hdr));
+                            *this, it->first, hdr.scid, pkt.path, handle, inbound_ctx->tls_creds, inbound_ctx->config, Direction::INBOUND, &hdr));
 
                     p.set_value(it->second.get());
                     return;

@@ -16,7 +16,7 @@ namespace oxen::quic::test
 
         std::mutex recv_mut;
         std::string received;
-        stream_data_callback_t stream_callback = [&](Stream& s, bstring_view data) {
+        stream_data_callback_t stream_data_cb = [&](Stream& s, bstring_view data) {
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
         };
@@ -24,17 +24,17 @@ namespace oxen::quic::test
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-        opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
-        opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
-        opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};
+        opt::local_addr server_local{"127.0.0.1"s, 5500};
+        opt::local_addr client_local{"127.0.0.1"s, 4400};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
-        log::debug(log_cat, "Calling 'server_listen'...");
-        auto server = test_net.server_listen(server_local, server_tls, stream_callback);
+        auto server_endpoint = test_net.endpoint(server_local);
+        bool sinit = server_endpoint->listen(server_tls, stream_data_cb);
 
-        log::debug(log_cat, "Calling 'client_connect'...");
-        auto client = test_net.client_connect(client_local, client_remote, client_tls);
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        auto stream = client->open_stream();
+        auto stream = conn_interface->get_new_stream();
         stream->send("HELLO!"s);
 
         int i = 0;
@@ -87,7 +87,7 @@ namespace oxen::quic::test
                 },
                 parallel_chunks);
 
-        std::this_thread::sleep_for(250ms);
+        std::this_thread::sleep_for(100ms);
 
         {
             std::lock_guard lock{recv_mut};
