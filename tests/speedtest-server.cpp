@@ -51,6 +51,12 @@ int main(int argc, char* argv[])
             no_blake2b,
             "Disable blake2b data hashing (just use a simple xor byte checksum).  Can make a difference on extremely low "
             "latency (e.g. localhost) connections.  Should be specified on the client as well.");
+    bool no_checksum = false;
+    cli.add_flag(
+            "-3,--no-checksum",
+            no_checksum,
+            "Disable even the simple xor byte checksum (typically used together with -2).  Should be specified on the "
+            "client as well.");
 
     try
     {
@@ -118,14 +124,17 @@ int main(int argc, char* argv[])
             data.remove_suffix(info.received - info.expected);
         }
 
-        uint64_t csum = 0;
-        const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
-        for (size_t i = 0; i < data.size() / 8; i++)
-            csum ^= stuff[i];
-        for (int i = 0; i < 8; i++)
-            info.checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
-        for (size_t i = (data.size() / 8) * 8; i < data.size(); i++)
-            info.checksum ^= static_cast<uint8_t>(data[i]);
+        if (!no_checksum)
+        {
+            uint64_t csum = 0;
+            const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
+            for (size_t i = 0; i < data.size() / 8; i++)
+                csum ^= stuff[i];
+            for (int i = 0; i < 8; i++)
+                info.checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
+            for (size_t i = (data.size() / 8) * 8; i < data.size(); i++)
+                info.checksum ^= static_cast<uint8_t>(data[i]);
+        }
 
         if (!no_blake2b)
             crypto_generichash_blake2b_update(
