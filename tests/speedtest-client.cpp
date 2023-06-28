@@ -66,6 +66,12 @@ int main(int argc, char* argv[])
             no_blake2b,
             "Disable blake2b data hashing (just use a simple xor byte checksum).  Can make a difference on extremely low "
             "latency (e.g. localhost) connections.  Should be specified on the server as well.");
+    bool no_checksum = false;
+    cli.add_flag(
+            "-3,--no-checksum",
+            no_checksum,
+            "Disable even the simple xor byte checksum (typically used together with -2).  Should be specified on the "
+            "server as well.");
 
     size_t chunk_size = 64_ki, chunk_num = 2;
     cli.add_option("--stream-chunk-size", chunk_size, "How much data to queue at once, per chunk");
@@ -96,7 +102,7 @@ int main(int argc, char* argv[])
     {
         return cli.exit(e);
     }
-    
+
     using RNG = std::mt19937_64;
 
     struct stream_data
@@ -214,7 +220,7 @@ int main(int argc, char* argv[])
 
     auto per_stream = size / parallel;
 
-    auto gen_data = [no_blake2b](
+    auto gen_data = [no_blake2b, no_checksum](
                             RNG& rng,
                             size_t size,
                             std::vector<std::byte>& data,
@@ -242,14 +248,17 @@ int main(int argc, char* argv[])
         data.resize(size);
 
         // Hash/checksum it (so that we can verify the hash response at the end)
-        uint64_t csum = 0;
-        const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
-        for (size_t i = 0; i < data.size() / 8; i++)
-            csum ^= stuff[i];
-        for (int i = 0; i < 8; i++)
-            checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
-        for (size_t i = data.size() & ~0b111; i < data.size(); i++)
-            checksum ^= static_cast<uint8_t>(data[i]);
+        if (!no_checksum)
+        {
+            uint64_t csum = 0;
+            const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
+            for (size_t i = 0; i < data.size() / 8; i++)
+                csum ^= stuff[i];
+            for (int i = 0; i < 8; i++)
+                checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
+            for (size_t i = data.size() & ~0b111; i < data.size(); i++)
+                checksum ^= static_cast<uint8_t>(data[i]);
+        }
 
         if (!no_blake2b)
             crypto_generichash_blake2b_update(&hasher, reinterpret_cast<unsigned char*>(data.data()), data.size());

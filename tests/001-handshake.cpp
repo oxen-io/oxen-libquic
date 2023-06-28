@@ -29,8 +29,6 @@ namespace oxen::quic::test
             const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
             const auto& ep = static_cast<Connection*>(conn_ref->user_data)->endpoint();
 
-            REQUIRE(ep != nullptr);
-
             good = true;
             return 0;
         };

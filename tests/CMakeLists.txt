@@ -3,7 +3,7 @@ add_subdirectory(Catch2)
 # command-line arguments (for test programs)
 add_subdirectory(CLI11)
 
-add_executable(test_all
+add_executable(alltests
     001-handshake.cpp
     002-send-receive.cpp
     003-multiclient.cpp
@@ -11,9 +11,10 @@ add_executable(test_all
     005-chunked-sender.cpp
     006-server-send.cpp
     007-server-streams.cpp
+
+    main.cpp
 )
-target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
-set_target_properties(test_all PROPERTIES OUTPUT_NAME alltests)
+target_link_libraries(alltests PUBLIC quic Catch2::Catch2 CLI11::CLI11)
 
 #add_executable(
 #    test_client

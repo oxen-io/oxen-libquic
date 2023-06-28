@@ -2,11 +2,11 @@
 
 #include <memory>
 #include <unordered_map>
-#include <uvw.hpp>
 
 #include "crypto.hpp"
 #include "opt.hpp"
 #include "stream.hpp"
+#include "udp.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
@@ -23,12 +23,13 @@ namespace oxen::quic
     struct ContextBase
     {
       public:
-        Address local, remote;
         std::shared_ptr<TLSCreds> tls_creds;
         stream_data_callback_t stream_data_cb;
         stream_open_callback_t stream_open_cb;
         stream_close_callback_t stream_close_cb;
         config_t config{};
+
+        // TODO: I think we can move the handle_opt calls here
 
         virtual ~ContextBase() = default;
     };
@@ -46,8 +47,6 @@ namespace oxen::quic
         }
 
       private:
-        void handle_outbound_opt(opt::local_addr addr);
-        void handle_outbound_opt(opt::remote_addr addr);
         void handle_outbound_opt(std::shared_ptr<TLSCreds> tls);
         void handle_outbound_opt(opt::max_streams ms);
         void handle_outbound_opt(stream_data_callback_t func);
@@ -68,8 +67,6 @@ namespace oxen::quic
         }
 
       private:
-        void handle_inbound_opt(opt::local_addr addr);
-        void handle_inbound_opt(Address addr);
         void handle_inbound_opt(std::shared_ptr<TLSCreds> tls);
         void handle_inbound_opt(opt::max_streams ms);
         void handle_inbound_opt(stream_data_callback_t func);

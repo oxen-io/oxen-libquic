@@ -32,8 +32,6 @@ namespace oxen::quic
         log::trace(log_cat, "Stream object created");
     }
 
-    Stream::Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
-
     Stream::~Stream()
     {
         log::debug(log_cat, "Destroying stream {}", stream_id);
@@ -52,6 +50,8 @@ namespace oxen::quic
 
     void Stream::close(uint64_t error_code)
     {
+        // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
+        // Stream that won't survive a return to the event loop.
         endpoint.net.call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 

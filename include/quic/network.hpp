@@ -5,12 +5,13 @@ extern "C"
 #include <gnutls/gnutls.h>
 }
 
+#include <event2/event.h>
+
 #include <atomic>
 #include <cstdint>
 #include <future>
 #include <memory>
 #include <thread>
-#include <uvw.hpp>
 
 #include "context.hpp"
 #include "crypto.hpp"
@@ -41,32 +42,31 @@ namespace oxen::quic
     class Network
     {
         using Job = std::pair<std::function<void()>, source_location>;
-        using handle_address_pair = std::pair<const Address, std::shared_ptr<uv_udp_t>>;
 
       public:
-        Network(std::shared_ptr<uvw::loop> loop_ptr, std::thread::id thread_id);
+        Network(std::shared_ptr<::event_base> loop_ptr, std::thread::id loop_thread_id);
         Network();
         ~Network();
 
         std::shared_ptr<Endpoint> endpoint(const Address& local_addr);
 
-        void close();
+        /// Initiates shutdown the network, closing all endpoint connections and stopping the event
+        /// loop (if Network-managed).  If graceful is true (the default) this call initiates a
+        /// graceful shutdown (sending connection close packets, etc.).
+        ///
+        /// Returns a future that can be waited on to block until a graceful shutdown complete (for
+        /// ungraceful, the promise will be available immediately).
+        std::future<void> close(bool graceful = true);
 
       private:
         std::atomic<bool> running{false};
-        std::shared_ptr<uvw::loop> ev_loop;
-        std::unique_ptr<std::thread> loop_thread;
-
-        // Maps local listening address to respective endpoint
-        std::unordered_map<Address, std::shared_ptr<Endpoint>> endpoint_map;
-        std::unordered_map<Address, std::shared_ptr<uv_udp_t>> handle_map;
-
-        std::shared_ptr<uv_udp_t> map_udp_handle(const Address& local, Endpoint& ep);
-
-        std::shared_ptr<uv_udp_t> start_udp_handle(uv_loop_t* loop, const Address& bind, Endpoint& ep);
-
+        std::shared_ptr<::event_base> ev_loop;
+        std::optional<std::thread> loop_thread;
         std::thread::id loop_thread_id;
-        std::shared_ptr<uvw::async_handle> job_waker;
+
+        std::unordered_map<Address, std::shared_ptr<Endpoint>> endpoint_map;
+
+        event_ptr job_waker;
         std::queue<Job> job_queue;
         std::mutex job_queue_mutex;
 
@@ -75,7 +75,9 @@ namespace oxen::quic
         friend class Connection;
         friend class Stream;
 
-        std::shared_ptr<uvw::loop> loop();
+        const std::shared_ptr<::event_base>& loop() const { return ev_loop; }
+
+        void setup_job_waker();
 
         bool in_event_loop() const;
 
@@ -97,6 +99,12 @@ namespace oxen::quic
 
         void process_job_queue();
 
-        void close_all();
+        // Asynchronously begins closing (e.g. sending close packets) for all endpoints.  Triggers a
+        // call to `close_ungraceful` when all connections have had their close packet written.  If
+        // the promise is given, it will be passed on to `close_final()` to be fulfilled once
+        // closing is complete.
+        void close_all(std::shared_ptr<std::promise<void>> done = nullptr);
+
+        void close_final(std::shared_ptr<std::promise<void>> done = nullptr);
     };
 }  // namespace oxen::quic

@@ -10,7 +10,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <uvw.hpp>
 
 #include "context.hpp"
 #include "gnutls_crypto.hpp"
@@ -27,7 +26,7 @@ namespace oxen::quic
 
         - tests
             - stream test cases for switching # of streams mid connection
-            - fail cases        
+            - fail cases
     */
 
     class connection_interface
@@ -36,7 +35,7 @@ namespace oxen::quic
         virtual std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
 
-        virtual const ConnectionID& scid() = 0;
+        virtual const ConnectionID& scid() const = 0;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -47,67 +46,47 @@ namespace oxen::quic
         //      scid: local ("primary") CID used for this connection (random for outgoing)
         //		dcid: remote CID used for this connection
         //      path: network path used to reach remote client
-        //		handle: udp handle dedicated to local address
         //		creds: relevant tls information per connection
         //		u_config: user configuration values passed in struct
         //      dir: enum specifying configuration detailts for client vs. server
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
-        Connection(
-                Endpoint& ep,
-                const ConnectionID& scid,
-                const ConnectionID& dcid,
-                const Path& path,
-                std::shared_ptr<uv_udp_t> handle,
-                std::shared_ptr<ContextBase> ctx,
-                Direction dir,
-                ngtcp2_pkt_hd* hdr = nullptr);
-        ~Connection();
-
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
                 const ConnectionID& scid,
                 const ConnectionID& dcid,
                 const Path& path,
-                std::shared_ptr<uv_udp_t> handle,
                 std::shared_ptr<ContextBase> ctx,
                 Direction dir,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
-        // Returns a pointer to the owning endpoint, else nullptr
-        Endpoint* endpoint();
-        const Endpoint* endpoint() const;
-
         void io_ready();
 
-        const TLSSession* get_session() const
-        { return tls_session.get(); };
+        const TLSSession* get_session() const { return tls_session.get(); };
 
         std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) override;
 
-        Direction direction()
-        { return dir; }
+        Direction direction() const { return dir; }
+        bool is_inbound() const { return dir == Direction::INBOUND; }
+        bool is_outbound() const { return dir == Direction::OUTBOUND; }
 
-        bool is_closing()
-        { return closing; }
-        bool is_draining()
-        { return draining; }
-        const ConnectionID& scid() override
-        { return _source_cid; }
-        const ConnectionID& dcid()
-        { return _dest_cid; }
-        const Path& path()
-        { return _path; }
-        void drain()
-        { draining = true; }
-        
+        bool is_closing() const { return closing; }
         void call_closing();
-        bool has_closing_cb()
-        { return (on_closing != nullptr); }
+        bool is_draining() const { return draining; }
+        void drain() { draining = true; }
+
+        const ConnectionID& scid() const override { return _source_cid; }
+        const ConnectionID& dcid() const { return _dest_cid; }
+
+        const Path& path() const { return _path; }
+        const Address& local() const { return _path.local; }
+        const Address& remote() const { return _path.remote; }
+
+        Endpoint& endpoint() { return _endpoint; }
+        const Endpoint& endpoint() const { return _endpoint; }
 
       private:
         std::shared_ptr<ContextBase> context;
-        std::shared_ptr<uv_udp_t> udp_handle;
         config_t user_config;
         Direction dir;
         Endpoint& _endpoint;
@@ -117,6 +96,17 @@ namespace oxen::quic
         const Address _local;
         const Address _remote;
         std::function<void(Connection&)> on_closing;  // clear immediately after use
+
+        // private Constructor (publicly construct via `make_conn` instead, so that we can properly
+        // set up the shared_from_this shenanigans).
+        Connection(
+                Endpoint& ep,
+                const ConnectionID& scid,
+                const ConnectionID& dcid,
+                const Path& path,
+                std::shared_ptr<ContextBase> ctx,
+                Direction dir,
+                ngtcp2_pkt_hd* hdr = nullptr);
 
         struct connection_deleter
         {
@@ -133,21 +123,22 @@ namespace oxen::quic
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
 
-        std::shared_ptr<uvw::timer_handle> retransmit_timer;
+        event_ptr retransmit_timer;
+        event_ptr io_trigger;
 
         void on_io_ready();
 
         struct pkt_tx_timer_updater;
         bool send(pkt_tx_timer_updater* pkt_updater = nullptr);
 
-        void flush_streams(uint64_t ts);
+        void flush_streams(std::chrono::steady_clock::time_point tp);
 
-        std::array<uint8_t, NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE * DATAGRAM_BATCH_SIZE> send_buffer;
+        std::array<std::byte, NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE * DATAGRAM_BATCH_SIZE> send_buffer;
         std::array<size_t, DATAGRAM_BATCH_SIZE> send_buffer_size;
+        uint8_t send_ecn = 0;
         size_t n_packets = 0;
-        uint8_t* send_buffer_pos = send_buffer.data();
 
-        void schedule_retransmit(uint64_t ts = 0);
+        void schedule_retransmit(std::chrono::steady_clock::time_point ts);
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
 
@@ -164,8 +155,6 @@ namespace oxen::quic
 
         ngtcp2_ccerr last_error;
 
-        std::shared_ptr<uvw::async_handle> io_trigger;
-      
       public:
         // Buffer used to store non-stream connection data
         //  ex: initial transport params
@@ -177,8 +166,9 @@ namespace oxen::quic
         void stream_closed(int64_t id, uint64_t app_code);
         void check_pending_streams(
                 int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
-        
-        // pass Connection as ngtcp2_conn object
+
+        // Implicit conversion of Connection to the underlying ngtcp2_conn* (so that you can pass a
+        // Connection directly to ngtcp2 functions taking a ngtcp2_conn* argument).
         template <typename T, std::enable_if_t<std::is_same_v<T, ngtcp2_conn>, int> = 0>
         operator const T*() const
         {
@@ -191,8 +181,7 @@ namespace oxen::quic
         }
 
         // returns number of currently pending streams for use in test cases
-        size_t num_pending() const
-        { return pending_streams.size(); }
+        size_t num_pending() const { return pending_streams.size(); }
     };
 
     extern "C"

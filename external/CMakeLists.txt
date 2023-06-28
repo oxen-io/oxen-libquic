@@ -22,8 +22,6 @@ if(GIT_FOUND)
     message(STATUS "Checking submodules")
     include(check_submodule)
     check_submodule(ngtcp2)
-    check_submodule(libuv)
-    check_submodule(uvw)
     check_submodule(oxen-logging fmt spdlog)
     check_submodule(oxen-encoding)
 endif()
@@ -48,10 +46,6 @@ add_library(ngtcp2::crypto
     ALIAS 
     ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
 
-# libuv
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
-system_or_submodule(LIBUV uv_a libuv>=1.45.0 libuv)
-
 # oxen-logging
 set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 add_subdirectory(oxen-logging)
@@ -59,7 +53,10 @@ add_subdirectory(oxen-logging)
 # oxenc
 system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
 
-# uvw
-add_library(uvw INTERFACE)
-target_include_directories(uvw INTERFACE uvw/src)
-target_link_libraries(uvw INTERFACE uv_a::uv_a)
+# libevent
+foreach(libevent_x core pthreads)
+    add_library(libevent_${libevent_x} INTERFACE)
+    pkg_check_modules(LIBEVENT_${libevent_x} libevent_${libevent_x}>=2.1 IMPORTED_TARGET)
+    target_link_libraries(libevent_${libevent_x} INTERFACE PkgConfig::LIBEVENT_${libevent_x})
+    add_library(libevent::${libevent_x} ALIAS libevent_${libevent_x})
+endforeach()

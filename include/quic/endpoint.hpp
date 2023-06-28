@@ -10,18 +10,22 @@ extern "C"
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
+#include <event2/event.h>
+
 #include <cstddef>
+#include <list>
 #include <memory>
 #include <numeric>
 #include <optional>
 #include <queue>
 #include <random>
 #include <string>
-#include <uvw.hpp>
+#include <unordered_map>
 
 #include "connection.hpp"
 #include "context.hpp"
 #include "network.hpp"
+#include "udp.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
@@ -34,8 +38,8 @@ namespace oxen::quic
 
       private:
         const Address local;
-        std::shared_ptr<uvw::timer_handle> expiry_timer;
-        std::shared_ptr<uv_udp_t> handle;
+        event_ptr expiry_timer;
+        std::unique_ptr<UDPSocket> socket;
         bool accepting_inbound{false};
         Network& net;
 
@@ -75,7 +79,7 @@ namespace oxen::quic
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
-            net.call([&opts..., &p, this, remote]() mutable {
+            net.call([&opts..., &p, path = Path{local, remote}, this]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
@@ -85,14 +89,13 @@ namespace oxen::quic
                     {
                         if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
                         {
-                            itr->second = std::move(Connection::make_conn(
+                            itr->second = Connection::make_conn(
                                     *this,
                                     itr->first,
                                     ConnectionID::random(),
-                                    Path{local, remote},
-                                    handle,
+                                    std::move(path),
                                     outbound_ctx,
-                                    Direction::OUTBOUND));
+                                    Direction::OUTBOUND);
 
                             p.set_value(itr->second);
                             return;
@@ -108,17 +111,21 @@ namespace oxen::quic
             return f.get();
         }
 
-        std::shared_ptr<uvw::loop> get_loop();
+        const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
+
+        const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 
         // query a list of all active inbound and outbound connections paired with a conn_interface
         std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
-        void handle_packet(Packet& pkt);
-        Connection* get_conn_ptr(ConnectionID ID);      // query by conn ID
+        void handle_packet(const Packet& pkt);
 
-      protected:
-        std::shared_ptr<ContextBase> outbound_ctx = nullptr;
-        std::shared_ptr<ContextBase> inbound_ctx = nullptr;
+        // Query by connection id; returns nullptr if not found.
+        Connection* get_conn(const ConnectionID& ID);
+
+      private:
+        std::shared_ptr<ContextBase> outbound_ctx;
+        std::shared_ptr<ContextBase> inbound_ctx;
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
@@ -127,6 +134,8 @@ namespace oxen::quic
         void delete_connection(const ConnectionID& cid);
 
         void drain_connection(Connection& conn);
+
+        void on_receive(const Packet& pkt);
 
         // Data structures used to keep track of various types of connections
         //
@@ -151,27 +160,51 @@ namespace oxen::quic
         //      Stores all connections that are labeled as draining (duh). They are kept around for
         //      a short period of time allowing any lagging packets to be caught
         //
-        //      They are indexed by connection ID, storing the removal time as a uint64_t value
+        //      They are indexed by connection ID, storing the removal time as a time point
+        //
         std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
 
         std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
 
-        std::optional<ConnectionID> handle_initial_packet(Packet& pkt);
+        std::optional<ConnectionID> handle_packet_connid(const Packet& pkt);
 
-        void handle_conn_packet(Connection& conn, Packet& pkt);
+        void handle_conn_packet(Connection& conn, const Packet& pkt);
 
-        io_result read_packet(Connection& conn, Packet& pkt);
+        io_result read_packet(Connection& conn, const Packet& pkt);
 
-        io_result send_packets(Path& p, char* buf, size_t* bufsize, size_t& n_pkts);
-        io_result send_packet_libuv(Path& p, const char* buf, size_t bufsize, std::function<void()> after_sent = nullptr);
-        io_result send_packet(const Path& p, bstring_view data);
+        /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
+        ///
+        /// Upon success, updates n_pkts to 0 and returns an io_result with `.success()` true.
+        ///
+        /// If no packets could be sent because the socket would block, this returns an io_result
+        /// with `.blocked()` set to true.  buf/bufsize/n_pkts are not altered (since they have not
+        /// been sent).
+        ///
+        /// If some, but not all, packets were sent then `buf`, `bufsize`, and `n_pkts` will be
+        /// updated so that the *unsent* `n_pkts` packets begin at buf, with sizes given in
+        /// `bufsize` -- so that the same `buf`/`bufsize`/`n_pkts` can be passed in when ready to
+        /// retry sending.
+        ///
+        /// If a more serious error occurs (other than a blocked socket) then `n_pkts` is set to 0
+        /// (effectively dropping all packets) and a result is returned with `.failure()` true (and
+        /// `.blocked()` false).
+        io_result send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
 
-        void send_version_negotiation(const ngtcp2_version_cid& vid, Path& p);
+        // Less efficient wrapper around send_packets that takes care of queuing the packet if the
+        // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via
+        // more efficient direct send_packets calls with custom resend logic).
+        //
+        // The callback will be called with the final io_result once the packet is sent (or once it
+        // fails).  It can be called immediately, if the packet sends right away, but can be delayed
+        // if the socket would block.
+        void send_or_queue_packet(
+                const Path& p, std::vector<std::byte> buf, uint8_t ecn, std::function<void(io_result)> callback = nullptr);
+
+        void send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p);
 
         void check_timeouts();
 
-        Connection* accept_initial_connection(Packet& pkt, ConnectionID& dcid);
-
+        Connection* accept_initial_connection(const Packet& pkt, const ConnectionID& dcid);
     };
 
 }  // namespace oxen::quic

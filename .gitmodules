@@ -1,6 +1,3 @@
-[submodule "external/libuv"]
-	path = external/libuv
-	url = https://github.com/libuv/libuv.git
 [submodule "external/ngtcp2"]
 	path = external/ngtcp2
 	url = https://github.com/ngtcp2/ngtcp2.git
@@ -10,9 +7,6 @@
 [submodule "external/oxen-logging"]
 	path = external/oxen-logging
 	url = https://github.com/oxen-io/oxen-logging.git
-[submodule "external/uvw"]
-	path = external/uvw
-	url = https://github.com/skypjack/uvw.git
 [submodule "external/CLI11"]
 	path = tests/CLI11
 	url = https://github.com/CLIUtils/CLI11
