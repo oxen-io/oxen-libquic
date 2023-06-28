@@ -546,10 +546,10 @@ namespace oxen::quic
 
         if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
-            log::info(log_cat, "stream_open_callback returned error code {}, dropping stream {}", app_err_code, id);
-            ngtcp2_conn_shutdown_stream(conn.get(), 0, id, app_err_code);
-            io_ready();
-            return NGTCP2_ERR_CALLBACK_FAILURE;
+            log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
+            assert(endpoint().net.in_event_loop());
+            stream->close(app_err_code);
+            return 0;
         }
 
         auto [it, ins] = streams.emplace(id, std::move(stream));

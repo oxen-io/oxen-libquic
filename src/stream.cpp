@@ -50,6 +50,8 @@ namespace oxen::quic
 
     void Stream::close(uint64_t error_code)
     {
+        // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
+        // Stream that won't survive a return to the event loop.
         endpoint.net.call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
