@@ -79,8 +79,8 @@ namespace oxen::quic
 
         void io_ready();
 
-        const GNUTLSSession* get_session()
-        { return dynamic_cast<GNUTLSSession*>(tls_session.get()); };
+        const TLSSession* get_session() const
+        { return tls_session.get(); };
 
         std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) override;
@@ -147,7 +147,6 @@ namespace oxen::quic
         size_t n_packets = 0;
         uint8_t* send_buffer_pos = send_buffer.data();
 
-
         void schedule_retransmit(uint64_t ts = 0);
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
@@ -192,7 +191,7 @@ namespace oxen::quic
         }
 
         // returns number of currently pending streams for use in test cases
-        size_t num_pending()
+        size_t num_pending() const
         { return pending_streams.size(); }
     };
 

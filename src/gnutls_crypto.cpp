@@ -23,9 +23,9 @@ namespace oxen::quic
                 unsigned int incoming,
                 const gnutls_datum_t* msg)
         {
-            const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
-            const auto& conn = static_cast<Connection*>(conn_ref->user_data);
-            const GNUTLSSession* tls_session = conn->get_session();
+            const auto* conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
+            const auto* conn = static_cast<Connection*>(conn_ref->user_data);
+            const GNUTLSSession* tls_session = dynamic_cast<const GNUTLSSession*>(conn->get_session());
             assert(tls_session);
 
             return tls_session->do_tls_callback(session, htype, when, incoming, msg);
