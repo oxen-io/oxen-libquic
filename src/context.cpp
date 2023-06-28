@@ -1,80 +1,82 @@
 #include "context.hpp"
 
-#include "client.hpp"
 #include "connection.hpp"
-#include "server.hpp"
 
 namespace oxen::quic
 {
-    std::shared_ptr<Endpoint> ClientContext::endpoint()
-    {
-        return client;
-    }
-
-    std::shared_ptr<Endpoint> ServerContext::endpoint()
-    {
-        return server;
-    }
-
-    void ClientContext::handle_clientctx_opt(opt::local_addr addr)
+    void OutboundContext::handle_outbound_opt(opt::local_addr addr)
     {
         local = std::move(addr);
-        log::trace(log_cat, "Client stored local address: {}", local);
+        log::trace(log_cat, "Outboun context stored local address: {}", local);
     }
 
-    void ClientContext::handle_clientctx_opt(opt::remote_addr addr)
+    void OutboundContext::handle_outbound_opt(opt::remote_addr addr)
     {
         remote = std::move(addr);
-        log::trace(log_cat, "Client stored remote address: {}", remote);
+        log::trace(log_cat, "Outbound context stored remote address: {}", remote);
     }
 
-    void ClientContext::handle_clientctx_opt(std::shared_ptr<TLSCreds> tls)
+    void OutboundContext::handle_outbound_opt(std::shared_ptr<TLSCreds> tls)
     {
         tls_creds = std::move(tls);
+        log::trace(log_cat, "Outbound context stored TLS credentials", remote);
     }
 
-    void ClientContext::handle_clientctx_opt(opt::max_streams ms)
+    void OutboundContext::handle_outbound_opt(opt::max_streams ms)
     {
         config.max_streams = ms.stream_count;
         log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);
     }
 
-    void ClientContext::handle_clientctx_opt(stream_data_callback_t func)
+    void OutboundContext::handle_outbound_opt(stream_close_callback_t func)
     {
-        log::trace(log_cat, "Client given stream data callback");
+        log::trace(log_cat, "Inbound context stored stream close callback");
+        stream_close_cb = std::move(func);
+    }
+
+    void OutboundContext::handle_outbound_opt(stream_data_callback_t func)
+    {
+        log::trace(log_cat, "Outbound context stored stream data callback");
         stream_data_cb = std::move(func);
     }
 
-    void ClientContext::handle_clientctx_opt(stream_open_callback_t func)
+    void OutboundContext::handle_outbound_opt(stream_open_callback_t func)
     {
-        log::trace(log_cat, "Client given stream open callback");
+        log::trace(log_cat, "Outbound context stored stream open callback");
         stream_open_cb = std::move(func);
     }
 
-    void ServerContext::handle_serverctx_opt(opt::local_addr addr)
+    void InboundContext::handle_inbound_opt(opt::local_addr addr)
     {
         local = std::move(addr);
-        log::trace(log_cat, "Server stored bind address: {}", local);
+        log::trace(log_cat, "Inbound context stored bind address: {}", local);
     }
 
-    void ServerContext::handle_serverctx_opt(std::shared_ptr<TLSCreds> tls)
+    void InboundContext::handle_inbound_opt(std::shared_ptr<TLSCreds> tls)
     {
         tls_creds = std::move(tls);
+        log::trace(log_cat, "Inbound context stored TLS credentials", remote);
     }
 
-    void ServerContext::handle_serverctx_opt(stream_data_callback_t func)
+    void InboundContext::handle_inbound_opt(stream_data_callback_t func)
     {
-        log::trace(log_cat, "Server given stream data callback");
+        log::trace(log_cat, "Inbound context stored stream data callback");
         stream_data_cb = std::move(func);
     }
 
-    void ServerContext::handle_serverctx_opt(stream_open_callback_t func)
+    void InboundContext::handle_inbound_opt(stream_open_callback_t func)
     {
-        log::trace(log_cat, "Server given stream open callback");
+        log::trace(log_cat, "Inbound context stored stream open callback");
         stream_open_cb = std::move(func);
     }
 
-    void ServerContext::handle_serverctx_opt(opt::max_streams ms)
+    void InboundContext::handle_inbound_opt(stream_close_callback_t func)
+    {
+        log::trace(log_cat, "Inbound context stored stream close callback");
+        stream_close_cb = std::move(func);
+    }
+
+    void InboundContext::handle_inbound_opt(opt::max_streams ms)
     {
         config.max_streams = ms.stream_count;
         log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);

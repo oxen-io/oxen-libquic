@@ -12,6 +12,8 @@ extern "C"
 #include <sys/socket.h>
 }
 
+#include <oxenc/endian.h>
+#include <oxenc/hex.h>
 #include <fmt/core.h>
 
 #include <algorithm>
@@ -20,7 +22,9 @@ extern "C"
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <iostream>
+#include <map>
 #include <oxen/log.hpp>
 #include <oxen/log/format.hpp>
 #include <random>
@@ -97,6 +101,13 @@ namespace oxen::quic
     // Callbacks for ev timer functionality
     using read_callback = std::function<void(uvw::loop* loop, uvw::timer_event* ev, int revents)>;
     using timer_callback = std::function<void(int nwrite, void* user_data)>;
+    // Callbacks for client/server TLS connectivity and authentication
+    using session_tls_callback_t = std::function<int(
+            gnutls_session_t session,
+            unsigned int htype,
+            unsigned int when,
+            unsigned int incoming,
+            const gnutls_datum_t* msg)>;
 
     // Stream callbacks
     using stream_data_callback_t = std::function<void(Stream&, bstring_view)>;
@@ -194,6 +205,8 @@ namespace oxen::quic
         return numeric_host_family(hostname, AF_INET) || numeric_host_family(hostname, AF_INET6);
     }
 
+    enum class Direction { OUTBOUND = 0, INBOUND = 1 };
+
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
     {
@@ -271,36 +284,48 @@ namespace oxen::quic
             return *this;
         }
 
-        bool is_ipv4() const
+        inline bool is_ipv4() const
         {
             return _addr.addrlen == sizeof(sockaddr_in) &&
                    reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_family == AF_INET;
         }
-        bool is_ipv6() const
+        inline bool is_ipv6() const
         {
             return _addr.addrlen == sizeof(sockaddr_in6) &&
                    reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_family == AF_INET6;
         }
 
         // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
-        const sockaddr_in& in4() const
+        inline const sockaddr_in& in4() const
         {
             assert(is_ipv4());
             return reinterpret_cast<const sockaddr_in&>(_sock_addr);
         }
 
         // Accesses the sockaddr_in6 for this address.  Precondition: `is_ipv6()`
-        const sockaddr_in6& in6() const
+        inline const sockaddr_in6& in6() const
         {
             assert(is_ipv6());
             return reinterpret_cast<const sockaddr_in6&>(_sock_addr);
         }
 
-        uint16_t port() const
+        inline uint16_t port_horder() const
         {
             assert(is_ipv4() || is_ipv6());
-            return is_ipv4() ? reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port
+            return is_ipv4() ? ntohs(reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port)
                              : reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port;
+        }
+
+        inline uint16_t port() const
+        {
+            assert(is_ipv4() || is_ipv6());
+
+            return oxenc::big_to_host(
+                is_ipv4() ? 
+                    reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_port : 
+                    reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_port
+            );
+
         }
 
         // template code to implicitly convert to sockaddr*, sockaddr_in*, sockaddr_in6* so that
@@ -490,10 +515,6 @@ namespace oxen::quic
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
     }
-
-    // Namespacing for named address arguments in API calls
-    namespace opt
-    {}  // namespace opt
 
     struct buffer_printer
     {

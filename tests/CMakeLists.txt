@@ -15,20 +15,20 @@ add_executable(test_all
 target_link_libraries(test_all PUBLIC quic Catch2::Catch2WithMain)
 set_target_properties(test_all PROPERTIES OUTPUT_NAME alltests)
 
-add_executable(
-    test_client
-    test_client.cpp)
-target_link_libraries(test_client PRIVATE quic)
+#add_executable(
+#    test_client
+#    test_client.cpp)
+#target_link_libraries(test_client PRIVATE quic)
 
-add_executable(
-    test_server
-    test_server.cpp)
-target_link_libraries(test_server PRIVATE quic)
+#add_executable(
+#    test_server
+#    test_server.cpp)
+#target_link_libraries(test_server PRIVATE quic)
 
-add_executable(
-    test_multiclient
-    test_multiclient.cpp)
-target_link_libraries(test_multiclient PUBLIC quic)
+#add_executable(
+#    test_multiclient
+#    test_multiclient.cpp)
+#target_link_libraries(test_multiclient PUBLIC quic)
 
 if(NOT TARGET sodium)
     find_package(PkgConfig REQUIRED)
@@ -39,5 +39,5 @@ endif()
 
 foreach(x speedtest-client speedtest-server)
     add_executable(${x} ${x}.cpp)
-    target_link_libraries(${x} PRIVATE quic CLI11::CLI11 sodium oxenc)
+    target_link_libraries(${x} PRIVATE quic CLI11::CLI11 sodium)
 endforeach()

@@ -21,6 +21,7 @@ extern "C"
 namespace oxen::quic
 {
     class Connection;
+    class Endpoint;
 
     class Stream : public std::enable_shared_from_this<Stream>
     {
@@ -28,10 +29,11 @@ namespace oxen::quic
 
       public:
         Stream(Connection& conn,
+               Endpoint& ep,
                stream_data_callback_t data_cb = nullptr,
                stream_close_callback_t close_cb = nullptr,
                int64_t stream_id = -1);
-        Stream(Connection& conn, int64_t stream_id);
+        Stream(Connection& conn, Endpoint& ep, int64_t stream_id);
         ~Stream();
 
         stream_data_callback_t data_callback;
@@ -74,18 +76,6 @@ namespace oxen::quic
             log::trace(log_cat, "size={}, unacked={}", size(), unacked());
             return size() - unacked();
         }
-
-        // Retrieve stashed data with static cast to desired type
-        template <typename T>
-        std::shared_ptr<T> get_user_data() const
-        {
-            return std::static_pointer_cast<T>(
-                    std::holds_alternative<std::shared_ptr<void>>(user_data)
-                            ? std::get<std::shared_ptr<void>>(user_data)
-                            : std::get<std::weak_ptr<void>>(user_data).lock());
-        }
-
-        void set_user_data(std::shared_ptr<void> data);
 
         void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr);
 
@@ -264,7 +254,6 @@ namespace oxen::quic
         bool sent_fin{false};
         bool ready{false};
 
-        // TOTHINK: maybe should store a ptr to network or handler here?
-        std::variant<std::shared_ptr<void>, std::weak_ptr<void>> user_data;
+        Endpoint& endpoint;
     };
 }  // namespace oxen::quic

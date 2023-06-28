@@ -11,11 +11,17 @@ extern "C"
 #include "connection.hpp"
 #include "context.hpp"
 #include "endpoint.hpp"
+#include "network.hpp"
 
 namespace oxen::quic
 {
-    Stream::Stream(Connection& conn, stream_data_callback_t data_cb, stream_close_callback_t close_cb, int64_t stream_id) :
-            conn{conn}, stream_id{stream_id}, data_callback{data_cb}
+    Stream::Stream(
+            Connection& conn,
+            Endpoint& _ep,
+            stream_data_callback_t data_cb,
+            stream_close_callback_t close_cb,
+            int64_t stream_id) :
+            conn{conn}, endpoint{_ep}, stream_id{stream_id}, data_callback{data_cb}
     {
         log::trace(log_cat, "Creating Stream object...");
 
@@ -26,7 +32,7 @@ namespace oxen::quic
         log::trace(log_cat, "Stream object created");
     }
 
-    Stream::Stream(Connection& conn, int64_t stream_id) : Stream{conn, nullptr, nullptr, stream_id} {}
+    Stream::Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
 
     Stream::~Stream()
     {
@@ -46,7 +52,7 @@ namespace oxen::quic
 
     void Stream::close(uint64_t error_code)
     {
-        conn.quic_manager->call([this, error_code]() {
+        endpoint.net.call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
@@ -149,14 +155,9 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        conn.quic_manager->call([this, data, keep_alive]() {
+        endpoint.net.call([this, data, keep_alive]() {
             log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);
         });
-    }
-
-    void Stream::set_user_data(std::shared_ptr<void> data)
-    {
-        conn.quic_manager->call([this, data]() { user_data = std::move(data); });
     }
 }  // namespace oxen::quic

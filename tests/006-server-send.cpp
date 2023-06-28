@@ -39,38 +39,40 @@ namespace oxen::quic::test
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-        opt::local_addr server_local{"127.0.0.1"s, static_cast<uint16_t>(5500)};
-        opt::local_addr client_local{"127.0.0.1"s, static_cast<uint16_t>(4400)};
-        opt::remote_addr client_remote{"127.0.0.1"s, static_cast<uint16_t>(5500)};
+        opt::local_addr server_local{"127.0.0.1"s, 5500};
+        opt::local_addr client_local{"127.0.0.1"s, 4400};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
-        log::debug(log_cat, "Calling 'server_listen'...");
-        auto server = test_net.server_listen(server_local, server_tls, stream_open_cb, server_stream_data_cb);
+        auto server_endpoint = test_net.endpoint(server_local);
+        bool sinit = server_endpoint->listen(server_tls, stream_open_cb, server_stream_data_cb);
 
-        log::debug(log_cat, "Calling 'client_connect'...");
-        auto client = test_net.client_connect(client_local, client_remote, client_tls, client_stream_data_cb);
+        REQUIRE(sinit);
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_stream_data_cb);
+
+        std::this_thread::sleep_for(100ms);
 
         std::thread client_thread([&]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            auto stream = client->open_stream();
+            auto stream = conn_interface->get_new_stream();
             log::trace(log_cat, "Client sending stream message");
             stream->send(msg);
         });
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        std::this_thread::sleep_for(100ms);
 
         std::thread server_thread([&]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             log::trace(log_cat, "Server sending stream message");
             server_stream->send(msg);
         });
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        std::this_thread::sleep_for(100ms);
 
         REQUIRE(stream_check.load() == true);
         REQUIRE(data_check.load() == 2);
-        test_net.close();
 
         client_thread.join();
         server_thread.join();
+        test_net.close();
     };
 }  // namespace oxen::quic::test

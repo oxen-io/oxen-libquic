@@ -27,6 +27,7 @@ namespace oxen::quic
 
       public:
         virtual void* get_session() = 0;
+        virtual ~TLSSession() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); }
     };
 
 }  // namespace oxen::quic
