@@ -245,8 +245,7 @@ namespace oxen::quic
     std::pair<io_result, size_t> UDPSocket::send(
             const Address& dest, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
     {
-        std::array<mmsghdr, MAX_BATCH> msgs{};
-        std::array<iovec, MAX_BATCH> iovs{};
+
         auto* next_buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
         int rv;
         size_t sent = 0;
@@ -259,7 +258,6 @@ namespace oxen::quic
         }
 
 #ifdef OXEN_LIBQUIC_UDP_GSO
-#define OXEN_LIBQUIC_SEND_TYPE "GSO"
 
         // With GSO, we use *one* sendmmsg call which can contain multiple batches of packets; each
         // batch is of size n, where each of the n have the same size.
@@ -269,6 +267,9 @@ namespace oxen::quic
         std::array<std::array<char, CMSG_SPACE(sizeof(uint16_t))>, DATAGRAM_BATCH_SIZE> controls{};
         std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
         std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
+
+        std::array<mmsghdr, MAX_BATCH> msgs{};
+        std::array<iovec, MAX_BATCH> iovs{};
 
         unsigned int msg_count = 0;
         for (size_t i = 0; i < n_pkts; i++)
@@ -346,7 +347,9 @@ namespace oxen::quic
         }
 
 #elif defined(OXEN_LIBQUIC_UDP_SENDMMSG)  // sendmmsg, but not GSO
-#define OXEN_LIBQUIC_SEND_TYPE "sendmmsg"
+
+        std::array<mmsghdr, MAX_BATCH> msgs{};
+        std::array<iovec, MAX_BATCH> iovs{};
 
         for (size_t i = 0; i < n_pkts; i++)
         {
@@ -371,9 +374,8 @@ namespace oxen::quic
         sent = rv >= 0 ? rv : 0;
 
 #else  // No sendmmsg at all, so we just use sendmsg in a loop
-#define OXEN_LIBQUIC_SEND_TYPE "sendmsg"
-        auto& hdr = msgs[0].msg_hdr;
-        auto& iov = iovs[0];
+        msghdr hdr{};
+        iovec iov;
         hdr.msg_iov = &iov;
         hdr.msg_name = dest_sa;
         hdr.msg_namelen = dest.socklen();
