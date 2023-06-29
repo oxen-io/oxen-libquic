@@ -14,7 +14,7 @@ target_link_libraries(quic
     PUBLIC
     ngtcp2::crypto
     libevent::core libevent::pthreads
-    gnutls
+    gnutls::gnutls
     oxen::logging
     common
     oxenc

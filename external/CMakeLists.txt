@@ -60,3 +60,9 @@ foreach(libevent_x core pthreads)
     target_link_libraries(libevent_${libevent_x} INTERFACE PkgConfig::LIBEVENT_${libevent_x})
     add_library(libevent::${libevent_x} ALIAS libevent_${libevent_x})
 endforeach()
+
+# gnutls
+add_library(gnutls INTERFACE)
+pkg_check_modules(GNUTLS gnutls>=3.7.2 IMPORTED_TARGET)
+target_link_libraries(gnutls INTERFACE PkgConfig::GNUTLS)
+add_library(gnutls::gnutls ALIAS gnutls)
