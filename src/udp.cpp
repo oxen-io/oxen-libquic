@@ -229,7 +229,8 @@ namespace oxen::quic
     // option.  At most one of these may be defined.
     //
     // OXEN_LIBQUIC_UDP_GSO -- use sendmmsg and GSO to batch-send packets.  Only works on
-    // Linux.
+    // Linux.  Will fall back to SENDMMSG if the required UDP_SEGMENT is not defined (i.e. on older
+    // Linux distros).
     // CMake option: -DLIBQUIC_SEND=gso
     //
     // OXEN_LIBQUIC_UDP_SENDMMSG -- use sendmmsg (but not GSO) to batch-send packets.  Only works on
@@ -240,6 +241,11 @@ namespace oxen::quic
 
 #if (defined(OXEN_LIBQUIC_UDP_GSO) + defined(OXEN_LIBQUIC_UDP_SENDMMSG)) > 1
 #error Only one of OXEN_LIBQUIC_UDP_GSO and OXEN_LIBQUIC_UDP_SENDMMSG may be set at once
+#endif
+
+#if defined(OXEN_LIBQUIC_UDP_GSO) && !defined(UDP_SEGMENT)
+#undef OXEN_LIBQUIC_UDP_GSO
+#define OXEN_LIBQUIC_UDP_SENDMMSG
 #endif
 
     std::pair<io_result, size_t> UDPSocket::send(
