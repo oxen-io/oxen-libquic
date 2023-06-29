@@ -53,6 +53,9 @@ add_library(common INTERFACE)
 # compilation, but not for potential external targets that depend on us.
 add_library(internal INTERFACE)
 
+include(cmake/check_for_std_filesystem.cmake)
+target_link_libraries(common INTERFACE filesystem)
+
 target_include_directories(common INTERFACE include)
 target_include_directories(internal INTERFACE include/quic)
 
