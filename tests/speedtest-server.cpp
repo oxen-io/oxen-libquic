@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
 
     log::debug(test_cat, "Calling 'server_listen'...");
     auto _server = server_net.endpoint(server_local);
-    bool sinit = _server->listen(server_tls, stream_opened, stream_data);
+    _server->listen(server_tls, stream_opened, stream_data);
 
     for (;;)
         std::this_thread::sleep_for(10min);

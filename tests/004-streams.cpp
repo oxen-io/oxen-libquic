@@ -16,12 +16,11 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::atomic<bool> good{false};
         std::atomic<int> data_check{0};
 
         opt::max_streams max_streams{8};
 
-        stream_data_callback_t server_stream_data_cb = [&](Stream& s, bstring_view dat) {
+        stream_data_callback_t server_stream_data_cb = [&](Stream& /*s*/, bstring_view /*dat*/) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
         };
@@ -34,7 +33,7 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        bool sinit = server_endpoint->listen(server_tls, max_streams, server_stream_data_cb);
+        server_endpoint->listen(server_tls, max_streams, server_stream_data_cb);
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);

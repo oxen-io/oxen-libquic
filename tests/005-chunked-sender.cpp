@@ -16,7 +16,7 @@ namespace oxen::quic::test
 
         std::mutex recv_mut;
         std::string received;
-        stream_data_callback_t stream_data_cb = [&](Stream& s, bstring_view data) {
+        stream_data_callback_t stream_data_cb = [&](Stream&, bstring_view data) {
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
         };
@@ -29,7 +29,7 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        bool sinit = server_endpoint->listen(server_tls, stream_data_cb);
+        server_endpoint->listen(server_tls, stream_data_cb);
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);

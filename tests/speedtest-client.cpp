@@ -228,13 +228,12 @@ int main(int argc, char* argv[])
                             uint8_t& checksum) {
         assert(size > 0);
 
-        using RNG_val = RNG::result_type;
+        using rng_value = RNG::result_type;
 
         static_assert(
-                RNG::min() == 0 && std::is_unsigned_v<RNG::result_type> &&
-                RNG::max() == std::numeric_limits<RNG::result_type>::max());
+                RNG::min() == 0 && std::is_unsigned_v<rng_value> &&
+                RNG::max() == std::numeric_limits<rng_value>::max());
 
-        using rng_value = typename RNG::result_type;
         constexpr size_t rng_size = sizeof(rng_value);
         const size_t rng_chunks = (size + rng_size - 1) / rng_size;
         const size_t size_data = rng_chunks * rng_size;
@@ -269,7 +268,7 @@ int main(int argc, char* argv[])
         log::warning(test_cat, "Pregenerating data...");
     }
 
-    for (int i = 0; i < parallel; i++)
+    for (size_t i = 0; i < parallel; i++)
     {
         uint64_t my_data = per_stream + (i == 0 ? size % parallel : 0);
         auto& s = *streams.emplace_back(std::make_unique<stream_data>(
@@ -289,7 +288,7 @@ int main(int argc, char* argv[])
 
     auto started_at = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < parallel; i++)
+    for (size_t i = 0; i < parallel; i++)
     {
         auto& s = *streams[i];
         s.stream = client_ci->get_new_stream();
@@ -334,7 +333,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    auto last_print = std::chrono::steady_clock::now();
     for (;;)
     {
         bool all_done = true;
