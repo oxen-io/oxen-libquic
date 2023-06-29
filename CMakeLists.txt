@@ -26,7 +26,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(WITH_LTO "Compile with Link-time Optimization" ON)
+option(BUILD_STATIC_DEPS "Download, build, and statically link against core dependencies" OFF)
+
+set(default_lto ON)
+if(WIN32 OR BUILD_STATIC_DEPS)
+    set(default_lto OFF)
+endif()
+option(WITH_LTO "Compile with Link-time Optimization" ${default_lto})
 if(WITH_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT IPO_ENABLED OUTPUT ipo_error)
@@ -46,6 +52,10 @@ if(IPO_ENABLED AND NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
 endif()
 
 include(GNUInstallDirs)
+
+if(BUILD_STATIC_DEPS)
+  include(StaticBuild)
+endif()
 
 # Interface target for any general includes, flags, etc. that is meant to be inherited publicly.
 add_library(common INTERFACE)

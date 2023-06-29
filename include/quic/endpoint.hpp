@@ -2,9 +2,13 @@
 
 extern "C"
 {
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <netinet/in.h>
+#endif
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
-#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>

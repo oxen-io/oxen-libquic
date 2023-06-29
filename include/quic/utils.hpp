@@ -2,14 +2,18 @@
 
 extern "C"
 {
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
-#include <netinet/in.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
-#include <sys/socket.h>
 }
 
 #include <event2/event.h>
@@ -56,6 +60,13 @@ namespace oxen::quic
     using bstring = std::basic_string<std::byte>;
     using bstring_view = std::basic_string_view<std::byte>;
     namespace log = oxen::log;
+
+    constexpr bool IN_HELL =
+#ifdef _WIN32
+            true;
+#else
+            false;
+#endif
 
     // SI (1000) and non-SI (1024-based) modifier prefix operators.  E.g.
     // 50_M is 50'000'000 and 50_Mi is 52'428'800.
@@ -455,27 +466,52 @@ namespace oxen::quic
         explicit io_result(int errno_val) : error_code{errno_val} {}
 
         // Constructs an io_result with an ngtcp2 error value.
-        io_result(int err, ngtcp2_error_code_t) : error_code{err}, is_ngtcp2{true} {}
+        static io_result ngtcp2(int err)
+        {
+            io_result e{err};
+            e.is_ngtcp2 = true;
+            return e;
+        }
 
-        // Same as the ngtcp2 error code constructor
-        static io_result ngtcp2(int err) { return io_result{err, ngtcp2_error_code}; }
+#ifdef _WIN32
+        // Constructs an io_result with a WSALastErrorCode value.
+        static io_result wsa(int err)
+        {
+            io_result e{err};
+            e.is_wsa = true;
+            return e;
+        }
+#endif
 
         // The numeric error code
         int error_code{0};
         // If true then `error_code` is an ngtcp2 error code, rather than an errno value.
         bool is_ngtcp2 = false;
+#ifdef _WIN32
+        // If true then this is a WSALastErrorCode error code value.
+        bool is_wsa = false;
+#endif
         // Returns true if this indicates success, i.e. error code of 0
-        bool success() const { return error_code == 0; }
+        bool success() const
+        {
+            return error_code == 0;
+        }
         // Returns true if this indicates failure, i.e. error code not 0
-        bool failure() const { return !success(); }
+        bool failure() const
+        {
+            return !success();
+        }
         // returns true if error value indicates a failure to write without blocking
         bool blocked() const
         {
             return is_ngtcp2 ? error_code == NGTCP2_ERR_STREAM_DATA_BLOCKED
-                             : (error_code == EAGAIN || error_code == EWOULDBLOCK);
+#ifdef _WIN32
+                 : is_wsa ? error_code == WSAEWOULDBLOCK
+#endif
+                          : (error_code == EAGAIN || error_code == EWOULDBLOCK);
         }
         // returns the error message string describing error_code
-        std::string_view str() const;
+        std::conditional_t<IN_HELL, std::string, std::string_view> str() const;
     };
 
     // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
@@ -567,7 +603,7 @@ namespace std
         size_t operator()(const oxen::quic::Address& addr) const
         {
             std::string_view addr_data;
-            in_port_t port;
+            uint16_t port;
             if (addr.is_ipv4())
             {
                 auto& ip4 = addr.in4();
@@ -583,7 +619,7 @@ namespace std
             }
 
             auto h = hash<string_view>{}(addr_data);
-            h ^= hash<in_port_t>{}(port) + inverse_golden_ratio + (h << 6) + (h >> 2);
+            h ^= hash<decltype(port)>{}(port) + inverse_golden_ratio + (h << 6) + (h >> 2);
             return h;
         }
     };

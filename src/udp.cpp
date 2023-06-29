@@ -1,8 +1,3 @@
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <winsock2.h>
-#endif
 
 extern "C"
 {
@@ -23,21 +18,47 @@ extern "C"
 namespace oxen::quic
 {
 
-#ifndef _WIN32
+#ifdef _WIN32
+    static_assert(std::is_same_v<UDPSocket::socket_t, SOCKET>);
+#endif
 
     /// Checks rv for being -1 and, if so, raises a system_error from errno.  Otherwise returns it.
     static int check_rv(int rv)
     {
+#ifdef _WIN32
+        if (rv == SOCKET_ERROR)
+            throw std::system_error{WSAGetLastError(), std::system_category()};
+#else
         if (rv == -1)
             throw std::system_error{errno, std::system_category()};
+#endif
         return rv;
     }
 
     Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
-            path{local, {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}}, data{data}
+            path{local,
+#ifdef _WIN32
+                 {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
+#else
+                 {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}
+#endif
+            },
+            data{data}
     {
         // ECN flag:
         assert(path.remote.is_ipv4() || path.remote.is_ipv6());
+#ifdef _WIN32
+        for (auto cmsg = WSA_CMSG_FIRSTHDR(&hdr); cmsg; cmsg = WSA_CMSG_NXTHDR(&hdr, cmsg))
+        {
+            if ((path.remote.is_ipv4() ? (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_ECN)
+                                       : (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_ECN)) &&
+                cmsg->cmsg_len > 0)
+            {
+                pkt_info.ecn = *reinterpret_cast<uint8_t*>(WSA_CMSG_DATA(cmsg));
+                break;
+            }
+        }
+#else
         for (auto cmsg = CMSG_FIRSTHDR(&hdr); cmsg; cmsg = CMSG_NXTHDR(&hdr, cmsg))
         {
             if ((path.remote.is_ipv4() ? (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS)
@@ -48,7 +69,58 @@ namespace oxen::quic
                 break;
             }
         }
+#endif
     }
+
+#ifdef _WIN32
+    std::mutex get_wsa_mutex;
+    LPFN_WSASENDMSG WSASendMsg = nullptr;
+    LPFN_WSARECVMSG WSARecvMsg = nullptr;
+
+    static void init_wsa_bs()
+    {
+        std::lock_guard lock{get_wsa_mutex};
+        if (!(WSARecvMsg && WSASendMsg))
+        {
+            GUID recvmsg_guid = WSAID_WSARECVMSG;
+            GUID sendmsg_guid = WSAID_WSASENDMSG;
+            SOCKET tmpsock = INVALID_SOCKET;
+            DWORD nothing = 0;
+            tmpsock = socket(AF_INET, SOCK_DGRAM, 0);
+            if (auto rv = WSAIoctl(
+                        tmpsock,
+                        SIO_GET_EXTENSION_FUNCTION_POINTER,
+                        &recvmsg_guid,
+                        sizeof(recvmsg_guid),
+                        &WSARecvMsg,
+                        sizeof(WSARecvMsg),
+                        &nothing,
+                        nullptr,
+                        nullptr);
+                rv == SOCKET_ERROR)
+            {
+                log::critical(log_cat, "WSAIoctl magic BS failed to retrieve magic BS recvmsg wannabe function pointer!");
+                throw std::runtime_error{"Unable to initialize windows recvmsg function pointer!"};
+            }
+
+            if (auto rv = WSAIoctl(
+                        tmpsock,
+                        SIO_GET_EXTENSION_FUNCTION_POINTER,
+                        &recvmsg_guid,
+                        sizeof(recvmsg_guid),
+                        &WSASendMsg,
+                        sizeof(WSASendMsg),
+                        &nothing,
+                        nullptr,
+                        nullptr);
+                rv == SOCKET_ERROR)
+            {
+                log::critical(log_cat, "WSAIoctl magic BS failed to retrieve magic BS sendmsg-wannabe function pointer!");
+                throw std::runtime_error{"Unable to initialize windows sendmsg function pointer!"};
+            }
+        }
+    }
+#endif
 
     UDPSocket::UDPSocket(event_base* ev_loop, const Address& addr, receive_callback_t on_receive) :
             ev_{ev_loop}, receive_callback_{std::move(on_receive)}
@@ -58,23 +130,41 @@ namespace oxen::quic
         if (!receive_callback_)
             throw std::logic_error{"UDPSocket construction requires a non-empty receive callback"};
 
+#ifdef _WIN32
+        init_wsa_bs();
+#endif
+
         sock_ = check_rv(socket(addr.is_ipv6() ? AF_INET6 : AF_INET, SOCK_DGRAM, 0));
 
         check_rv(bind(sock_, addr, addr.socklen()));
         check_rv(getsockname(sock_, bound_, bound_.socklen_ptr()));
+
+        // Make the socket non-blocking:
+#ifdef _WIN32
+        u_long mode = 1;
+        ioctlsocket(sock_, FIONBIO, &mode);
+#else
         check_rv(fcntl(sock_, F_SETFL, O_NONBLOCK));
-        unsigned int on = 1;
+#endif
+
+        // Enable ECN notification on packets we receive:
+#ifdef _WIN32
+        const char on = 1;
+#else
+        const unsigned int on = 1;
+#endif
         if (addr.is_ipv6())
             check_rv(setsockopt(sock_, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on)));
         else
             check_rv(setsockopt(sock_, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on)));
+
         set_ecn();
 
         rev_.reset(event_new(
                 ev_,
                 sock_,
                 EV_READ | EV_PERSIST,
-                [](socket_t, short, void* self) { static_cast<UDPSocket*>(self)->receive(); },
+                [](evutil_socket_t, short, void* self) { static_cast<UDPSocket*>(self)->receive(); },
                 this));
         event_add(rev_.get(), nullptr);
 
@@ -82,7 +172,7 @@ namespace oxen::quic
                 ev_,
                 sock_,
                 EV_WRITE,
-                [](socket_t, short, void* self_) {
+                [](evutil_socket_t, short, void* self_) {
                     auto* self = static_cast<UDPSocket*>(self_);
                     auto callbacks = std::move(self->writeable_callbacks_);
                     for (const auto& f : callbacks)
@@ -94,20 +184,37 @@ namespace oxen::quic
 
     UDPSocket::~UDPSocket()
     {
-        if (sock_ != -1)
-            ::close(sock_);
+#ifdef _WIN32
+        ::closesocket(sock_);
+#else
+        ::close(sock_);
+#endif
     }
 
     // Updates the socket's ECN value to `ecn_`.
     void UDPSocket::set_ecn()
     {
         int rv;
+        auto& ecn =
+#ifdef _WIN32
+                reinterpret_cast<char&>(ecn_);
+#else
+                ecn_;
+#endif
         if (bound_.is_ipv6())
-            rv = setsockopt(sock_, IPPROTO_IPV6, IPV6_TCLASS, &ecn_, sizeof(ecn_));
+            rv = setsockopt(sock_, IPPROTO_IPV6, IPV6_TCLASS, &ecn, sizeof(ecn_));
         else
-            rv = setsockopt(sock_, IPPROTO_IP, IP_TOS, &ecn_, sizeof(ecn_));
+            rv = setsockopt(sock_, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn_));
         if (rv == -1)  // Just warn; this isn't fatal
-            log::warning(log_cat, "Failed to update ECN on socket: {}", strerror(errno));
+            log::warning(
+                    log_cat,
+                    "Failed to update ECN on socket: {}",
+#ifdef _WIN32
+                    WSAGetLastError()
+#else
+                    strerror(errno)
+#endif
+            );
     }
 
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
@@ -122,7 +229,13 @@ namespace oxen::quic
 
         // This flag means the packet payload couldn't fit in max_payload_size, but that should
         // never happen (at least as long as the other end is a proper libquic client).
-        if (hdr.msg_flags & MSG_TRUNC)
+        if (MSG_TRUNC &
+#ifdef _WIN32
+            hdr.dwFlags
+#else
+            hdr.msg_flags
+#endif
+        )
         {
             log::warning(log_cat, "Dropping truncated UDP packet");
             return;
@@ -133,8 +246,6 @@ namespace oxen::quic
 
     io_result UDPSocket::receive()
     {
-        assert(sock_ != -1);
-
 #ifdef OXEN_LIBQUIC_RECVMMSG
         std::array<sockaddr_in6, DATAGRAM_BATCH_SIZE> peers;
         std::array<iovec, DATAGRAM_BATCH_SIZE> iovs;
@@ -187,8 +298,19 @@ namespace oxen::quic
 
 #else  // no recvmmsg
 
-        sockaddr_in6 peer{};
+        sockaddr_storage peer{};
         std::array<std::byte, max_payload_size> data;
+#ifdef _WIN32
+        // Microsoft renames everything but uses the same structure just to be obtuse:
+        WSABUF iov;
+        iov.buf = reinterpret_cast<char*>(data.data());
+        iov.len = data.size();
+        WSAMSG hdr{};
+        hdr.lpBuffers = &iov;
+        hdr.dwBufferCount = 1;
+        hdr.name = reinterpret_cast<sockaddr*>(&peer);
+        hdr.namelen = sizeof(peer);
+#else
         iovec iov;
         iov.iov_base = data.data();
         iov.iov_len = data.size();
@@ -197,10 +319,22 @@ namespace oxen::quic
         hdr.msg_iovlen = 1;
         hdr.msg_name = &peer;
         hdr.msg_namelen = sizeof(peer);
+#endif
 
         size_t count = 0;
         do
         {
+#ifdef _WIN32
+            DWORD nbytes;
+            auto rv = WSARecvMsg(sock_, &hdr, &nbytes, nullptr, nullptr);
+            if (rv == SOCKET_ERROR)
+            {
+                auto error = WSAGetLastError();
+                if (error == WSAEWOULDBLOCK)
+                    return io_result{};
+                return io_result::wsa(error);
+            }
+#else
             int nbytes;
             do
             {
@@ -213,6 +347,7 @@ namespace oxen::quic
                     return io_result{};
                 return io_result{errno};
             }
+#endif
 
             process_packet(bstring_view{data.data(), static_cast<size_t>(nbytes)}, hdr);
 
@@ -380,24 +515,48 @@ namespace oxen::quic
         sent = rv >= 0 ? rv : 0;
 
 #else  // No sendmmsg at all, so we just use sendmsg in a loop
+
+#ifdef _WIN32
+        // Microsoft renames everything but uses the same structure just to be obtuse:
+        WSABUF iov;
+        WSAMSG hdr{};
+        hdr.lpBuffers = &iov;
+        hdr.dwBufferCount = 1;
+        hdr.name = dest_sa;
+        hdr.namelen = dest.socklen();
+#else
         msghdr hdr{};
         iovec iov;
         hdr.msg_iov = &iov;
         hdr.msg_iovlen = 1;
         hdr.msg_name = dest_sa;
         hdr.msg_namelen = dest.socklen();
+#endif
 
         for (int i = 0; i < n_pkts; ++i)
         {
             assert(bufsize[i] > 0);
+#ifdef _WIN32
+            iov.buf = next_buf;
+            iov.len = bufsize[i];
+            next_buf += bufsize[i];
+
+            DWORD bytes_sent;
+            rv = WSASendMsg(sock_, &hdr, 0, &bytes_sent, nullptr, nullptr);
+            if (rv == SOCKET_ERROR)
+                return {io_result::wsa(WSAGetLastError()), sent};
+            assert(bytes_sent == bufsize[i]);
+
+#else
             iov.iov_base = next_buf;
             iov.iov_len = bufsize[i];
             next_buf += bufsize[i];
 
             rv = sendmsg(sock_, &hdr, 0);
-            assert(rv == bufsize[i] || rv < 0);
             if (rv < 0)
                 break;
+            assert(rv == bufsize[i]);
+#endif
 
             sent++;
         }
@@ -405,12 +564,6 @@ namespace oxen::quic
 
         return {io_result{rv < 0 ? errno : 0}, sent};
     }
-
-#else
-
-    static_assert(std::is_same_v<UDPSocket::socket_t, SOCKET>);
-
-#endif
 
     void UDPSocket::when_writeable(std::function<void()> cb)
     {

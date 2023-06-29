@@ -1,12 +1,30 @@
 #pragma once
 
+extern "C"
+{
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <mswsock.h>
+#include <winsock2.h>
+#else
+#include <netinet/in.h>
+#endif
+}
+
+#include <event2/event.h>
+
 #include <cstdint>
 
-#include "event2/event.h"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
+#ifdef _WIN32
+    using msghdr = WSAMSG;
+#else
+    using msghdr = ::msghdr;
+#endif
+
     // Simple struct wrapping a packet and its corresponding information
     struct Packet
     {
@@ -19,6 +37,7 @@ namespace oxen::quic
 
         /// Constructs a packet from a local address, data, and the IP header; remote addr and ECN
         /// data are extracted from the header.
+
         Packet(const Address& local, bstring_view data, msghdr& hdr);
     };
 
@@ -31,7 +50,7 @@ namespace oxen::quic
 #ifndef _WIN32
                 int
 #else
-                std::uintptr_t  // aka SOCKET
+                SOCKET
 #endif
                 ;
 

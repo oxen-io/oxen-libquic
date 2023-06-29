@@ -2,9 +2,9 @@
     Test server binary
 */
 
+#include <gnutls/gnutls.h>
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
-#include <gnutls/gnutls.h>
 
 #include <CLI/Validators.hpp>
 #include <future>
@@ -83,19 +83,14 @@ int main(int argc, char* argv[])
 
     struct stream_info
     {
-        explicit stream_info(uint64_t expected) : expected{expected}
-        {
-            gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256);
-        }
+        explicit stream_info(uint64_t expected) : expected{expected} { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
 
         uint64_t expected;
         uint64_t received = 0;
         unsigned char checksum = 0;
         gnutls_hash_hd_t hasher;
 
-        ~stream_info() {
-            gnutls_hash_deinit(hasher, nullptr);
-        }
+        ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
     };
 
     std::unordered_map<ConnectionID, std::map<int64_t, stream_info>> csd;
@@ -141,8 +136,7 @@ int main(int argc, char* argv[])
         }
 
         if (!no_hash)
-            gnutls_hash(
-                    info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+            gnutls_hash(info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
 
         if (info.received >= info.expected)
         {

@@ -33,7 +33,7 @@ namespace oxen::quic
     {
         fs::path path{};
         gnutls_datum_t mem{};
-        gnutls_x509_crt_fmt_t ext{};
+        gnutls_x509_crt_fmt_t format{};
         bool from_mem{false};
 
         datum() = default;
@@ -41,7 +41,7 @@ namespace oxen::quic
         {
             if (fs::exists(path))
             {
-                ext = (str_tolower(path.extension()) == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
+                format = (str_tolower(path.extension().u8string()) == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
                 mem.data = nullptr;
                 mem.size = 0;
             }
@@ -49,7 +49,7 @@ namespace oxen::quic
             {
                 path = NULL;
                 mem = {(uint8_t*)input.data(), (uint8_t)input.size()};
-                ext = !("-----"s.compare(input.substr(0, 5))) ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
+                format = !("-----"s.compare(input.substr(0, 5))) ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
                 from_mem = true;
             }
         }
@@ -62,17 +62,20 @@ namespace oxen::quic
             path = other.path;
             std::memcpy(mem.data, other.mem.data, other.mem.size);
             mem.size = other.mem.size;
-            ext = other.ext;
+            format = other.format;
             from_mem = other.from_mem;
             return *this;
         }
 
-        // returns truew if path is not empty OR mem has a value set
-        inline explicit operator bool() const noexcept { return (!path.empty() || mem.size); }
+        // returns true if path is not empty OR mem has a value set
+        explicit operator bool() const noexcept { return (!path.empty() || mem.size); }
 
-        operator const char*() { return path.c_str(); }
-        operator const gnutls_datum_t*() { return &mem; }
-        operator gnutls_x509_crt_fmt_t() { return ext; }
+        // Hidden behind a template so that implicit conversion to pointer doesn't cause trouble
+        template <typename T, typename = std::enable_if_t<std::is_same_v<T, gnutls_datum_t>>>
+        operator const T*() const
+        {
+            return &mem;
+        }
     };
 
     class GNUTLSCreds : public TLSCreds
