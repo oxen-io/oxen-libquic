@@ -754,8 +754,6 @@ namespace oxen::quic
             _source_cid{scid},
             _dest_cid{dcid},
             _path{path},
-            _local{ep.local},
-            _remote{path.remote},
             context{std::move(ctx)},
             tls_creds{context->tls_creds},
             user_config{context->config},

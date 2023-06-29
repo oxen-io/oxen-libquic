@@ -93,8 +93,6 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        const Address _local;
-        const Address _remote;
         std::function<void(Connection&)> on_closing;  // clear immediately after use
 
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
