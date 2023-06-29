@@ -377,6 +377,7 @@ namespace oxen::quic
         msghdr hdr{};
         iovec iov;
         hdr.msg_iov = &iov;
+        hdr.msg_iovlen = 1;
         hdr.msg_name = dest_sa;
         hdr.msg_namelen = dest.socklen();
 
