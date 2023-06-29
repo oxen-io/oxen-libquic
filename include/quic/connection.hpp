@@ -36,6 +36,8 @@ namespace oxen::quic
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
 
         virtual const ConnectionID& scid() const = 0;
+
+        virtual ~connection_interface() = default;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -156,8 +158,6 @@ namespace oxen::quic
         // holds queue of pending streams not yet ready to broadcast
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
-
-        ngtcp2_ccerr last_error;
 
       public:
         // Buffer used to store non-stream connection data

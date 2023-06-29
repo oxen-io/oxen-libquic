@@ -17,6 +17,7 @@ namespace oxen::quic
     {
       public:
         virtual std::unique_ptr<TLSSession> make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client) = 0;
+        virtual ~TLSCreds() = default;
     };
 
     class TLSSession
