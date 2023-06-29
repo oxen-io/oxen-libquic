@@ -162,8 +162,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_closed(int64_t id, uint64_t app_code);
-        void check_pending_streams(
-                int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+        void check_pending_streams(int available);
 
         // Implicit conversion of Connection to the underlying ngtcp2_conn* (so that you can pass a
         // Connection directly to ngtcp2 functions taking a ngtcp2_conn* argument).

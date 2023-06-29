@@ -19,7 +19,7 @@ extern "C"
 
 namespace oxen::quic
 {
-    Endpoint::Endpoint(Network& n, const Address& listen_addr) : net{n}, local{listen_addr}
+    Endpoint::Endpoint(Network& n, const Address& listen_addr) : local{listen_addr}, net{n}
     {
         log::debug(log_cat, "Starting new UDP socket on {}", local);
         socket = std::make_unique<UDPSocket>(get_loop().get(), local, [this](const auto& packet) { handle_packet(packet); });
@@ -101,7 +101,7 @@ namespace oxen::quic
         {
             if (accepting_inbound)
             {
-                cptr = accept_initial_connection(pkt, dcid);
+                cptr = accept_initial_connection(pkt);
 
                 if (!cptr)
                 {
@@ -224,7 +224,7 @@ namespace oxen::quic
         return std::make_optional<ConnectionID>(vid.dcid, vid.dcidlen);
     }
 
-    Connection* Endpoint::accept_initial_connection(const Packet& pkt, const ConnectionID& dcid)
+    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
     {
         log::info(log_cat, "Accepting new connection...");
 

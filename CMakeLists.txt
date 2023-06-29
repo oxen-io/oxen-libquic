@@ -63,9 +63,16 @@ add_library(internal INTERFACE)
 target_include_directories(common INTERFACE include)
 target_include_directories(internal INTERFACE include/quic)
 
-if(WARNINGS_AS_ERRORS)
-    target_compile_options(internal INTERFACE -Werror)
+option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
+
+set(warning_flags -Wall -Wextra -Wno-unknown-pragmas -Wno-unused-function -Werror=vla -Wdeprecated-declarations)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    list(APPEND warning_flags -Wno-unknown-warning-option)
 endif()
+if (WARNINGS_AS_ERRORS)
+    list(APPEND warning_flags -Werror)
+endif()
+target_compile_options(common INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")
 
 add_subdirectory(external)
 add_subdirectory(src)

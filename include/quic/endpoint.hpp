@@ -204,7 +204,7 @@ namespace oxen::quic
 
         void check_timeouts();
 
-        Connection* accept_initial_connection(const Packet& pkt, const ConnectionID& dcid);
+        Connection* accept_initial_connection(const Packet& pkt);
     };
 
 }  // namespace oxen::quic
