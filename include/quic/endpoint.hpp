@@ -53,6 +53,7 @@ namespace oxen::quic
         Endpoint(Endpoint&&) = delete;
         Endpoint& operator=(Endpoint&&) = delete;
 
+        std::string local_addr() { return local.to_string(); }
         explicit Endpoint(Network& n, const Address& listen_addr);
 
         template <typename... Opt>

@@ -93,6 +93,22 @@ namespace oxen::quic
         return std::make_unique<GNUTLSSession>(*this, conn_ref, is_client);
     }
 
+    void GNUTLSCreds::set_client_tls_policy(gnutls_callback_t func, unsigned int htype, unsigned int when, unsigned int incoming)
+    {
+        client_tls_policy.f = std::move(func);
+        client_tls_policy.htype = htype;
+        client_tls_policy.when = when;
+        client_tls_policy.incoming = incoming;
+    }
+
+    void GNUTLSCreds::set_server_tls_policy(gnutls_callback_t func, unsigned int htype, unsigned int when, unsigned int incoming)
+    {
+        server_tls_policy.f = std::move(func);
+        server_tls_policy.htype = htype;
+        server_tls_policy.when = when;
+        server_tls_policy.incoming = incoming;
+    }
+
     GNUTLSSession::~GNUTLSSession()
     {
         log::warning(log_cat, "Entered {}", __PRETTY_FUNCTION__);
@@ -101,6 +117,7 @@ namespace oxen::quic
 
     void GNUTLSSession::set_tls_hook_functions()
     {
+        log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, gnutls_callback_wrapper);
     }
 
@@ -108,6 +125,9 @@ namespace oxen::quic
             TLSSession{conn_ref_}, creds{creds}, is_client{is_client}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+
+        log::trace(log_cat, "Creating {} GNUTLSSession", (is_client) ? "client" : "server");
+
         if (auto rv = gnutls_init(&session, is_client ? GNUTLS_CLIENT : GNUTLS_SERVER); rv < 0)
         {
             auto s = (is_client) ? "Client"s : "Server"s;
@@ -166,11 +186,17 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg) const
     {
-        if (is_client && creds.client_tls_policy)
-            return creds.client_tls_policy(session, htype, when, incoming, msg);
-        else if ((not is_client) && creds.server_tls_policy)
-            return creds.server_tls_policy(session, htype, when, incoming, msg);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        auto& policy = (is_client) ? creds.client_tls_policy : creds.server_tls_policy;
 
+        if (policy)
+        {
+            if (policy.htype == htype && policy.when == when && policy.incoming == incoming)
+            {
+                log::debug(log_cat, "Calling {} tls policy cb", (is_client) ? "client" : "server");
+                return policy(session, htype, when, incoming, msg);
+            }
+        }
         return 0;
     }
 
