@@ -36,7 +36,6 @@ namespace oxen::quic
         friend class Connection;
         friend class Stream;
 
-      private:
         const Address local;
         event_ptr expiry_timer;
         std::unique_ptr<UDPSocket> socket;
@@ -44,6 +43,12 @@ namespace oxen::quic
         Network& net;
 
       public:
+        // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
+        Endpoint(const Endpoint&) = delete;
+        Endpoint& operator=(const Endpoint&) = delete;
+        Endpoint(Endpoint&&) = delete;
+        Endpoint& operator=(Endpoint&&) = delete;
+
         explicit Endpoint(Network& n, const Address& listen_addr);
 
         template <typename... Opt>

@@ -70,7 +70,6 @@ namespace oxen::quic
         std::queue<Job> job_queue;
         std::mutex job_queue_mutex;
 
-      protected:
         friend class Endpoint;
         friend class Connection;
         friend class Stream;
