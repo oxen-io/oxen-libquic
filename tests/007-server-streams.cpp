@@ -15,33 +15,64 @@ namespace oxen::quic::test
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
         auto response = "okay okay i get it already"_bsv;
 
-        std::atomic<int> stream_check{0};
+        std::atomic<int> ci{0}, si{0};
         std::atomic<int> data_check{0};
 
         std::shared_ptr<Stream> server_extracted_stream, client_extracted_stream;
         std::shared_ptr<connection_interface> server_ci;
 
+        std::vector<std::promise<bool>> server_promises{3}, client_promises{3};
+        std::vector<std::future<bool>> server_futures{3}, client_futures{3};
+
+        for (int i = 0; i < 3; ++i)
+        {
+            server_futures[i] = server_promises[i].get_future();
+            client_futures[i] = client_promises[i].get_future();
+        }
+
         stream_open_callback_t server_stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling server stream open callback... stream opened...");
             server_extracted_stream = s.shared_from_this();
-            stream_check += 1;
+            try {
+                server_promises.at(si).set_value(true);
+                ++si;
+            } catch (std::exception& e) {
+                throw std::runtime_error(e.what());
+            }
             return 0;
         };
 
         stream_open_callback_t client_stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling client stream open callback... stream opened...");
             client_extracted_stream = s.shared_from_this();
-            stream_check += 1;
+            try {
+                client_promises.at(ci).set_value(true);
+                ++ci;
+            } catch (std::exception& e) {
+                throw std::runtime_error(e.what());
+            }
             return 0;
         };
 
         stream_data_callback_t server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
+            try {
+                server_promises.at(si).set_value(true);
+                ++si;
+            } catch (std::exception& e) {
+                throw std::runtime_error(e.what());
+            }
             data_check += 1;
         };
 
         stream_data_callback_t client_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
+            try {
+                client_promises.at(ci).set_value(true);
+                ++ci;
+            } catch (std::exception& e) {
+                throw std::runtime_error(e.what());
+            }
             data_check += 1;
         };
 
@@ -53,47 +84,29 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        bool sinit = server_endpoint->listen(server_tls, server_stream_data_cb, server_stream_open_cb);
-
-        REQUIRE(sinit);
+        REQUIRE(server_endpoint->listen(server_tls, server_stream_data_cb, server_stream_open_cb));
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_stream_data_cb, client_stream_open_cb);
 
-        std::thread client_native([&]() {
-            auto client_stream = client_ci->get_new_stream();
-            log::trace(log_cat, "Client sending stream message with native stream");
-            client_stream->send(msg);
-        });
+        auto client_stream = client_ci->get_new_stream();
+        client_stream->send(msg);
 
-        std::this_thread::sleep_for(100ms);
+        REQUIRE(server_futures[0].get());
+        REQUIRE(server_futures[1].get());
 
-        std::thread server_thread([&]() {
-            log::trace(log_cat, "Server sending stream message with extracted stream");
-            server_extracted_stream->send(response);
-            server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
-            auto server_stream = server_ci->get_new_stream();
-            log::trace(log_cat, "Server sending stream message with native stream");
-            server_stream->send(msg);
-        });
+        server_extracted_stream->send(response);
+        server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+        auto server_stream = server_ci->get_new_stream();
+        server_stream->send(msg);
 
-        std::this_thread::sleep_for(100ms);
+        for (auto& c : client_futures)
+            REQUIRE(c.get());
 
-        std::thread client_extracted([&]() {
-            log::trace(log_cat, "Client sending stream message with extracted stream");
-            client_extracted_stream->send(response);
-        });
-
-        std::this_thread::sleep_for(100ms);
-
-        REQUIRE(stream_check.load() == 2);
-        log::debug(log_cat, "Stream check count: {}", stream_check.load());
-        REQUIRE(data_check.load() == 4);
-        log::debug(log_cat, "Data check count: {}", data_check.load());
-
-        client_native.join();
-        server_thread.join();
-        client_extracted.join();
+        client_extracted_stream->send(response);
+        
+        REQUIRE(server_futures[2].get());
+        REQUIRE(data_check== 4);
         test_net.close();
     };
 }  // namespace oxen::quic::test

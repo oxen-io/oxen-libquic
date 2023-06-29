@@ -86,7 +86,6 @@ namespace oxen::quic
     {
         return x * 1000 * 1_G;
     }
-
     constexpr unsigned long long operator""_ki(unsigned long long int x)
     {
         return x * 1024;
