@@ -94,7 +94,7 @@ namespace oxen::quic
         auto& dcid = *dcid_opt;
 
         // check existing conns
-        log::debug(log_cat, "Incoming connection ID: {}", dcid);
+        log::trace(log_cat, "Incoming connection ID: {}", dcid);
         auto cptr = get_conn(dcid);
 
         if (!cptr)
