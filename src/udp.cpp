@@ -177,7 +177,7 @@ namespace oxen::quic
 
             count += nread;
 
-            if (nread < DATAGRAM_BATCH_SIZE)
+            if (nread < static_cast<int>(DATAGRAM_BATCH_SIZE))
                 // We didn't fill the recvmmsg array so must be done
                 return io_result{};
 
@@ -271,7 +271,7 @@ namespace oxen::quic
         std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
 
         unsigned int msg_count = 0;
-        for (int i = 0; i < n_pkts; i++)
+        for (size_t i = 0; i < n_pkts; i++)
         {
             auto& gso_size = gso_sizes[msg_count];
             auto& gso_count = gso_counts[msg_count];
@@ -348,7 +348,7 @@ namespace oxen::quic
 #elif defined(OXEN_LIBQUIC_UDP_SENDMMSG)  // sendmmsg, but not GSO
 #define OXEN_LIBQUIC_SEND_TYPE "sendmmsg"
 
-        for (int i = 0; i < n_pkts; i++)
+        for (size_t i = 0; i < n_pkts; i++)
         {
             assert(bufsize[i] > 0);
 

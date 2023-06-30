@@ -15,19 +15,15 @@ namespace oxen::quic::test
 
         Network test_net{};
         std::atomic<bool> good{false};
-        auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
         std::shared_ptr<Stream> server_extracted;
 
-        gnutls_callback outbound_tls_cb = [&](gnutls_session_t session,
-                                              unsigned int htype,
-                                              unsigned int when,
-                                              unsigned int incoming,
-                                              const gnutls_datum_t* msg) {
+        gnutls_callback outbound_tls_cb = [&](gnutls_session_t /*session*/,
+                                              unsigned int /*htype*/,
+                                              unsigned int /*when*/,
+                                              unsigned int /*incoming*/,
+                                              const gnutls_datum_t* /*msg*/) {
             log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-            const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
-            const auto& ep = static_cast<Connection*>(conn_ref->user_data)->endpoint();
 
             good = true;
             return 0;

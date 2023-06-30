@@ -126,7 +126,7 @@ namespace oxen::quic
         }
         else
         {
-            it->second = std::move(std::make_shared<Endpoint>(*this, local_addr));
+            it->second = std::make_shared<Endpoint>(*this, local_addr);
             return it->second;
         }
     }

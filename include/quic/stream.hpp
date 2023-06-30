@@ -35,6 +35,12 @@ namespace oxen::quic
         Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
         ~Stream();
 
+        // non-copyable, non-moveable (you must always hold a stream in a shared_ptr)
+        Stream(const Stream&) = delete;
+        Stream& operator=(const Stream&) = delete;
+        Stream(Stream&&) = delete;
+        Stream& operator=(Stream&&) = delete;
+
         stream_data_callback_t data_callback;
         stream_close_callback_t close_callback;
         Connection& conn;

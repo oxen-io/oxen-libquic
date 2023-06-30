@@ -33,7 +33,7 @@ namespace oxen::quic
             return *static_cast<Connection*>(conn_ref->user_data);
         }
 
-        void log_printer(void* user_data, const char* fmt, ...)
+        void log_printer(void* /*user_data*/, const char* fmt, ...)
         {
             std::array<char, 2048> buf{};
             va_list ap;
@@ -58,14 +58,14 @@ namespace oxen::quic
     }
 
     int recv_stream_data(
-            ngtcp2_conn* conn,
+            ngtcp2_conn* /*conn*/,
             uint32_t flags,
             int64_t stream_id,
-            uint64_t offset,
+            uint64_t /*offset*/,
             const uint8_t* data,
             size_t datalen,
             void* user_data,
-            void* stream_user_data)
+            void* /*stream_user_data*/)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return static_cast<Connection*>(user_data)->stream_receive(
@@ -73,31 +73,31 @@ namespace oxen::quic
     }
 
     int acked_stream_data_offset(
-            ngtcp2_conn* conn_,
+            ngtcp2_conn* /*conn_*/,
             int64_t stream_id,
             uint64_t offset,
             uint64_t datalen,
             void* user_data,
-            void* stream_user_data)
+            void* /*stream_user_data*/)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::trace(log_cat, "Ack [{},{}]", offset, offset + datalen);
         return static_cast<Connection*>(user_data)->stream_ack(stream_id, datalen);
     }
 
-    int on_stream_open(ngtcp2_conn* conn, int64_t stream_id, void* user_data)
+    int on_stream_open(ngtcp2_conn* /*conn*/, int64_t stream_id, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return static_cast<Connection*>(user_data)->stream_opened(stream_id);
     }
 
     int on_stream_close(
-            ngtcp2_conn* conn,
-            uint32_t flags,
+            ngtcp2_conn* /*conn*/,
+            uint32_t /*flags*/,
             int64_t stream_id,
             uint64_t app_error_code,
             void* user_data,
-            void* stream_user_data)
+            void* /*stream_user_data*/)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
@@ -105,12 +105,12 @@ namespace oxen::quic
     }
 
     int on_stream_reset(
-            ngtcp2_conn* conn,
+            ngtcp2_conn* /*conn*/,
             int64_t stream_id,
-            uint64_t final_size,
+            uint64_t /*final_size*/,
             uint64_t app_error_code,
             void* user_data,
-            void* stream_user_data)
+            void* /*stream_user_data*/)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
@@ -140,19 +140,19 @@ namespace oxen::quic
         return 0;
     }
 
-    int recv_rx_key(ngtcp2_conn* conn, ngtcp2_encryption_level level, void* user_data)
+    int recv_rx_key(ngtcp2_conn* /*conn*/, ngtcp2_encryption_level /*level*/, void* /*user_data*/)
     {
         // fix this
         return 0;
     }
 
-    int recv_tx_key(ngtcp2_conn* conn, ngtcp2_encryption_level level, void* user_data)
+    int recv_tx_key(ngtcp2_conn* /*conn*/, ngtcp2_encryption_level /*level*/, void* /*user_data*/)
     {
         // same
         return 0;
     }
 
-    int extend_max_local_streams_bidi(ngtcp2_conn* _conn, uint64_t max_streams, void* user_data)
+    int extend_max_local_streams_bidi(ngtcp2_conn* /*_conn*/, uint64_t /*max_streams*/, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -175,7 +175,7 @@ namespace oxen::quic
     // so, we move them to the streams map, where they will get picked up by flush_streams and dump
     // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
     // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
-    void Connection::check_pending_streams(int available, stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    void Connection::check_pending_streams(int available)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         int popped = 0;
@@ -552,7 +552,7 @@ namespace oxen::quic
             return 0;
         }
 
-        auto [it, ins] = streams.emplace(id, std::move(stream));
+        [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(stream));
         assert(ins);
         log::info(log_cat, "Created new incoming stream {}", id);
         return 0;
@@ -750,16 +750,14 @@ namespace oxen::quic
             Direction dir,
             ngtcp2_pkt_hd* hdr) :
 
+            context{std::move(ctx)},
+            user_config{context->config},
+            dir{dir},
             _endpoint{ep},
             _source_cid{scid},
             _dest_cid{dcid},
             _path{path},
-            _local{ep.local},
-            _remote{path.remote},
-            context{std::move(ctx)},
-            tls_creds{context->tls_creds},
-            user_config{context->config},
-            dir{dir}
+            tls_creds{context->tls_creds}
     {
         const auto outbound = (dir == Direction::OUTBOUND);
         const auto d_str = outbound ? "outbound"s : "inbound"s;

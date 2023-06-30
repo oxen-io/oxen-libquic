@@ -53,15 +53,18 @@ namespace oxen::quic
                 from_mem = true;
             }
         }
-        datum(datum const& other)
+        datum(const datum& other)
         {
-            if (!other.path.empty())
-                path = other.path;
-            memcpy(mem.data, other.mem.data, other.mem.size);
+            *this = other;
+        }
+        datum& operator=(const datum& other)
+        {
+            path = other.path;
+            std::memcpy(mem.data, other.mem.data, other.mem.size);
             mem.size = other.mem.size;
-            if (ext)
-                ext = other.ext;
+            ext = other.ext;
             from_mem = other.from_mem;
+            return *this;
         }
 
         // returns truew if path is not empty OR mem has a value set

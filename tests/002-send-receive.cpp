@@ -19,7 +19,7 @@ namespace oxen::quic::test
 
         std::atomic<bool> good{false};
 
-        stream_data_callback_t server_data_cb = [&](Stream& s, bstring_view dat) {
+        stream_data_callback_t server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             capture = dat;
             good.store(true);

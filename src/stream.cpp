@@ -21,13 +21,14 @@ namespace oxen::quic
             stream_data_callback_t data_cb,
             stream_close_callback_t close_cb,
             int64_t stream_id) :
-            conn{conn}, endpoint{_ep}, stream_id{stream_id}, data_callback{data_cb}
+            data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, stream_id{stream_id}, endpoint{_ep}
     {
         log::trace(log_cat, "Creating Stream object...");
 
-        close_callback = (close_cb) ? std::move(close_cb) : [](Stream& s, uint64_t error_code) {
-            log::warning(log_cat, "Stream close callback called (error code: {})", error_code);
-        };
+        if (!close_callback)
+            close_callback = [](Stream&, uint64_t error_code) {
+                log::info(log_cat, "Default stream close callback called (error code: {})", error_code);
+            };
 
         log::trace(log_cat, "Stream object created");
     }

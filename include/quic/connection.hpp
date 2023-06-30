@@ -36,11 +36,19 @@ namespace oxen::quic
                 stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
 
         virtual const ConnectionID& scid() const = 0;
+
+        virtual ~connection_interface() = default;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
     {
       public:
+          // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
+          Connection(const Connection&) = delete;
+          Connection& operator=(const Connection&) = delete;
+          Connection(Connection&&) = delete;
+          Connection& operator=(Connection&&) = delete;
+
         // Construct and initialize a new inbound/outbound connection to/from a remote
         //      ep: owning endpoints
         //      scid: local ("primary") CID used for this connection (random for outgoing)
@@ -93,8 +101,6 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        const Address _local;
-        const Address _remote;
         std::function<void(Connection&)> on_closing;  // clear immediately after use
 
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
@@ -153,8 +159,6 @@ namespace oxen::quic
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
 
-        ngtcp2_ccerr last_error;
-
       public:
         // Buffer used to store non-stream connection data
         //  ex: initial transport params
@@ -164,8 +168,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_closed(int64_t id, uint64_t app_code);
-        void check_pending_streams(
-                int available, stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr);
+        void check_pending_streams(int available);
 
         // Implicit conversion of Connection to the underlying ngtcp2_conn* (so that you can pass a
         // Connection directly to ngtcp2 functions taking a ngtcp2_conn* argument).
