@@ -1,7 +1,7 @@
 #pragma once
 
 #include "crypto.hpp"
-#include "utils.hpp"
+#include "address.hpp"
 
 namespace oxen::quic::opt
 {

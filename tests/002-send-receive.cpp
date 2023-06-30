@@ -19,10 +19,8 @@ namespace oxen::quic::test
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
-        std::promise<bool> s_init;
-        std::future<bool> s_future = s_init.get_future();
  
-        stream_data_callback_t server_data_cb = [&](Stream& s, bstring_view dat) {
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             capture = dat;
             d_promise.set_value(true);
@@ -36,7 +34,7 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        s_init.set_value(server_endpoint->listen(server_tls, server_data_cb));
+        REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -45,7 +43,6 @@ namespace oxen::quic::test
         auto client_stream = conn_interface->get_new_stream();
         client_stream->send(msg);
 
-        REQUIRE(s_future.get());
         REQUIRE(d_future.get());
         REQUIRE(msg == capture);
         test_net.close();

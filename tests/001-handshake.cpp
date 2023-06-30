@@ -17,20 +17,13 @@ namespace oxen::quic::test
         
         std::promise<bool> tls;
         std::future<bool> tls_future = tls.get_future();
-        std::promise<bool> s_init;
-        std::future<bool> s_future = s_init.get_future();
 
-        auto msg = "hello from the other siiiii-iiiiide"_bsv;
-
-        gnutls_callback_t outbound_tls_cb = [&](gnutls_session_t session,
-                                              unsigned int htype,
-                                              unsigned int when,
-                                              unsigned int incoming,
-                                              const gnutls_datum_t* msg) {
+        gnutls_callback outbound_tls_cb = [&](gnutls_session_t,
+                                              unsigned int,
+                                              unsigned int,
+                                              unsigned int,
+                                              const gnutls_datum_t*) {
             log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-            const auto& conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(session));
-            const auto& ep = static_cast<Connection*>(conn_ref->user_data)->endpoint();
 
             tls.set_value(true);
             return 0;
@@ -46,12 +39,11 @@ namespace oxen::quic::test
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        s_init.set_value(server_endpoint->listen(server_tls));
+        REQUIRE(server_endpoint->listen(server_tls));
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(s_future.get());
         REQUIRE(tls_future.get());
         test_net.close();
     };

@@ -23,9 +23,6 @@ namespace oxen::quic::test
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
 
-        std::promise<bool> s_init;
-        std::future<bool> s_future = s_init.get_future();
-
         opt::local_addr server_local{"127.0.0.1"s, 5500};
 
         opt::local_addr client_a_local{"127.0.0.1"s, 4400};
@@ -36,7 +33,7 @@ namespace oxen::quic::test
         
         auto p_itr = stream_promises.begin();
 
-        stream_data_callback_t server_data_cb = [&](Stream& s, bstring_view dat) {
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             p_itr->set_value(true);
             ++p_itr;
@@ -47,7 +44,7 @@ namespace oxen::quic::test
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
         auto server_endpoint = test_net.endpoint(server_local);
-        s_init.set_value(server_endpoint->listen(server_tls, server_data_cb));
+        REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
         std::thread async_thread_a{[&]() {
             log::debug(log_cat, "Async thread A called");
@@ -94,7 +91,6 @@ namespace oxen::quic::test
 
         async_thread_b.join();
         async_thread_a.join();
-        REQUIRE(s_future.get());
         REQUIRE(data_check == 4);
         test_net.close();
     };

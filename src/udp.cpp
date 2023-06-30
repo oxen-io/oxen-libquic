@@ -12,8 +12,8 @@ extern "C"
 
 #include <system_error>
 
-#include "internal.hpp"
 #include "udp.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {

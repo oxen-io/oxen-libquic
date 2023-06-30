@@ -93,7 +93,7 @@ namespace oxen::quic
         return std::make_unique<GNUTLSSession>(*this, conn_ref, is_client);
     }
 
-    void GNUTLSCreds::set_client_tls_policy(gnutls_callback_t func, unsigned int htype, unsigned int when, unsigned int incoming)
+    void GNUTLSCreds::set_client_tls_policy(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
     {
         client_tls_policy.f = std::move(func);
         client_tls_policy.htype = htype;
@@ -101,7 +101,7 @@ namespace oxen::quic
         client_tls_policy.incoming = incoming;
     }
 
-    void GNUTLSCreds::set_server_tls_policy(gnutls_callback_t func, unsigned int htype, unsigned int when, unsigned int incoming)
+    void GNUTLSCreds::set_server_tls_policy(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
     {
         server_tls_policy.f = std::move(func);
         server_tls_policy.htype = htype;

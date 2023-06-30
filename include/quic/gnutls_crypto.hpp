@@ -15,23 +15,28 @@ namespace fs = std::filesystem;
 
 namespace oxen::quic
 {
-    using gnutls_callback_t = std::function<int(
+    using gnutls_callback = std::function<int(
             gnutls_session_t session,
             unsigned int htype,
             unsigned int when,
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
 
-    struct gnutls_callback_st
+    struct gnutls_callback_wrapper
     {  
-        gnutls_callback_t f = nullptr;
+        gnutls_callback f = nullptr;
         unsigned int htype = 20;
         unsigned int when = 1;
         unsigned int incoming = 0;
 
+        bool applies(unsigned int h, unsigned int w, unsigned int i) const 
+        { return f && htype == h && when == w && incoming == i; }
+
         operator bool() const { return f != nullptr; }
-        int operator()(gnutls_session_t s, unsigned int h, unsigned int w, unsigned int i, const gnutls_datum_t* m) const
-        { return f(s, h, w, i, m); }
+
+        template <typename... Args>
+        auto operator()(Args&&... args) const
+        { return f(std::forward<Args>(args)...); }
     };
 
     // Struct to wrap cert/key information. Can hold either a string-path, gnutls_datum of the
@@ -96,11 +101,11 @@ namespace oxen::quic
 
         gnutls_certificate_credentials_t cred;
 
-        gnutls_callback_st client_tls_policy{};
-        gnutls_callback_st server_tls_policy{};
+        gnutls_callback_wrapper client_tls_policy{};
+        gnutls_callback_wrapper server_tls_policy{};
 
-        void set_client_tls_policy(gnutls_callback_t func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
-        void set_server_tls_policy(gnutls_callback_t func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
+        void set_client_tls_policy(gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
+        void set_server_tls_policy(gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");

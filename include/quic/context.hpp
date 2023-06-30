@@ -24,9 +24,9 @@ namespace oxen::quic
     {
       public:
         std::shared_ptr<TLSCreds> tls_creds;
-        stream_data_callback_t stream_data_cb;
-        stream_open_callback_t stream_open_cb;
-        stream_close_callback_t stream_close_cb;
+        stream_data_callback stream_data_cb;
+        stream_open_callback stream_open_cb;
+        stream_close_callback stream_close_cb;
         config_t config{};
 
         // TODO: I think we can move the handle_opt calls here
@@ -49,9 +49,9 @@ namespace oxen::quic
       private:
         void handle_outbound_opt(std::shared_ptr<TLSCreds> tls);
         void handle_outbound_opt(opt::max_streams ms);
-        void handle_outbound_opt(stream_data_callback_t func);
-        void handle_outbound_opt(stream_open_callback_t func);
-        void handle_outbound_opt(stream_close_callback_t func);
+        void handle_outbound_opt(stream_data_callback func);
+        void handle_outbound_opt(stream_open_callback func);
+        void handle_outbound_opt(stream_close_callback func);
     };
 
     struct InboundContext : public ContextBase
@@ -69,16 +69,9 @@ namespace oxen::quic
       private:
         void handle_inbound_opt(std::shared_ptr<TLSCreds> tls);
         void handle_inbound_opt(opt::max_streams ms);
-        void handle_inbound_opt(stream_data_callback_t func);
-        void handle_inbound_opt(stream_open_callback_t func);
-        void handle_inbound_opt(stream_close_callback_t func);
+        void handle_inbound_opt(stream_data_callback func);
+        void handle_inbound_opt(stream_open_callback func);
+        void handle_inbound_opt(stream_close_callback func);
     };
-
-    /*
-        1:1 with connection:
-            stream data cb
-            stream open cb
-            max streams
-    */
 
 }  // namespace oxen::quic

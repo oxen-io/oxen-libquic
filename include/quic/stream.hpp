@@ -19,18 +19,26 @@ extern "C"
 
 namespace oxen::quic
 {
-    class Connection;
+    class Stream;
     class Endpoint;
+    class Connection;
+
+    // Stream callbacks
+    using stream_data_callback = std::function<void(Stream&, bstring_view)>;
+    using stream_close_callback = std::function<void(Stream&, uint64_t error_code)>;
+    // returns 0 on success
+    using stream_open_callback = std::function<uint64_t(Stream&)>;
+    using stream_unblocked_callback = std::function<bool(Stream&)>;
 
     class Stream : public std::enable_shared_from_this<Stream>
     {
         friend class Connection;
-
+        
       public:
         Stream(Connection& conn,
                Endpoint& ep,
-               stream_data_callback_t data_cb = nullptr,
-               stream_close_callback_t close_cb = nullptr,
+               stream_data_callback data_cb = nullptr,
+               stream_close_callback close_cb = nullptr,
                int64_t stream_id = -1);
         Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
         ~Stream();
@@ -41,8 +49,8 @@ namespace oxen::quic
         Stream(Stream&&) = delete;
         Stream& operator=(Stream&&) = delete;
 
-        stream_data_callback_t data_callback;
-        stream_close_callback_t close_callback;
+        stream_data_callback data_callback;
+        stream_close_callback close_callback;
         Connection& conn;
 
         int64_t stream_id;

@@ -12,14 +12,15 @@ extern "C"
 #include "context.hpp"
 #include "endpoint.hpp"
 #include "network.hpp"
+#include "types.hpp"
 
 namespace oxen::quic
 {
     Stream::Stream(
             Connection& conn,
             Endpoint& _ep,
-            stream_data_callback_t data_cb,
-            stream_close_callback_t close_cb,
+            stream_data_callback data_cb,
+            stream_close_callback close_cb,
             int64_t stream_id) :
             data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, stream_id{stream_id}, endpoint{_ep}
     {
@@ -53,7 +54,7 @@ namespace oxen::quic
     {
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
-        endpoint.net.call([this, error_code]() {
+        endpoint.call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
@@ -156,7 +157,7 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        endpoint.net.call([this, data, keep_alive]() {
+        endpoint.call([this, data, keep_alive]() {
             log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);
         });

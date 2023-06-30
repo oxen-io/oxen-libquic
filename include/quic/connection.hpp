@@ -11,29 +11,43 @@
 #include <memory>
 #include <optional>
 
+#include "types.hpp"
+#include "format.hpp"
 #include "context.hpp"
 #include "gnutls_crypto.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    /*
-        TODO:
-        - tls creds and session?
-        - user config settings (for debugging)
-        - closing connection through conn interface?
-            - current close mechanism lives in endpoint
+    enum class Direction { OUTBOUND = 0, INBOUND = 1 };
 
-        - tests
-            - stream test cases for switching # of streams mid connection
-            - fail cases
-    */
+    // Wrapper for ngtcp2_cid with helper functionalities to make it passable
+    struct alignas(size_t) ConnectionID : ngtcp2_cid
+    {
+        ConnectionID() = default;
+        ConnectionID(const ConnectionID& c) = default;
+        ConnectionID(const uint8_t* cid, size_t length);
+        ConnectionID(ngtcp2_cid c) : ConnectionID(c.data, c.datalen) {}
+
+        ConnectionID& operator=(const ConnectionID& c) = default;
+
+        inline bool operator==(const ConnectionID& other) const
+        {
+            return datalen == other.datalen && std::memcmp(data, other.data, datalen) == 0;
+        }
+        inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
+        static ConnectionID random();
+
+        std::string to_string() const;
+    };
+    template <>
+    constexpr inline bool IsToStringFormattable<ConnectionID> = true;
 
     class connection_interface
     {
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
-                stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) = 0;
+                stream_data_callback data_cb = nullptr, stream_close_callback close_cb = nullptr) = 0;
 
         virtual const ConnectionID& scid() const = 0;
 
@@ -72,7 +86,7 @@ namespace oxen::quic
         const TLSSession* get_session() const { return tls_session.get(); };
 
         std::shared_ptr<Stream> get_new_stream(
-                stream_data_callback_t data_cb = nullptr, stream_close_callback_t close_cb = nullptr) override;
+                stream_data_callback data_cb = nullptr, stream_close_callback close_cb = nullptr) override;
 
         Direction direction() const { return dir; }
         bool is_inbound() const { return dir == Direction::INBOUND; }
@@ -195,3 +209,20 @@ namespace oxen::quic
     }
 
 }  // namespace oxen::quic
+
+namespace std
+{
+    // Custom hash is required s.t. unordered_set storing ConnectionID:unique_ptr<Connection>
+    // is able to call its implicit constructor
+    template <>
+    struct hash<oxen::quic::ConnectionID>
+    {
+        size_t operator()(const oxen::quic::ConnectionID& cid) const
+        {
+            static_assert(
+                    alignof(oxen::quic::ConnectionID) >= alignof(size_t) &&
+                    offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
+            return *reinterpret_cast<const size_t*>(cid.data);
+        }
+    };
+}  // namespace std
