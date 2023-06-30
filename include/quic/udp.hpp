@@ -15,7 +15,10 @@ extern "C"
 
 #include <cstdint>
 
+#include "event2/event.h"
+#include "address.hpp"
 #include "utils.hpp"
+#include "types.hpp"
 
 namespace oxen::quic
 {

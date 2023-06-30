@@ -15,14 +15,15 @@ extern "C"
 
 #include "connection.hpp"
 #include "internal.hpp"
+#include "types.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    Endpoint::Endpoint(Network& n, const Address& listen_addr) : local{listen_addr}, net{n}
+    Endpoint::Endpoint(Network& n, const Address& listen_addr) : net{n}, _local{listen_addr}
     {
-        log::debug(log_cat, "Starting new UDP socket on {}", local);
-        socket = std::make_unique<UDPSocket>(get_loop().get(), local, [this](const auto& packet) { handle_packet(packet); });
+        log::debug(log_cat, "Starting new UDP socket on {}", _local);
+        socket = std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
 
         expiry_timer.reset(event_new(
                 get_loop().get(),
@@ -35,7 +36,7 @@ namespace oxen::quic
         exp_interval.tv_usec = 250'000;
         event_add(expiry_timer.get(), &exp_interval);
 
-        log::info(log_cat, "Created QUIC endpoint listening on {}", local);
+        log::info(log_cat, "Created QUIC endpoint listening on {}", _local);
     }
 
     std::list<std::shared_ptr<connection_interface>> Endpoint::get_all_conns(std::optional<Direction> d)
@@ -176,7 +177,7 @@ namespace oxen::quic
             if (rv.failure())
             {
                 log::warning(
-                        log_cat, "Error: failed to send close packet [{}]; removing connection [CID: {}]", rv.str(), cid);
+                        log_cat, "Error: failed to send close packet [{}]; removing connection [CID: {}]", rv.str_error(), cid);
                 delete_connection(cid);
             }
         });
@@ -344,7 +345,7 @@ namespace oxen::quic
 
         if (ret.failure() && !ret.blocked())
         {
-            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str());
+            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str_error());
             n_pkts = 0;  // Drop any packets, as we had a serious error
             return ret;
         }
@@ -403,7 +404,8 @@ namespace oxen::quic
 
     void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p)
     {
-        auto randgen = make_mt19937();
+        uint8_t rint;
+        gnutls_rnd(GNUTLS_RND_RANDOM, &rint, 8);
         std::vector<std::byte> buf;
         buf.resize(max_payload_size);
         std::array<uint32_t, NGTCP2_PROTO_VER_MAX - NGTCP2_PROTO_VER_MIN + 2> versions;
@@ -414,7 +416,7 @@ namespace oxen::quic
         auto nwrite = ngtcp2_pkt_write_version_negotiation(
                 u8data(buf),
                 buf.size(),
-                std::uniform_int_distribution<uint8_t>()(randgen),
+                rint,
                 vid.dcid,
                 vid.dcidlen,
                 vid.scid,
@@ -452,6 +454,11 @@ namespace oxen::quic
         if (auto it = conns.find(id); it != conns.end())
             return it->second.get();
         return nullptr;
+    }
+
+    bool Endpoint::in_event_loop() const
+    {
+        return net.in_event_loop();
     }
 
 }  // namespace oxen::quic

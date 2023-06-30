@@ -162,6 +162,7 @@ namespace oxen::quic
     int extend_max_local_streams_bidi([[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        
 
         auto& conn = *static_cast<Connection*>(user_data);
         assert(_conn == conn);
@@ -170,6 +171,26 @@ namespace oxen::quic
             conn.check_pending_streams(remaining);
 
         return 0;
+    }
+
+    ConnectionID::ConnectionID(const uint8_t* cid, size_t length)
+    {
+        assert(length <= NGTCP2_MAX_CIDLEN);
+        datalen = length;
+        std::memmove(data, cid, datalen);
+    }
+
+    ConnectionID ConnectionID::random()
+    {
+        ConnectionID cid;
+        cid.datalen = static_cast<size_t>(NGTCP2_MAX_CIDLEN);
+        gnutls_rnd(GNUTLS_RND_RANDOM, cid.data, cid.datalen);
+        return cid;
+    }
+
+    std::string ConnectionID::to_string() const
+    {
+        return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
     }
 
     void Connection::io_ready()
@@ -204,7 +225,7 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback_t data_cb, stream_close_callback_t close_cb)
+    std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback data_cb, stream_close_callback close_cb)
     {
         if (!data_cb)
             data_cb = context->stream_data_cb;
@@ -306,7 +327,7 @@ namespace oxen::quic
         }
         else if (rv.failure())
         {
-            log::warning(log_cat, "Error while trying to send packet: {}", rv.str());
+            log::warning(log_cat, "Error while trying to send packet: {}", rv.str_error());
             log::critical(log_cat, "FIXME: close connection here?");  // FIXME TODO
             if (pkt_updater)
                 pkt_updater->cancel();
@@ -554,7 +575,7 @@ namespace oxen::quic
         if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
             log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
-            assert(endpoint().net.in_event_loop());
+            assert(endpoint().in_event_loop());
             stream->close(app_err_code);
             return 0;
         }

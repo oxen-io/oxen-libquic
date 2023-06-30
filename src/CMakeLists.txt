@@ -1,7 +1,9 @@
 
 add_library(quic
+    address.cpp
     connection.cpp
     context.cpp
+    format.cpp
     gnutls_crypto.cpp
     endpoint.cpp
     network.cpp

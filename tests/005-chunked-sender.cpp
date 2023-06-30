@@ -25,7 +25,7 @@ namespace oxen::quic::test
         for (int i = 0; i < 5; ++i)
             receive_futures[i] = receive_promises[i].get_future();
 
-        stream_data_callback_t stream_data_cb = [&](Stream& s, bstring_view data) {
+        stream_data_callback stream_data_cb = [&](Stream&, bstring_view data) {
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
 

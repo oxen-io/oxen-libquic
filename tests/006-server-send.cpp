@@ -23,20 +23,20 @@ namespace oxen::quic::test
                 client_future = client_promise.get_future(),
                 stream_future = stream_promise.get_future();
 
-        stream_open_callback_t stream_open_cb = [&](Stream& s) {
+        stream_open_callback stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling server stream open callback... stream opened...");
             server_stream = s.shared_from_this();
             stream_promise.set_value(true);
             return 0;
         };
 
-        stream_data_callback_t server_stream_data_cb = [&](Stream&, bstring_view) {
+        stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
             server_promise.set_value(true);
             data_check += 1;
         };
 
-        stream_data_callback_t client_stream_data_cb = [&](Stream&, bstring_view) {
+        stream_data_callback client_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
             client_promise.set_value(true);
             data_check += 1;

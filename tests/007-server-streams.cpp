@@ -30,7 +30,7 @@ namespace oxen::quic::test
             client_futures[i] = client_promises[i].get_future();
         }
 
-        stream_open_callback_t server_stream_open_cb = [&](Stream& s) {
+        stream_open_callback server_stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling server stream open callback... stream opened...");
             server_extracted_stream = s.shared_from_this();
             try {
@@ -42,7 +42,7 @@ namespace oxen::quic::test
             return 0;
         };
 
-        stream_open_callback_t client_stream_open_cb = [&](Stream& s) {
+        stream_open_callback client_stream_open_cb = [&](Stream& s) {
             log::debug(log_cat, "Calling client stream open callback... stream opened...");
             client_extracted_stream = s.shared_from_this();
             try {
@@ -54,7 +54,7 @@ namespace oxen::quic::test
             return 0;
         };
 
-        stream_data_callback_t server_stream_data_cb = [&](Stream&, bstring_view) {
+        stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
             try {
                 server_promises.at(si).set_value(true);
@@ -65,7 +65,7 @@ namespace oxen::quic::test
             data_check += 1;
         };
 
-        stream_data_callback_t client_stream_data_cb = [&](Stream&, bstring_view) {
+        stream_data_callback client_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
             try {
                 client_promises.at(ci).set_value(true);

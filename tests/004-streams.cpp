@@ -37,9 +37,8 @@ namespace oxen::quic::test
             receive_futures[i] = receive_promises[i].get_future();
         }
         send_futures[13] = send_promises[13].get_future();
-        auto p_itr = receive_promises.begin();
 
-        stream_data_callback_t server_stream_data_cb = [&](Stream& s, bstring_view dat) {
+        stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
 
             try {
