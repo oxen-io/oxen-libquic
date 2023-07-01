@@ -43,11 +43,11 @@ namespace oxen::quic
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
     {
       public:
-          // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
-          Connection(const Connection&) = delete;
-          Connection& operator=(const Connection&) = delete;
-          Connection(Connection&&) = delete;
-          Connection& operator=(Connection&&) = delete;
+        // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
+        Connection(const Connection&) = delete;
+        Connection& operator=(const Connection&) = delete;
+        Connection(Connection&&) = delete;
+        Connection& operator=(Connection&&) = delete;
 
         // Construct and initialize a new inbound/outbound connection to/from a remote
         //      ep: owning endpoints

@@ -53,10 +53,7 @@ namespace oxen::quic
                 from_mem = true;
             }
         }
-        datum(const datum& other)
-        {
-            *this = other;
-        }
+        datum(const datum& other) { *this = other; }
         datum& operator=(const datum& other)
         {
             path = other.path;
