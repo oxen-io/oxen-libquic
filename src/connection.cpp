@@ -159,7 +159,7 @@ namespace oxen::quic
         return 0;
     }
 
-    int extend_max_local_streams_bidi(ngtcp2_conn* /*_conn*/, uint64_t /*max_streams*/, void* user_data)
+    int extend_max_local_streams_bidi([[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 

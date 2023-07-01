@@ -388,7 +388,7 @@ namespace oxen::quic
     {
 
         auto* next_buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
-        int rv;
+        int rv = 0;
         size_t sent = 0;
         sockaddr* dest_sa = const_cast<Address&>(dest);
 
@@ -533,7 +533,7 @@ namespace oxen::quic
         hdr.msg_namelen = dest.socklen();
 #endif
 
-        for (int i = 0; i < n_pkts; ++i)
+        for (size_t i = 0; i < n_pkts; ++i)
         {
             assert(bufsize[i] > 0);
 #ifdef _WIN32
@@ -555,7 +555,7 @@ namespace oxen::quic
             rv = sendmsg(sock_, &hdr, 0);
             if (rv < 0)
                 break;
-            assert(rv == bufsize[i]);
+            assert(static_cast<size_t>(rv) == bufsize[i]);
 #endif
 
             sent++;
