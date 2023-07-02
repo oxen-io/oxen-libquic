@@ -76,7 +76,7 @@ namespace oxen::quic
 
     GNUTLSCreds::~GNUTLSCreds()
     {
-        log::warning(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_certificate_free_credentials(cred);
     }
 
@@ -111,7 +111,7 @@ namespace oxen::quic
 
     GNUTLSSession::~GNUTLSSession()
     {
-        log::warning(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_deinit(session);
     }
 

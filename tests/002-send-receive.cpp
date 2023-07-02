@@ -7,19 +7,16 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("002: Simple client to server transmission", "[002][simple]")
+    TEST_CASE("002 - Simple client to server transmission", "[002][simple][execute]")
     {
-        logger_config();
-
-        log::debug(log_cat, "Beginning test of client to server transmission...");
-
         Network test_net{};
-        auto msg = "hello from the other siiiii-iiiiide"_bsv;
+        auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
+        bstring_view bad_msg;
         bstring_view capture;
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
- 
+
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             capture = dat;
@@ -41,10 +38,12 @@ namespace oxen::quic::test
 
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->get_new_stream();
-        client_stream->send(msg);
+        
+        REQUIRE_NOTHROW(client_stream->send(good_msg));
+        REQUIRE_THROWS(client_stream->send(bad_msg));
 
         REQUIRE(d_future.get());
-        REQUIRE(msg == capture);
+        REQUIRE(good_msg == capture);
         test_net.close();
     };
 }  // namespace oxen::quic::test
