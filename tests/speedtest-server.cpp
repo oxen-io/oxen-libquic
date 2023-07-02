@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
     opt::local_addr server_local{listen_addr, listen_port};
 
     stream_open_callback stream_opened = [&](Stream& s) {
-        log::warning(test_cat, "Stream {} opened!", s.stream_id);
+        log::warning(test_cat, "Stream {} opened!", s.stream_id());
         return 0;
     };
 
@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
 
     stream_data_callback stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.conn.scid()];
-        auto it = sd.find(s.stream_id);
+        auto it = sd.find(s.stream_id());
         if (it == sd.end())
         {
             if (data.size() < sizeof(uint64_t))
@@ -107,8 +107,8 @@ int main(int argc, char* argv[])
             }
             auto size = oxenc::load_little_to_host<uint64_t>(data.data());
             data.remove_prefix(sizeof(uint64_t));
-            it = sd.emplace(s.stream_id, size).first;
-            log::warning(test_cat, "First data from new stream {}, expecting {}B!", s.stream_id, size);
+            it = sd.emplace(s.stream_id(), size).first;
+            log::warning(test_cat, "First data from new stream {}, expecting {}B!", s.stream_id(), size);
         }
 
         auto& [ignore, info] = *it;
@@ -148,7 +148,7 @@ int main(int argc, char* argv[])
             log::warning(
                     test_cat,
                     "Data from stream {} complete ({} B).  Final hash: {}",
-                    s.stream_id,
+                    s.stream_id(),
                     info.received,
                     oxenc::to_hex(final_hash.begin(), final_hash.end()));
 

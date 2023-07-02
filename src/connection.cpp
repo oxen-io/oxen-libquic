@@ -1,5 +1,7 @@
 #include "connection.hpp"
 
+#include "format.hpp"
+
 extern "C"
 {
 #ifdef _WIN32
@@ -27,6 +29,7 @@ extern "C"
 #include "endpoint.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
+#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -64,7 +67,14 @@ namespace oxen::quic
         return 0;
     }
 
-    int recv_stream_data(
+    int on_recv_datagram(ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return static_cast<Connection*>(user_data)->recv_datagram(
+                {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+    }
+
+    int on_recv_stream_data(
             ngtcp2_conn* /*conn*/,
             uint32_t flags,
             int64_t stream_id,
@@ -79,7 +89,7 @@ namespace oxen::quic
                 stream_id, {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
     }
 
-    int acked_stream_data_offset(
+    int on_acked_stream_data_offset(
             ngtcp2_conn* /*conn_*/,
             int64_t stream_id,
             uint64_t offset,
@@ -147,22 +157,9 @@ namespace oxen::quic
         return 0;
     }
 
-    int recv_rx_key(ngtcp2_conn* /*conn*/, ngtcp2_encryption_level /*level*/, void* /*user_data*/)
-    {
-        // fix this
-        return 0;
-    }
-
-    int recv_tx_key(ngtcp2_conn* /*conn*/, ngtcp2_encryption_level /*level*/, void* /*user_data*/)
-    {
-        // same
-        return 0;
-    }
-
     int extend_max_local_streams_bidi([[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        
 
         auto& conn = *static_cast<Connection*>(user_data);
         assert(_conn == conn);
@@ -193,9 +190,20 @@ namespace oxen::quic
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
     }
 
-    void Connection::io_ready()
+    uint64_t Connection::next_dgram_id()
     {
-        event_active(io_trigger.get(), 0, 0);
+        _last_dgram_id += _increment;
+        return _last_dgram_id;
+    }
+
+    void Connection::packet_io_ready()
+    {
+        event_active(packet_io_trigger.get(), 0, 0);
+    }
+
+    void Connection::datagram_io_ready()
+    {
+        event_active(datagram_io_trigger.get(), 0, 0);
     }
 
     // note: this does not need to return anything, it is never called except in on_stream_available
@@ -212,12 +220,12 @@ namespace oxen::quic
         {
             auto& str = pending_streams.front();
 
-            if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &str->stream_id, str.get()); rv == 0)
+            if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &str->_stream_id, str.get()); rv == 0)
             {
-                log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", str->stream_id);
+                log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", str->_stream_id);
                 str->set_ready();
                 popped += 1;
-                streams[str->stream_id] = std::move(str);
+                streams[str->_stream_id] = std::move(str);
                 pending_streams.pop_front();
             }
             else
@@ -232,7 +240,7 @@ namespace oxen::quic
 
         auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
 
-        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->stream_id, stream.get()); rv != 0)
+        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
         {
             log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
             stream->set_not_ready();
@@ -241,12 +249,30 @@ namespace oxen::quic
         }
         else
         {
-            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->stream_id);
+            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
             stream->set_ready();
-            auto& strm = streams[stream->stream_id];
+            auto& strm = streams[stream->_stream_id];
             strm = std::move(stream);
             return strm;
         }
+    }
+
+    std::vector<ngtcp2_vec> Connection::pending_datagrams()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        std::vector<ngtcp2_vec> bufs{};
+        bufs.reserve(std::distance(unsent_datagrams.begin(), unsent_datagrams.end()));
+
+        for (auto& b : unsent_datagrams)
+        {
+            auto& temp = bufs.emplace_back();
+
+            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(b.first.data()));
+            temp.len = b.first.size();
+        }
+
+        return bufs;
     }
 
     void Connection::call_closing()
@@ -259,11 +285,17 @@ namespace oxen::quic
         on_closing = nullptr;
     }
 
-    void Connection::on_io_ready()
+    void Connection::on_datagram_io_ready()
+    {
+        auto ts = get_time();
+        flush_datagrams(ts);
+    }
+
+    void Connection::on_packet_io_ready()
     {
         auto ts = get_time();
         flush_streams(ts);
-        schedule_retransmit(ts);
+        schedule_packet_retransmit(ts);
     }
 
     // RAII class for calling ngtcp2_conn_update_pkt_tx_timer.  If you don't call cancel() on
@@ -303,23 +335,25 @@ namespace oxen::quic
     // packets before continuing).
     //
     // If pkt_updater is provided then we cancel it when an error (other than a block) occurs.
-    bool Connection::send(pkt_tx_timer_updater* pkt_updater)
+    bool Connection::send(Send send_target, pkt_tx_timer_updater* pkt_updater)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
         sent_counter += n_packets;
 
-        auto rv = endpoint().send_packets(remote(), send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
+        auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
         {
             assert(n_packets > 0);  // n_packets, buf, bufsize now contain the unsent packets
             log::debug(log_cat, "Packet send blocked; queuing re-send");
 
-            endpoint().get_socket()->when_writeable([this] {
-                if (send(nullptr))
-                    on_io_ready();  // Send finished so we can start our timers up again
+            _endpoint.get_socket()->when_writeable([this, target = send_target] {
+                if (send(target, nullptr))
+                {  // Send finished so we can start our timers up again
+                    (target == Send::PACKETS) ? packet_io_ready() : datagram_io_ready();
+                }
                 // Otherwise we're still blocked (or an error occured)
             });
 
@@ -336,6 +370,95 @@ namespace oxen::quic
 
         log::trace(log_cat, "Packets away!");
         return true;
+    }
+
+    void Connection::flush_datagrams(std::chrono::steady_clock::time_point tp)
+    {
+        int accepted{0};
+        ngtcp2_pkt_info pkt_info{};
+        // TODO: Add this back when implementing packet splitting
+        // size_t n_to_send = (_policy == Splitting::GREEDY) ? 2 : 1;
+        const auto max_size = get_max_datagram_size();
+        auto* buf_pos = reinterpret_cast<uint8_t*>(send_buffer.data());
+        auto ts = static_cast<uint64_t>(std::chrono::nanoseconds{tp.time_since_epoch()}.count());
+        pkt_tx_timer_updater pkt_updater{*this, ts};
+        // We don't append NGTCP2_WRITE_DATAGRAM_FLAG_MORE to flags, as we pre-size the datagrams. This
+        // has the dual effect of simplifying the possible outcomes of calling writev_datagram
+        uint32_t flags = NGTCP2_WRITE_DATAGRAM_FLAG_NONE;
+
+        if (unsent_datagrams.empty())
+        {
+            log::debug(log_cat, "No datagrams on deck to send");
+            return;
+        }
+
+        std::vector<ngtcp2_vec> bufs = pending_datagrams();
+
+        for (auto& b : bufs)
+        {
+            auto nwrite = ngtcp2_conn_writev_datagram(
+                    conn.get(), _path, &pkt_info, buf_pos, max_size, &accepted, flags, 0, &b, 1, ts);
+
+            // Datagrams are written all-or-nothing:
+            //  - if it is accepted, this value will be non-zero
+            if (accepted != 0)
+            {
+                log::trace(log_cat, "Writing datagram successful");
+                // increment buffer position by a whole datagram size, as we don't fill in the extra
+                // space if the payload is smaller than the max size
+                buf_pos += MAX_PMTUD_UDP_PAYLOAD;
+                send_buffer_size[n_packets++] = nwrite;
+                send_ecn = pkt_info.ecn;
+
+                if (n_packets == MAX_BATCH)
+                {
+                    log::trace(log_cat, "Max datagram batch size reached; sending");
+                    if (!send(Send::DATAGRAMS, &pkt_updater))
+                        return;
+                }
+
+                continue;
+            }
+
+            log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
+            // error handling
+            switch (nwrite)
+            {
+                // non-fatal errrors
+                case NGTCP2_ERR_INVALID_ARGUMENT:
+                    log::debug(log_cat, "Datagram frame size exceeds remote endpoint's max receivable size");
+                    break;
+                case NGTCP2_ERR_INVALID_STATE:
+                    log::debug(log_cat, "Remote endpoint does not express datagram frame support");
+                    break;
+                case NGTCP2_ERR_PKT_NUM_EXHAUSTED:
+                    log::warning(log_cat, "Datagram ID exhausted - this should not be returned with no splitting policy");
+                    break;
+                // fatal errors
+                case NGTCP2_ERR_NOMEM:
+                case NGTCP2_ERR_CALLBACK_FAILURE:
+                    log::warning(log_cat, "Fatal ngtcp2 error: could not write datagram - \"{}\"", ngtcp2_strerror(nwrite));
+                    _endpoint.call([this, rv = nwrite]() {
+                        log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
+                        _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
+                    });
+                    // should exit without sending any more datagrams
+                    return;
+                // never returned w/o (flags & NGTCP2_WRITE_DATAGRAM_FLAG_MORE)
+                case NGTCP2_ERR_WRITE_MORE:
+                default:
+                    log::debug(log_cat, "Oops: this line should not be executed");
+                    break;
+            }
+        }
+
+        if (n_packets > 0)
+        {
+            log::trace(log_cat, "Sending final datagram batch of {} datagrams", n_packets);
+            send(Send::DATAGRAMS, &pkt_updater);
+        }
+
+        log::debug(log_cat, "Exiting flush_datagrams()");
     }
 
     // Don't worry about seeding this because it doesn't matter at all if the stream selection below
@@ -396,7 +519,6 @@ namespace oxen::quic
         size_t stream_packets = 0;
         while (!strs.empty())
         {
-
             log::trace(log_cat, "Creating packet {} of max {} batch stream packets", n_packets, MAX_BATCH);
 
             uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
@@ -407,7 +529,7 @@ namespace oxen::quic
 
             assert(stream || strs.empty());  // We should only get -1 at the end of the list
 
-            const int64_t stream_id = stream ? stream->stream_id : -1;
+            const int64_t stream_id = stream ? stream->_stream_id : -1;
             std::vector<ngtcp2_vec> bufs;
             if (stream)
             {
@@ -432,7 +554,7 @@ namespace oxen::quic
                     _path,
                     &pkt_info,
                     buf_pos,
-                    NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE,
+                    MAX_PMTUD_UDP_PAYLOAD,
                     &ndatalen,
                     flags,
                     stream_id,
@@ -493,7 +615,7 @@ namespace oxen::quic
             if (n_packets == MAX_BATCH)
             {
                 log::trace(log_cat, "Sending stream data packet batch");
-                if (!send(&pkt_updater))
+                if (!send(Send::PACKETS, &pkt_updater))
                     return;
 
                 assert(n_packets == 0);
@@ -525,12 +647,12 @@ namespace oxen::quic
         if (n_packets > 0)
         {
             log::trace(log_cat, "Sending final packet batch of {} packets", n_packets);
-            send(&pkt_updater);
+            send(Send::PACKETS, &pkt_updater);
         }
         log::debug(log_cat, "Exiting flush_streams()");
     }
 
-    void Connection::schedule_retransmit(std::chrono::steady_clock::time_point ts)
+    void Connection::schedule_packet_retransmit(std::chrono::steady_clock::time_point ts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         ngtcp2_tstamp exp_ns = ngtcp2_conn_get_expiry(conn.get());
@@ -538,7 +660,7 @@ namespace oxen::quic
         if (exp_ns == std::numeric_limits<ngtcp2_tstamp>::max())
         {
             log::info(log_cat, "No retransmit needed right now");
-            event_del(retransmit_timer.get());
+            event_del(packet_retransmit_timer.get());
             return;
         }
 
@@ -554,7 +676,7 @@ namespace oxen::quic
             tv.tv_usec = (delta % 1s) / 1us;
             tv_ptr = &tv;
         }
-        event_add(retransmit_timer.get(), tv_ptr);
+        event_add(packet_retransmit_timer.get(), tv_ptr);
     }
 
     const std::shared_ptr<Stream>& Connection::get_stream(int64_t ID) const
@@ -612,7 +734,7 @@ namespace oxen::quic
         if (!ngtcp2_conn_is_local_stream(conn.get(), id))
             ngtcp2_conn_extend_max_streams_bidi(conn.get(), 1);
 
-        io_ready();
+        packet_io_ready();
     }
 
     int Connection::stream_ack(int64_t id, size_t size)
@@ -631,7 +753,7 @@ namespace oxen::quic
         auto str = get_stream(id);
 
         if (!str->data_callback)
-            log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->stream_id);
+            log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->_stream_id);
         else
         {
             bool good = false;
@@ -648,7 +770,7 @@ namespace oxen::quic
                         "Stream {} data callback raised exception ({}); closing stream with app "
                         "code "
                         "{}",
-                        str->stream_id,
+                        str->_stream_id,
                         e.what(),
                         STREAM_ERROR_EXCEPTION);
             }
@@ -659,7 +781,7 @@ namespace oxen::quic
                         "Stream {} data callback raised an unknown exception; closing stream with "
                         "app "
                         "code {}",
-                        str->stream_id,
+                        str->_stream_id,
                         STREAM_ERROR_EXCEPTION);
             }
             if (!good)
@@ -671,7 +793,7 @@ namespace oxen::quic
 
         if (fin)
         {
-            log::info(log_cat, "Stream {} closed by remote", str->stream_id);
+            log::info(log_cat, "Stream {} closed by remote", str->_stream_id);
             // no clean up, close_cb called after this
         }
         else
@@ -683,6 +805,103 @@ namespace oxen::quic
         return 0;
     }
 
+    int Connection::recv_datagram(bstring_view data, bool fin)
+    {
+        log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
+
+        // append received datagram to tetris_buffer if packet_splitting is enabled
+        if (_packet_splitting)
+        {
+            // TODO: should this logic go earlier in the process inside handle_packet?
+        }
+
+        if (!dgram_data_cb)
+            log::debug(log_cat, "Connection (CID: {}) has no endpoint-supplied datagram data callback", _source_cid);
+        else
+        {
+            bool good = false;
+
+            try
+            {
+                dgram_data_cb(data, fin);
+                good = true;
+            }
+            catch (const std::exception& e)
+            {
+                log::warning(
+                        log_cat,
+                        "Connection (CID: {}) raised exception ({}); closing connection with app code {}",
+                        _source_cid,
+                        e.what(),
+                        DATAGRAM_ERROR_EXCEPTION);
+            }
+            catch (...)
+            {
+                log::warning(
+                        log_cat,
+                        "Connection (CID: {}) raised unknown exception; closing connection with app code {}",
+                        _source_cid,
+                        DATAGRAM_ERROR_EXCEPTION);
+            }
+            if (!good)
+            {
+                // TODO: do we want to close the entire connection on user-supplied callback failure? WHat about in
+                // the above exceptions?
+                return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
+        }
+
+        if (fin)
+        {
+            log::info(log_cat, "Connection (CID: {}) received fin from remote", _source_cid);
+            // TODO: no clean up, as close cb is called after? Or just for streams
+        }
+
+        return 0;
+    }
+
+    void Connection::append_datagram_buffer(bstring_view data, std::shared_ptr<void> keep_alive)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        unsent_datagrams.emplace_back(data, std::move(keep_alive));
+
+        datagram_io_ready();
+    }
+
+    void Connection::send_datagram(bstring_view data, std::shared_ptr<void> keep_alive)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        if (!_datagrams_enabled)
+            throw std::runtime_error{"Endpoint not configured for datagram IO"};
+
+        // if packet_splitting is lazy OR packet_splitting is off, send as "normal" datagram
+        _endpoint.call([this, data, keep_alive]() {
+            // check this first and once; already considers policy when returning
+            const auto max_size = get_max_datagram_size();
+
+            // we use >= instead of > for that just-in-case 1-byte cushion
+            if (data.size() >= max_size)
+            {
+                log::critical(
+                        log_cat,
+                        "Data of length {} cannot be sent with {} datagrams of max size {}",
+                        data.size(),
+                        _policy == Splitting::NONE ? "unsplit" : "split",
+                        max_size);
+                throw std::invalid_argument{"Data too large to send as datagram with current policy"};
+            }
+
+            log::trace(
+                    log_cat,
+                    "Connection (CID: {}) sending {} datagram: {}",
+                    _source_cid,
+                    _policy == Splitting::GREEDY ? "split" : "whole",
+                    buffer_printer{data});
+            append_datagram_buffer(data, keep_alive);
+        });
+    }
+
     int Connection::get_streams_available() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -692,16 +911,33 @@ namespace oxen::quic
         return open;
     }
 
+    size_t Connection::get_max_datagram_size() const
+    {
+        // If policy is greedy, we can take in doubel the datagram size
+        size_t multiple = (_policy == Splitting::GREEDY) ? 2 : 1;
+
+        if (_datagrams_enabled)
+            return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - DATAGRAM_OVERHEAD);
+        return 0;
+    }
+
     int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
     {
         auto* ev_base = endpoint().get_loop().get();
-        io_trigger.reset(event_new(
+
+        datagram_io_trigger.reset(event_new(
                 ev_base,
                 -1,
                 0,
-                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_io_ready(); },
+                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_datagram_io_ready(); },
                 this));
-        retransmit_timer.reset(event_new(
+        packet_io_trigger.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_packet_io_ready(); },
+                this));
+        packet_retransmit_timer.reset(event_new(
                 ev_base,
                 -1,
                 0,
@@ -714,17 +950,18 @@ namespace oxen::quic
                         self.endpoint().close_connection(self, rv);
                         return;
                     }
-                    self.on_io_ready();
+                    self.on_packet_io_ready();
                 },
                 this));
-        event_add(retransmit_timer.get(), nullptr);
+
+        event_add(packet_retransmit_timer.get(), nullptr);
 
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
         callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
-        callbacks.recv_stream_data = recv_stream_data;
-        callbacks.acked_stream_data_offset = acked_stream_data_offset;
+        callbacks.recv_stream_data = on_recv_stream_data;
+        callbacks.acked_stream_data_offset = on_acked_stream_data_offset;
         callbacks.stream_close = on_stream_close;
         callbacks.extend_max_local_streams_bidi = extend_max_local_streams_bidi;
         callbacks.rand = rand_cb;
@@ -743,7 +980,7 @@ namespace oxen::quic
 #ifndef NDEBUG
         settings.log_printf = log_printer;
 #endif
-        settings.max_tx_udp_payload_size = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;
+        settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;
         settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
@@ -755,8 +992,7 @@ namespace oxen::quic
         params.initial_max_data = 15_Mi;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
-        // Max send buffer for streams (local = streams we initiate, remote = streams initiated to
-        // us)
+        // Max send buffer for streams (local = streams we initiate, remote = streams initiated to us)
         params.initial_max_stream_data_bidi_local = 6_Mi;
         params.initial_max_stream_data_bidi_remote = 6_Mi;
         params.initial_max_stream_data_uni = 6_Mi;
@@ -764,7 +1000,24 @@ namespace oxen::quic
         params.active_connection_id_limit = 8;
 
         // config values
-        params.initial_max_streams_bidi = (uconfig.max_streams) ? uconfig.max_streams : DEFAULT_MAX_BIDI_STREAMS;
+        params.initial_max_streams_bidi = _max_streams;
+
+        if (_datagrams_enabled)
+        {
+            log::trace(log_cat, "Enabling datagram support for connection");
+            params.max_datagram_frame_size = 65535;
+            // default ngtcp2 values set by ngtcp2_settings_default_versioned
+            params.max_udp_payload_size = NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE;  // 65527
+            settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;                // 1500 - 48 (approximate overhead)
+            // settings.no_tx_udp_payload_size_shaping = 1;
+            callbacks.recv_datagram = on_recv_datagram;
+        }
+        else
+        {
+            // setting this value to 0 disables datagram support
+            params.max_datagram_frame_size = 0;
+            callbacks.recv_datagram = nullptr;
+        }
 
         return 0;
     }
@@ -776,17 +1029,21 @@ namespace oxen::quic
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             ngtcp2_pkt_hd* hdr) :
-            context{std::move(ctx)},
-            uconfig{context->config},
-            dir{context->dir},
             _endpoint{ep},
+            context{std::move(ctx)},
+            dir{context->dir},
             _source_cid{scid},
             _dest_cid{dcid},
             _path{path},
+            _max_streams{context->config.max_streams ? context->config.max_streams : DEFAULT_MAX_BIDI_STREAMS},
+            _datagrams_enabled{context->config.datagram_support},
+            _packet_splitting{context->config.split_packet},
+            _policy{context->config.policy},
+            dgram_data_cb{ep.dgram_recv_cb},
             tls_creds{context->tls_creds}
     {
-        const auto outbound = (dir == Direction::OUTBOUND);
-        const auto d_str = outbound ? "outbound"s : "inbound"s;
+        const auto is_outbound = (dir == Direction::OUTBOUND);
+        const auto d_str = is_outbound ? "outbound"s : "inbound"s;
         log::trace(log_cat, "Creating new {} connection object", d_str);
 
         ngtcp2_settings settings;
@@ -798,7 +1055,7 @@ namespace oxen::quic
         if (rv = init(settings, params, callbacks); rv != 0)
             log::critical(log_cat, "Error: {} connection not created", d_str);
 
-        if (outbound)
+        if (is_outbound)
         {
             callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
             callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
@@ -835,9 +1092,12 @@ namespace oxen::quic
                     this);
         }
 
-        conn.reset(connptr);
+        tls_session = tls_creds->make_session(is_outbound);
+        tls_session->conn_ref.get_conn = get_conn;
+        tls_session->conn_ref.user_data = this;
+        ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
 
-        setup_tls_session(outbound);
+        conn.reset(connptr);
 
         if (rv != 0)
         {
@@ -845,19 +1105,6 @@ namespace oxen::quic
         }
 
         log::info(log_cat, "Successfully created new {} connection object", d_str);
-    }
-
-    void Connection::setup_tls_session(bool is_client)
-    {
-        ngtcp2_crypto_conn_ref conn_ref;
-        // set conn_ref fxn to return ngtcp2_crypto_conn_ref
-        conn_ref.get_conn = get_conn;
-        // store pointer to connection in user_data
-        conn_ref.user_data = this;
-
-        tls_session = tls_creds->make_session(conn_ref, is_client);
-
-        ngtcp2_conn_set_tls_native_handle(conn.get(), tls_session->get_session());
     }
 
     std::shared_ptr<Connection> Connection::make_conn(
@@ -871,7 +1118,8 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), hdr}};
 
-        conn->io_ready();
+        conn->packet_io_ready();
+        conn->datagram_io_ready();
 
         return conn;
     }

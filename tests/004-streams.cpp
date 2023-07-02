@@ -21,16 +21,13 @@ namespace oxen::quic::test
             opt::local_addr client_local{"127.0.0.1"s, 4400};
             opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
-            gnutls_callback outbound_tls_cb = [&](gnutls_session_t,
-                                                unsigned int,
-                                                unsigned int,
-                                                unsigned int,
-                                                const gnutls_datum_t*) {
-                log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+            gnutls_callback outbound_tls_cb =
+                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-                tls.set_value(true);
-                return 0;
-            };
+                        tls.set_value(true);
+                        return 0;
+                    };
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -89,8 +86,7 @@ namespace oxen::quic::test
             auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
             std::promise<bool> data_promise, tls;
-            std::future<bool> data_future = data_promise.get_future(),
-                    tls_future = tls.get_future();
+            std::future<bool> data_future = data_promise.get_future(), tls_future = tls.get_future();
             opt::max_streams server_config{10}, client_config{8};
 
             std::shared_ptr<connection_interface> server_ci;
@@ -104,16 +100,13 @@ namespace oxen::quic::test
                 data_promise.set_value(true);
             };
 
-            gnutls_callback outbound_tls_cb = [&](gnutls_session_t,
-                                                unsigned int,
-                                                unsigned int,
-                                                unsigned int,
-                                                const gnutls_datum_t*) {
-                log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+            gnutls_callback outbound_tls_cb =
+                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-                tls.set_value(true);
-                return 0;
-            };
+                        tls.set_value(true);
+                        return 0;
+                    };
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -180,11 +173,14 @@ namespace oxen::quic::test
         stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
 
-            try {
+            try
+            {
                 receive_promises.at(index).set_value(true);
                 ++index;
                 data_check += 1;
-            } catch (std::exception& e) {
+            }
+            catch (std::exception& e)
+            {
                 throw std::runtime_error(e.what());
             }
         };
@@ -198,7 +194,7 @@ namespace oxen::quic::test
         // 1) open 12 streams and send
         for (int i = 0; i < 12; ++i)
         {
-            std::thread stream_thread([&](){
+            std::thread stream_thread([&]() {
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 // set send promises
@@ -214,9 +210,7 @@ namespace oxen::quic::test
         // 3) close 4 streams
         for (int i = 0; i < 5; ++i)
         {
-            std::thread close_thread([&](){
-                streams[i]->close();
-            });
+            std::thread close_thread([&]() { streams[i]->close(); });
             close_thread.join();
         }
 
@@ -227,11 +221,11 @@ namespace oxen::quic::test
         // 5) open 2 more streams and send
         for (int i = 0; i < 2; ++i)
         {
-            std::thread open_thread([&](){
+            std::thread open_thread([&]() {
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 // set send promise
-                send_promises[i+12].set_value(true);
+                send_promises[i + 12].set_value(true);
             });
             open_thread.join();
         }

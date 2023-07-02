@@ -7,6 +7,7 @@ extern "C"
 
 #include <cstddef>
 #include <cstdio>
+#include <stdexcept>
 
 #include "connection.hpp"
 #include "context.hpp"
@@ -22,7 +23,7 @@ namespace oxen::quic
             stream_data_callback data_cb,
             stream_close_callback close_cb,
             int64_t stream_id) :
-            data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, stream_id{stream_id}, endpoint{_ep}
+            data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, endpoint{_ep}, _stream_id{stream_id}
     {
         log::trace(log_cat, "Creating Stream object...");
 
@@ -36,7 +37,7 @@ namespace oxen::quic
 
     Stream::~Stream()
     {
-        log::debug(log_cat, "Destroying stream {}", stream_id);
+        log::debug(log_cat, "Destroying stream {}", _stream_id);
 
         bool was_closing = is_closing;
         is_closing = is_shutdown = true;
@@ -64,13 +65,13 @@ namespace oxen::quic
             else
             {
                 is_closing = is_shutdown = true;
-                log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
-                ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
+                log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ngtcp2_strerror(error_code));
+                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, error_code);
             }
             if (is_shutdown)
                 data_callback = nullptr;
 
-            conn.io_ready();
+            conn.packet_io_ready();
         });
     }
 
@@ -79,7 +80,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, std::move(keep_alive));
         if (ready)
-            conn.io_ready();
+            conn.packet_io_ready();
         else
             log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
     }
@@ -146,7 +147,6 @@ namespace oxen::quic
         temp.len = it->first.size() - offset;
         while (++it != user_buffers.end())
         {
-            log::trace(log_cat, "call F");
             auto& temp = nbufs.emplace_back();
             temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
             temp.len = it->first.size();
@@ -161,7 +161,7 @@ namespace oxen::quic
             throw std::invalid_argument{"Cannot send empty byte string"};
 
         endpoint.call([this, data, keep_alive]() {
-            log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
+            log::trace(log_cat, "Stream (ID: {}) sending message: {}", _stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);
         });
     }

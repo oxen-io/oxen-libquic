@@ -16,6 +16,12 @@ namespace oxen::quic
     {
         // max streams
         int max_streams = 0;
+        // datagram support
+        bool datagram_support = false;
+        // datagram splitting support
+        bool split_packet = false;
+        // splitting policy
+        Splitting policy = Splitting::NONE;
 
         user_config() = default;
     };
@@ -36,11 +42,12 @@ namespace oxen::quic
             log::trace(log_cat, "Making IO session context");
             // parse all options
             ((void)handle_ioctx_opt(std::forward<Opt>(opts)), ...);
-            
+
             if (tls_creds == nullptr)
                 throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
 
-            log::debug(log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
+            log::debug(
+                    log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
         }
 
         ~IOContext() = default;
@@ -51,7 +58,6 @@ namespace oxen::quic
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);
-
     };
 
 }  // namespace oxen::quic

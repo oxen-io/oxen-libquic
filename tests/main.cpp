@@ -7,7 +7,7 @@ int main(int argc, char* argv[])
     Catch::Session session;
 
     using namespace Catch::Clara;
-    std::string log_level = "debug", log_file = "stderr";
+    std::string log_level = "trace", log_file = "stderr";
     auto cli = session.cli() | Opt(log_level, "level")["--log-level"]("oxen-logging log level to apply to the test run") |
                Opt(log_file, "file")["--log-file"](
                        "oxen-logging log file to output logs to, or one of  or one of stdout/-/stderr/syslog.");

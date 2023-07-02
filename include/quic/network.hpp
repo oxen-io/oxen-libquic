@@ -48,7 +48,20 @@ namespace oxen::quic
         Network();
         ~Network();
 
-        std::shared_ptr<Endpoint> endpoint(const Address& local_addr);
+        template <typename... Opt>
+        std::shared_ptr<Endpoint> endpoint(const Address& local_addr, Opt&&... opts)
+        {
+            if (auto [it, added] = endpoint_map.emplace(local_addr, nullptr); !added)
+            {
+                log::info(log_cat, "Endpoint already exists for listening address {}", local_addr);
+                return it->second;
+            }
+            else
+            {
+                it->second = std::make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...);
+                return it->second;
+            }
+        }
 
         /// Initiates shutdown the network, closing all endpoint connections and stopping the event
         /// loop (if Network-managed).  If graceful is true (the default) this call initiates a

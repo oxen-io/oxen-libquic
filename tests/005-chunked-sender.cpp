@@ -27,11 +27,14 @@ namespace oxen::quic::test
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
 
-            try {
+            try
+            {
                 receive_promises.at(index).set_value(true);
                 ++index;
                 data_check += 1;
-            } catch (std::exception& e) {
+            }
+            catch (std::exception& e)
+            {
                 throw std::runtime_error(e.what());
             }
         };
@@ -56,60 +59,63 @@ namespace oxen::quic::test
         constexpr size_t parallel_chunks = 2;
         std::array<std::vector<char>, parallel_chunks> bufs;
 
-        REQUIRE_THROWS_AS(stream->send_chunks(
-                [&](const Stream& s) {
-                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
-                    if (i++ < 3)
-                        return fmt::format("[CHUNK-{}]", i);
-                    i--;
-                    return ""s;
-                },
-                [&](Stream& s) {
-                    auto pointer_chunks = [&](const Stream& s) -> std::vector<char>* {
-                        log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
-                        if (i++ < 6)
-                        {
-                            auto& vec = bufs[i % parallel_chunks];
-                            vec.clear();
-                            fmt::format_to(std::back_inserter(vec), "[Chunk-{}]", i);
-                            return &vec;
-                        }
-                        i--;
-                        return nullptr;
-                    };
+        REQUIRE_THROWS_AS(
+                stream->send_chunks(
+                        [&](const Stream& s) {
+                            log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                            if (i++ < 3)
+                                return fmt::format("[CHUNK-{}]", i);
+                            i--;
+                            return ""s;
+                        },
+                        [&](Stream& s) {
+                            auto pointer_chunks = [&](const Stream& s) -> std::vector<char>* {
+                                log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                                if (i++ < 6)
+                                {
+                                    auto& vec = bufs[i % parallel_chunks];
+                                    vec.clear();
+                                    fmt::format_to(std::back_inserter(vec), "[Chunk-{}]", i);
+                                    return &vec;
+                                }
+                                i--;
+                                return nullptr;
+                            };
 
-                    s.send_chunks(
-                            pointer_chunks,
-                            [&](Stream& s) {
-                                auto smart_ptr_chunks = [&](const Stream& s) -> std::unique_ptr<std::vector<char>> {
-                                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
-                                    if (i++ >= 10)
-                                        return nullptr;
-                                    auto vec = std::make_unique<std::vector<char>>();
-                                    fmt::format_to(std::back_inserter(*vec), "[chunk-{}]", i);
-                                    return vec;
-                                };
-                                s.send_chunks(
-                                        smart_ptr_chunks,
-                                        [&](Stream& s) {
-                                            // (Lokinet RPC was here)
-                                            log::info(log_cat, "All chunks done!");
-                                            s.send("Goodbye."s);
-                                        },
-                                        parallel_chunks);
-                            },
-                            parallel_chunks);
-                },
-                0), std::logic_error);  // setting parallel_chunks to 0 wont compile due to the modulus operation
+                            s.send_chunks(
+                                    pointer_chunks,
+                                    [&](Stream& s) {
+                                        auto smart_ptr_chunks = [&](const Stream& s) -> std::unique_ptr<std::vector<char>> {
+                                            log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                                            if (i++ >= 10)
+                                                return nullptr;
+                                            auto vec = std::make_unique<std::vector<char>>();
+                                            fmt::format_to(std::back_inserter(*vec), "[chunk-{}]", i);
+                                            return vec;
+                                        };
+                                        s.send_chunks(
+                                                smart_ptr_chunks,
+                                                [&](Stream& s) {
+                                                    // (Lokinet RPC was here)
+                                                    log::info(log_cat, "All chunks done!");
+                                                    s.send("Goodbye."s);
+                                                },
+                                                parallel_chunks);
+                                    },
+                                    parallel_chunks);
+                        },
+                        0),
+                std::logic_error);  // setting parallel_chunks to 0 wont compile due to the modulus operation
 
         for (auto& f : receive_futures)
             REQUIRE(f.valid());
 
         {
             std::lock_guard lock{recv_mut};
-            REQUIRE_FALSE(received ==
-                  "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]"
-                  "Goodbye.");
+            REQUIRE_FALSE(
+                    received ==
+                    "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]"
+                    "Goodbye.");
         }
 
         REQUIRE_FALSE(data_check == 5);
@@ -135,11 +141,14 @@ namespace oxen::quic::test
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
 
-            try {
+            try
+            {
                 receive_promises.at(index).set_value(true);
                 ++index;
                 data_check += 1;
-            } catch (std::exception& e) {
+            }
+            catch (std::exception& e)
+            {
                 throw std::runtime_error(e.what());
             }
         };
@@ -166,7 +175,7 @@ namespace oxen::quic::test
 
         stream->send_chunks(
                 [&](const Stream& s) {
-                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
+                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                     if (i++ < 3)
                         return fmt::format("[CHUNK-{}]", i);
                     i--;
@@ -174,7 +183,7 @@ namespace oxen::quic::test
                 },
                 [&](Stream& s) {
                     auto pointer_chunks = [&](const Stream& s) -> std::vector<char>* {
-                        log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
+                        log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                         if (i++ < 6)
                         {
                             auto& vec = bufs[i % parallel_chunks];
@@ -190,7 +199,7 @@ namespace oxen::quic::test
                             pointer_chunks,
                             [&](Stream& s) {
                                 auto smart_ptr_chunks = [&](const Stream& s) -> std::unique_ptr<std::vector<char>> {
-                                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id);
+                                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                                     if (i++ >= 10)
                                         return nullptr;
                                     auto vec = std::make_unique<std::vector<char>>();
@@ -216,8 +225,8 @@ namespace oxen::quic::test
         {
             std::lock_guard lock{recv_mut};
             REQUIRE(received ==
-                  "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]"
-                  "Goodbye.");
+                    "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]"
+                    "Goodbye.");
         }
 
         REQUIRE(data_check == 5);

@@ -43,7 +43,7 @@ namespace oxen::quic::test
         opt::local_addr client_c_local{"127.0.0.1"s, 4444};
         opt::local_addr client_d_local{"127.0.0.1"s, 4466};
         opt::remote_addr client_remote{"127.0.0.1"s, 5500};
-        
+
         auto p_itr = stream_promises.begin();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {

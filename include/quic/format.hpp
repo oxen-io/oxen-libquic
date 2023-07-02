@@ -1,7 +1,10 @@
 #pragma once
 
 #include <fmt/core.h>
+
 #include <iostream>
+#include <oxen/log.hpp>
+#include <oxen/log/format.hpp>
 
 namespace oxen::quic
 {
@@ -40,8 +43,7 @@ namespace oxen::quic
     };
     template <>
     inline constexpr bool IsToStringFormattable<buffer_printer> = true;
-}   // namespace oxen::quic
-
+}  // namespace oxen::quic
 
 namespace fmt
 {

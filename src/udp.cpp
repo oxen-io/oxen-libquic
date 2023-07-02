@@ -12,8 +12,8 @@ extern "C"
 
 #include <system_error>
 
-#include "udp.hpp"
 #include "internal.hpp"
+#include "udp.hpp"
 
 namespace oxen::quic
 {
@@ -251,7 +251,7 @@ namespace oxen::quic
         std::array<iovec, DATAGRAM_BATCH_SIZE> iovs;
         std::array<mmsghdr, DATAGRAM_BATCH_SIZE> msgs = {};
 
-        std::array<std::array<std::byte, max_payload_size>, DATAGRAM_BATCH_SIZE> data;
+        std::array<std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD>, DATAGRAM_BATCH_SIZE> data;
 
         for (size_t i = 0; i < DATAGRAM_BATCH_SIZE; i++)
         {
@@ -299,7 +299,7 @@ namespace oxen::quic
 #else  // no recvmmsg
 
         sockaddr_storage peer{};
-        std::array<std::byte, max_payload_size> data;
+        std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD> data;
 #ifdef _WIN32
         // Microsoft renames everything but uses the same structure just to be obtuse:
         WSABUF iov;

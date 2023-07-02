@@ -21,6 +21,7 @@ namespace oxen::quic::test
             opt::local_addr empty_addr{};
             opt::local_addr good_addr{"127.0.0.1", 4400};
 
+            REQUIRE_THROWS(opt::local_addr{"127.001", 4400});
             REQUIRE_THROWS(opt::local_addr{""s, 0});
             REQUIRE(empty_addr.is_set());
             REQUIRE(empty_addr == opt::local_addr{"::", 0});
@@ -76,20 +77,17 @@ namespace oxen::quic::test
         SECTION("Unsuccessful TLS handshake - No server TLS credentials")
         {
             Network test_net{};
-        
+
             std::promise<bool> tls;
             std::future<bool> tls_future = tls.get_future();
 
-            gnutls_callback outbound_tls_cb = [&](gnutls_session_t,
-                                                unsigned int,
-                                                unsigned int,
-                                                unsigned int,
-                                                const gnutls_datum_t*) {
-                log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+            gnutls_callback outbound_tls_cb =
+                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-                tls.set_value(true);
-                return 0;
-            };
+                        tls.set_value(true);
+                        return 0;
+                    };
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
@@ -113,20 +111,17 @@ namespace oxen::quic::test
         SECTION("Successful TLS handshake")
         {
             Network test_net{};
-        
+
             std::promise<bool> tls;
             std::future<bool> tls_future = tls.get_future();
 
-            gnutls_callback outbound_tls_cb = [&](gnutls_session_t,
-                                                unsigned int,
-                                                unsigned int,
-                                                unsigned int,
-                                                const gnutls_datum_t*) {
-                log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+            gnutls_callback outbound_tls_cb =
+                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-                tls.set_value(true);
-                return 0;
-            };
+                        tls.set_value(true);
+                        return 0;
+                    };
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);

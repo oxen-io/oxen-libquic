@@ -14,6 +14,8 @@ namespace oxen::quic
 
     enum class Direction { OUTBOUND = 0, INBOUND = 1 };
 
+    enum class Splitting { NONE = 0, LAZY = 1, GREEDY = 2 };
+
     // Struct returned as a result of send_packet that either is implicitly
     // convertible to bool, but also is able to carry an error code
     struct io_result
@@ -46,7 +48,6 @@ namespace oxen::quic
         }
 
         // returns the error message string describing error_code
-        std::string_view str_error() const
-        { return is_ngtcp2 ? ngtcp2_strerror(error_code) : strerror(error_code); };
+        std::string_view str_error() const { return is_ngtcp2 ? ngtcp2_strerror(error_code) : strerror(error_code); };
     };
-}   // namespace oxen::quic
+}  // namespace oxen::quic

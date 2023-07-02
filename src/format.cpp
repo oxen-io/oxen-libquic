@@ -39,4 +39,4 @@ namespace oxen::quic
         }
         return out;
     }
-}   // namespace oxen::quic
+}  // namespace oxen::quic

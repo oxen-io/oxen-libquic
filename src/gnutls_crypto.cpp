@@ -88,12 +88,13 @@ namespace oxen::quic
         return p;
     }
 
-    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client)
+    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(bool is_client)
     {
-        return std::make_unique<GNUTLSSession>(*this, conn_ref, is_client);
+        return std::make_unique<GNUTLSSession>(*this, is_client);
     }
 
-    void GNUTLSCreds::set_client_tls_policy(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
+    void GNUTLSCreds::set_client_tls_policy(
+            gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
     {
         client_tls_policy.f = std::move(func);
         client_tls_policy.htype = htype;
@@ -101,7 +102,8 @@ namespace oxen::quic
         client_tls_policy.incoming = incoming;
     }
 
-    void GNUTLSCreds::set_server_tls_policy(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
+    void GNUTLSCreds::set_server_tls_policy(
+            gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
     {
         server_tls_policy.f = std::move(func);
         server_tls_policy.htype = htype;
@@ -121,8 +123,7 @@ namespace oxen::quic
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, gnutls_callback_wrapper);
     }
 
-    GNUTLSSession::GNUTLSSession(GNUTLSCreds& creds, const ngtcp2_crypto_conn_ref& conn_ref_, bool is_client) :
-            TLSSession{conn_ref_}, creds{creds}, is_client{is_client}
+    GNUTLSSession::GNUTLSSession(GNUTLSCreds& creds, bool is_client) : creds{creds}, is_client{is_client}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
 
@@ -143,6 +144,7 @@ namespace oxen::quic
 
         if (is_client)
         {
+            log::trace(log_cat, "gnutls configuring client session...");
             if (auto rv = ngtcp2_crypto_gnutls_configure_client_session(session); rv < 0)
             {
                 log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_client_session failed: {}", ngtcp2_strerror(rv));
@@ -151,6 +153,7 @@ namespace oxen::quic
         }
         else
         {
+            log::trace(log_cat, "gnutls configuring server session...");
             if (auto rv = ngtcp2_crypto_gnutls_configure_server_session(session); rv < 0)
             {
                 log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_server_session failed: {}", ngtcp2_strerror(rv));

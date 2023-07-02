@@ -60,8 +60,7 @@ namespace oxen::quic
             return *this;
         }
 
-        bool is_set() const
-        { return is_ipv4() || is_ipv6(); }
+        bool is_set() const { return is_ipv4() || is_ipv6(); }
 
         inline bool is_ipv4() const
         {
@@ -211,14 +210,13 @@ namespace oxen::quic
     };
     template <>
     inline constexpr bool IsToStringFormattable<Path> = true;
-    
-}   // namespace oxen::quic
 
+}  // namespace oxen::quic
 
 namespace std
 {
     inline constexpr size_t inverse_golden_ratio = sizeof(size_t) >= 8 ? 0x9e37'79b9'7f4a'7c15 : 0x9e37'79b9;
-    
+
     template <>
     struct hash<oxen::quic::Address>
     {
@@ -245,4 +243,4 @@ namespace std
             return h;
         }
     };
-}   // namespace std
+}  // namespace std

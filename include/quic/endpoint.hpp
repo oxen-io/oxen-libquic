@@ -36,6 +36,9 @@ namespace oxen::quic
 {
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
+      private:
+        void handle_ep_opt(opt::enable_datagrams dc);
+        void handle_ep_opt(datagram_recv_callback func);
 
       public:
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
@@ -45,7 +48,13 @@ namespace oxen::quic
         Endpoint& operator=(Endpoint&&) = delete;
 
         std::string local_addr() { return _local.to_string(); }
-        explicit Endpoint(Network& n, const Address& listen_addr);
+
+        template <typename... Opt>
+        Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
+        {
+            _init_internals();
+            ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+        }
 
         template <typename... Opt>
         bool listen(Opt&&... opts)
@@ -58,7 +67,8 @@ namespace oxen::quic
                 {
                     // initialize client context and client tls context simultaneously
                     inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
-                    accepting_inbound = true;
+                    _set_context_globals(inbound_ctx);
+                    _accepting_inbound = true;
 
                     log::debug(log_cat, "Inbound context ready for incoming connections");
 
@@ -85,17 +95,14 @@ namespace oxen::quic
                 {
                     // initialize client context and client tls context simultaneously
                     outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
+                    _set_context_globals(outbound_ctx);
 
                     for (;;)
                     {
                         if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
                         {
                             itr->second = Connection::make_conn(
-                                    *this,
-                                    itr->first,
-                                    ConnectionID::random(),
-                                    std::move(path),
-                                    outbound_ctx);
+                                    *this, itr->first, ConnectionID::random(), std::move(path), outbound_ctx);
 
                             p.set_value(itr->second);
                             return;
@@ -116,7 +123,6 @@ namespace oxen::quic
         {
             return net.call(std::forward<Args>(args)...);
         }
-
 
         const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
 
@@ -154,21 +160,35 @@ namespace oxen::quic
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
-        const Address& local()
-        { return _local; }
+        const Address& local() { return _local; }
 
-        bool is_accepting() const
-        { return accepting_inbound; }
-      
+        bool is_accepting() const { return _accepting_inbound; }
+
+        bool datagrams_enabled() const { return _datagrams; }
+
+        bool packet_splitting_enabled() const { return _packet_splitting; }
+
+        Splitting splitting_policy() const { return _policy; }
+
+        // this is public so the connection constructor can delegate initialize its own local copy to call later
+        datagram_recv_callback dgram_recv_cb;
+
       private:
         Network& net;
         const Address _local;
         event_ptr expiry_timer;
         std::unique_ptr<UDPSocket> socket;
-        bool accepting_inbound{false};
+        bool _accepting_inbound{false};
+        bool _datagrams{false};
+        bool _packet_splitting{false};
+        Splitting _policy{Splitting::NONE};
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
+
+        void _init_internals();
+
+        void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
         void delete_connection(const ConnectionID& cid);
 
@@ -210,7 +230,6 @@ namespace oxen::quic
         void handle_conn_packet(Connection& conn, const Packet& pkt);
 
         io_result read_packet(Connection& conn, const Packet& pkt);
-
 
         // Less efficient wrapper around send_packets that takes care of queuing the packet if the
         // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via

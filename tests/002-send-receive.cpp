@@ -12,14 +12,13 @@ namespace oxen::quic::test
         Network test_net{};
         auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
         bstring_view bad_msg;
-        bstring_view capture;
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
-            capture = dat;
+            REQUIRE(good_msg == dat);
             d_promise.set_value(true);
         };
 
@@ -38,12 +37,11 @@ namespace oxen::quic::test
 
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->get_new_stream();
-        
+
         REQUIRE_NOTHROW(client_stream->send(good_msg));
         REQUIRE_THROWS(client_stream->send(bad_msg));
 
         REQUIRE(d_future.get());
-        REQUIRE(good_msg == capture);
         test_net.close();
     };
 }  // namespace oxen::quic::test

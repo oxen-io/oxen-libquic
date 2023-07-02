@@ -19,9 +19,8 @@ namespace oxen::quic::test
             std::shared_ptr<Stream> server_stream;
 
             std::promise<bool> server_promise, client_promise, stream_promise;
-            std::future<bool> server_future = server_promise.get_future(), 
-                    client_future = client_promise.get_future(),
-                    stream_future = stream_promise.get_future();
+            std::future<bool> server_future = server_promise.get_future(), client_future = client_promise.get_future(),
+                              stream_future = stream_promise.get_future();
 
             stream_open_callback stream_open_cb = [&](Stream& s) {
                 log::debug(log_cat, "Calling server stream open callback... stream opened...");
@@ -92,10 +91,13 @@ namespace oxen::quic::test
             stream_open_callback server_stream_open_cb = [&](Stream& s) {
                 log::debug(log_cat, "Calling server stream open callback... stream opened...");
                 server_extracted_stream = s.shared_from_this();
-                try {
+                try
+                {
                     server_promises.at(si).set_value(true);
                     ++si;
-                } catch (std::exception& e) {
+                }
+                catch (std::exception& e)
+                {
                     throw std::runtime_error(e.what());
                 }
                 return 0;
@@ -104,10 +106,13 @@ namespace oxen::quic::test
             stream_open_callback client_stream_open_cb = [&](Stream& s) {
                 log::debug(log_cat, "Calling client stream open callback... stream opened...");
                 client_extracted_stream = s.shared_from_this();
-                try {
+                try
+                {
                     client_promises.at(ci).set_value(true);
                     ++ci;
-                } catch (std::exception& e) {
+                }
+                catch (std::exception& e)
+                {
                     throw std::runtime_error(e.what());
                 }
                 return 0;
@@ -115,10 +120,13 @@ namespace oxen::quic::test
 
             stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
-                try {
+                try
+                {
                     server_promises.at(si).set_value(true);
                     ++si;
-                } catch (std::exception& e) {
+                }
+                catch (std::exception& e)
+                {
                     throw std::runtime_error(e.what());
                 }
                 data_check += 1;
@@ -126,10 +134,13 @@ namespace oxen::quic::test
 
             stream_data_callback client_stream_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
-                try {
+                try
+                {
                     client_promises.at(ci).set_value(true);
                     ++ci;
-                } catch (std::exception& e) {
+                }
+                catch (std::exception& e)
+                {
                     throw std::runtime_error(e.what());
                 }
                 data_check += 1;
@@ -146,7 +157,8 @@ namespace oxen::quic::test
             REQUIRE(server_endpoint->listen(server_tls, server_stream_data_cb, server_stream_open_cb));
 
             auto client_endpoint = test_net.endpoint(client_local);
-            auto client_ci = client_endpoint->connect(client_remote, client_tls, client_stream_data_cb, client_stream_open_cb);
+            auto client_ci =
+                    client_endpoint->connect(client_remote, client_tls, client_stream_data_cb, client_stream_open_cb);
 
             auto client_stream = client_ci->get_new_stream();
             client_stream->send(msg);
@@ -163,11 +175,10 @@ namespace oxen::quic::test
                 REQUIRE(c.get());
 
             client_extracted_stream->send(response);
-            
+
             REQUIRE(server_futures[2].get());
-            REQUIRE(data_check== 4);
+            REQUIRE(data_check == 4);
             test_net.close();
         };
-
     };
 }  // namespace oxen::quic::test
