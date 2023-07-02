@@ -683,13 +683,13 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::get_streams_available()
+    int Connection::get_streams_available() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         uint64_t open = ngtcp2_conn_get_streams_bidi_left(conn.get());
         if (open > std::numeric_limits<uint64_t>::max())
             return -1;
-        return static_cast<int>(open);
+        return open;
     }
 
     int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
@@ -764,7 +764,7 @@ namespace oxen::quic
         params.active_connection_id_limit = 8;
 
         // config values
-        params.initial_max_streams_bidi = (user_config.max_streams) ? user_config.max_streams : DEFAULT_MAX_BIDI_STREAMS;
+        params.initial_max_streams_bidi = (uconfig.max_streams) ? uconfig.max_streams : DEFAULT_MAX_BIDI_STREAMS;
 
         return 0;
     }
@@ -774,13 +774,11 @@ namespace oxen::quic
             const ConnectionID& scid,
             const ConnectionID& dcid,
             const Path& path,
-            std::shared_ptr<ContextBase> ctx,
-            Direction dir,
+            std::shared_ptr<IOContext> ctx,
             ngtcp2_pkt_hd* hdr) :
-
             context{std::move(ctx)},
-            user_config{context->config},
-            dir{dir},
+            uconfig{context->config},
+            dir{context->dir},
             _endpoint{ep},
             _source_cid{scid},
             _dest_cid{dcid},
@@ -867,12 +865,11 @@ namespace oxen::quic
             const ConnectionID& scid,
             const ConnectionID& dcid,
             const Path& path,
-            std::shared_ptr<ContextBase> ctx,
-            Direction dir,
+            std::shared_ptr<IOContext> ctx,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), dir, hdr}};
+        std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), hdr}};
 
         conn->io_ready();
 

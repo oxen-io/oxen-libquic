@@ -19,8 +19,6 @@
 
 namespace oxen::quic
 {
-    enum class Direction { OUTBOUND = 0, INBOUND = 1 };
-
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
     {
@@ -48,6 +46,9 @@ namespace oxen::quic
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
                 stream_data_callback data_cb = nullptr, stream_close_callback close_cb = nullptr) = 0;
+
+        virtual int get_max_streams() const = 0;
+        virtual int get_streams_available() const = 0;
 
         virtual const ConnectionID& scid() const = 0;
 
@@ -77,8 +78,7 @@ namespace oxen::quic
                 const ConnectionID& scid,
                 const ConnectionID& dcid,
                 const Path& path,
-                std::shared_ptr<ContextBase> ctx,
-                Direction dir,
+                std::shared_ptr<IOContext> ctx,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         void io_ready();
@@ -108,8 +108,8 @@ namespace oxen::quic
         const Endpoint& endpoint() const { return _endpoint; }
 
       private:
-        std::shared_ptr<ContextBase> context;
-        config_t user_config;
+        std::shared_ptr<IOContext> context;
+        user_config uconfig;
         Direction dir;
         Endpoint& _endpoint;
         const ConnectionID _source_cid;
@@ -124,8 +124,7 @@ namespace oxen::quic
                 const ConnectionID& scid,
                 const ConnectionID& dcid,
                 const Path& path,
-                std::shared_ptr<ContextBase> ctx,
-                Direction dir,
+                std::shared_ptr<IOContext> ctx,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         struct connection_deleter
@@ -139,6 +138,10 @@ namespace oxen::quic
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
 
         void setup_tls_session(bool is_client);
+
+        int get_max_streams() const override
+        { return uconfig.max_streams; }
+        int get_streams_available() const override;
 
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
@@ -162,7 +165,6 @@ namespace oxen::quic
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
 
-        int get_streams_available();
 
         bool draining = false;
         bool closing = false;

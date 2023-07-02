@@ -60,6 +60,9 @@ namespace oxen::quic
             return *this;
         }
 
+        bool is_set() const
+        { return is_ipv4() || is_ipv6(); }
+
         inline bool is_ipv4() const
         {
             return _addr.addrlen == sizeof(sockaddr_in) &&

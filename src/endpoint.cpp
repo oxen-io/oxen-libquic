@@ -259,7 +259,7 @@ namespace oxen::quic
             if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
                 itr->second =
-                        Connection::make_conn(*this, itr->first, hdr.scid, pkt.path, inbound_ctx, Direction::INBOUND, &hdr);
+                        Connection::make_conn(*this, itr->first, hdr.scid, pkt.path, inbound_ctx, &hdr);
                 return itr->second.get();
             }
         }

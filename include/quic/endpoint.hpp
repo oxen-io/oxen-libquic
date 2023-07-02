@@ -57,7 +57,7 @@ namespace oxen::quic
                 try
                 {
                     // initialize client context and client tls context simultaneously
-                    inbound_ctx = std::make_shared<InboundContext>(std::forward<Opt>(opts)...);
+                    inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
                     accepting_inbound = true;
 
                     log::debug(log_cat, "Inbound context ready for incoming connections");
@@ -84,7 +84,7 @@ namespace oxen::quic
                 try
                 {
                     // initialize client context and client tls context simultaneously
-                    outbound_ctx = std::make_shared<OutboundContext>(std::forward<Opt>(opts)...);
+                    outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
 
                     for (;;)
                     {
@@ -95,8 +95,7 @@ namespace oxen::quic
                                     itr->first,
                                     ConnectionID::random(),
                                     std::move(path),
-                                    outbound_ctx,
-                                    Direction::OUTBOUND);
+                                    outbound_ctx);
 
                             p.set_value(itr->second);
                             return;
@@ -157,6 +156,9 @@ namespace oxen::quic
 
         const Address& local()
         { return _local; }
+
+        bool is_accepting() const
+        { return accepting_inbound; }
       
       private:
         Network& net;
@@ -165,8 +167,8 @@ namespace oxen::quic
         std::unique_ptr<UDPSocket> socket;
         bool accepting_inbound{false};
 
-        std::shared_ptr<ContextBase> outbound_ctx;
-        std::shared_ptr<ContextBase> inbound_ctx;
+        std::shared_ptr<IOContext> outbound_ctx;
+        std::shared_ptr<IOContext> inbound_ctx;
 
         void delete_connection(const ConnectionID& cid);
 

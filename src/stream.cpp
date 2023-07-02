@@ -157,6 +157,9 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
+        if (data.empty())
+            throw std::invalid_argument{"Cannot send empty byte string"};
+
         endpoint.call([this, data, keep_alive]() {
             log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);

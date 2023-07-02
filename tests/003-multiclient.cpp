@@ -7,12 +7,25 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("003: Multi-client to server transmission", "[003][multi-client]")
+    TEST_CASE("003 - Multi-client to server transmission: Types", "[003][multi-client][types]")
     {
-        logger_config();
+        SECTION("Multiple clients with the same address")
+        {
+            Network test_net{};
 
-        log::debug(log_cat, "Beginning test of multi-client connection...");
+            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4400};
 
+            auto client_a = test_net.endpoint(local_addr);
+            auto client_b = test_net.endpoint(local_addr);
+            auto client_c = test_net.endpoint(default_addr);
+
+            REQUIRE(client_a == client_b);
+            REQUIRE_FALSE(client_a == client_c);
+        };
+    };
+
+    TEST_CASE("003 - Multi-client to server transmission: Execution", "[003][multi-client][execute]")
+    {
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 

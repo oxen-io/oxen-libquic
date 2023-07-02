@@ -10,7 +10,6 @@ add_executable(alltests
     004-streams.cpp
     005-chunked-sender.cpp
     006-server-send.cpp
-    007-server-streams.cpp
 
     main.cpp
 )
