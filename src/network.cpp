@@ -55,13 +55,28 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Beginning network context creation with new ev loop thread");
 
+#ifdef _WIN32
+        {
+            WSADATA ignored;
+            if (int err = WSAStartup(MAKEWORD(2, 2), &ignored); err != 0)
+            {
+                log::critical(log_cat, "WSAStartup failed to initialize the windows socket layer ({0x:x})", err);
+                throw std::runtime_error{"Unable to initialize windows socket layer"};
+            }
+        }
+#endif
+
         if (static bool once = false; !once)
         {
             once = true;
             setup_libevent_logging();
 
             // Older versions of libevent do not like having this called multiple times
+#ifdef _WIN32
+            evthread_use_windows_threads();
+#else
             evthread_use_pthreads();
+#endif
         }
 
         std::vector<std::string_view> ev_methods_avail;
@@ -101,6 +116,11 @@ namespace oxen::quic
         if (loop_thread)
             loop_thread->join();
         log::info(log_cat, "Network shutdown complete");
+
+#ifdef _WIN32
+        if (loop_thread)
+            WSACleanup();
+#endif
     }
 
     void Network::setup_job_waker()

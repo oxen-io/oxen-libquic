@@ -51,8 +51,9 @@ namespace oxen::quic
 
         if (ca)
         {
-            if (auto rv = (ca.from_mem) ? gnutls_certificate_set_x509_trust_mem(cred, ca, ca)
-                                        : gnutls_certificate_set_x509_trust_file(cred, ca, ca);
+            if (auto rv = (ca.from_mem)
+                                ? gnutls_certificate_set_x509_trust_mem(cred, ca, ca.format)
+                                : gnutls_certificate_set_x509_trust_file(cred, ca.path.u8string().c_str(), ca.format);
                 rv < 0)
             {
                 log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
@@ -60,8 +61,10 @@ namespace oxen::quic
             }
         }
 
-        if (auto rv = (lcert.from_mem) ? gnutls_certificate_set_x509_key_mem(cred, lcert, lkey, lkey)
-                                       : gnutls_certificate_set_x509_key_file(cred, lcert, lkey, lkey);
+        if (auto rv = (lcert.from_mem)
+                            ? gnutls_certificate_set_x509_key_mem(cred, lcert, lkey, lkey.format)
+                            : gnutls_certificate_set_x509_key_file(
+                                      cred, lcert.path.u8string().c_str(), lkey.path.u8string().c_str(), lkey.format);
             rv < 0)
         {
             log::warning(log_cat, "Set x509 key failed with code {}", gnutls_strerror(rv));

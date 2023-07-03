@@ -2,9 +2,9 @@
     Test server binary
 */
 
+#include <gnutls/gnutls.h>
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
-#include <sodium/crypto_generichash_blake2b.h>
 
 #include <CLI/Validators.hpp>
 #include <future>
@@ -45,17 +45,17 @@ int main(int argc, char* argv[])
             ->capture_default_str()
             ->check(CLI::ExistingFile);
 
-    bool no_blake2b = false;
+    bool no_hash = false;
     cli.add_flag(
-            "-2,--no-blake2b",
-            no_blake2b,
-            "Disable blake2b data hashing (just use a simple xor byte checksum).  Can make a difference on extremely low "
+            "-H,--no-hash",
+            no_hash,
+            "Disable data hashing (just use a simple xor byte checksum instead).  Can make a difference on extremely low "
             "latency (e.g. localhost) connections.  Should be specified on the client as well.");
     bool no_checksum = false;
     cli.add_flag(
-            "-3,--no-checksum",
+            "-X,--no-checksum",
             no_checksum,
-            "Disable even the simple xor byte checksum (typically used together with -2).  Should be specified on the "
+            "Disable even the simple xor byte checksum (typically used together with -H).  Should be specified on the "
             "client as well.");
 
     try
@@ -83,15 +83,14 @@ int main(int argc, char* argv[])
 
     struct stream_info
     {
-        explicit stream_info(uint64_t expected) : expected{expected}
-        {
-            crypto_generichash_blake2b_init(&hasher, nullptr, 0, 32);
-        }
+        explicit stream_info(uint64_t expected) : expected{expected} { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
 
         uint64_t expected;
         uint64_t received = 0;
         unsigned char checksum = 0;
-        crypto_generichash_blake2b_state hasher;
+        gnutls_hash_hd_t hasher;
+
+        ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
     };
 
     std::unordered_map<ConnectionID, std::map<int64_t, stream_info>> csd;
@@ -136,15 +135,14 @@ int main(int argc, char* argv[])
                 info.checksum ^= static_cast<uint8_t>(data[i]);
         }
 
-        if (!no_blake2b)
-            crypto_generichash_blake2b_update(
-                    &info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+        if (!no_hash)
+            gnutls_hash(info.hasher, reinterpret_cast<const unsigned char*>(data.data()), data.size());
 
         if (info.received >= info.expected)
         {
             std::basic_string<unsigned char> final_hash;
             final_hash.resize(33);
-            crypto_generichash_blake2b_final(&info.hasher, final_hash.data(), 32);
+            gnutls_hash_output(info.hasher, final_hash.data());
             final_hash[32] = info.checksum;
 
             log::warning(

@@ -1,10 +1,5 @@
 #include "utils.hpp"
 
-extern "C"
-{
-#include <netinet/in.h>
-}
-
 #include <oxenc/endian.h>
 
 #include <atomic>
@@ -153,9 +148,31 @@ namespace oxen::quic
         return out;
     }
 
-    std::string_view io_result::str() const
+    std::conditional_t<IN_HELL, std::string, std::string_view> io_result::str() const
     {
-        return is_ngtcp2 ? ngtcp2_strerror(error_code) : strerror(error_code);
+#ifdef _WIN32
+        if (is_wsa)
+        {
+            std::array<char, 256> buf;
+            buf[0] = 0;
+
+            FormatMessage(
+                    FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                    nullptr,
+                    error_code,
+                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                    buf.data(),
+                    buf.size(),
+                    nullptr);
+            if (buf[0])
+                return buf.data();
+            return "Unknown error {}"_format(error_code);
+        }
+#endif
+        if (is_ngtcp2)
+            return ngtcp2_strerror(error_code);
+
+        return strerror(error_code);
     }
 
 }  // namespace oxen::quic

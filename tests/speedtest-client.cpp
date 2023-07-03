@@ -4,7 +4,6 @@
 
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
-#include <sodium/crypto_generichash_blake2b.h>
 
 #include <CLI/Validators.hpp>
 #include <chrono>
@@ -60,17 +59,17 @@ int main(int argc, char* argv[])
     bool pregenerate = false;
     cli.add_flag("-g,--pregenerate", pregenerate, "Pregenerate all stream data to send into RAM before starting");
 
-    bool no_blake2b = false;
+    bool no_hash = false;
     cli.add_flag(
-            "-2,--no-blake2b",
-            no_blake2b,
-            "Disable blake2b data hashing (just use a simple xor byte checksum).  Can make a difference on extremely low "
+            "-H,--no-hash",
+            no_hash,
+            "Disable data hashing (just use a simple xor byte checksum instead).  Can make a difference on extremely low "
             "latency (e.g. localhost) connections.  Should be specified on the server as well.");
     bool no_checksum = false;
     cli.add_flag(
-            "-3,--no-checksum",
+            "-X,--no-checksum",
             no_checksum,
-            "Disable even the simple xor byte checksum (typically used together with -2).  Should be specified on the "
+            "Disable even the simple xor byte checksum (typically used together with -H).  Should be specified on the "
             "server as well.");
 
     size_t chunk_size = 64_ki, chunk_num = 2;
@@ -120,7 +119,7 @@ int main(int argc, char* argv[])
 
         std::basic_string<std::byte> hash;
         uint8_t checksum = 0;
-        crypto_generichash_blake2b_state sent_hasher, recv_hasher;
+        gnutls_hash_hd_t sent_hasher, recv_hasher;
 
         stream_data() {}
         stream_data(size_t total_size, uint64_t seed, size_t chunk_size, size_t chunk_num) : remaining{total_size}, rng{seed}
@@ -128,8 +127,14 @@ int main(int argc, char* argv[])
             bufs.resize(chunk_num);
             for (auto& buf : bufs)
                 buf.resize(chunk_size);
-            crypto_generichash_blake2b_init(&sent_hasher, nullptr, 0, 32);
-            crypto_generichash_blake2b_init(&recv_hasher, nullptr, 0, 32);
+            gnutls_hash_init(&sent_hasher, GNUTLS_DIG_SHA3_256);
+            gnutls_hash_init(&recv_hasher, GNUTLS_DIG_SHA3_256);
+        }
+
+        ~stream_data()
+        {
+            gnutls_hash_deinit(sent_hasher, nullptr);
+            gnutls_hash_deinit(recv_hasher, nullptr);
         }
     };
 
@@ -220,48 +225,45 @@ int main(int argc, char* argv[])
 
     auto per_stream = size / parallel;
 
-    auto gen_data = [no_blake2b, no_checksum](
-                            RNG& rng,
-                            size_t size,
-                            std::vector<std::byte>& data,
-                            crypto_generichash_blake2b_state& hasher,
-                            uint8_t& checksum) {
-        assert(size > 0);
+    auto gen_data =
+            [no_hash, no_checksum](
+                    RNG& rng, size_t size, std::vector<std::byte>& data, gnutls_hash_hd_t& hasher, uint8_t& checksum) {
+                assert(size > 0);
 
-        using rng_value = RNG::result_type;
+                using rng_value = RNG::result_type;
 
-        static_assert(
-                RNG::min() == 0 && std::is_unsigned_v<rng_value> &&
-                RNG::max() == std::numeric_limits<rng_value>::max());
+                static_assert(
+                        RNG::min() == 0 && std::is_unsigned_v<rng_value> &&
+                        RNG::max() == std::numeric_limits<rng_value>::max());
 
-        constexpr size_t rng_size = sizeof(rng_value);
-        const size_t rng_chunks = (size + rng_size - 1) / rng_size;
-        const size_t size_data = rng_chunks * rng_size;
+                constexpr size_t rng_size = sizeof(rng_value);
+                const size_t rng_chunks = (size + rng_size - 1) / rng_size;
+                const size_t size_data = rng_chunks * rng_size;
 
-        // Generate some deterministic data from our rng; we're cheating a little here with the RNG
-        // output value (which means this test won't be the same on different endian machines).
-        data.resize(size_data);
-        auto* rng_data = reinterpret_cast<rng_value*>(data.data());
-        for (size_t i = 0; i < rng_chunks; i++)
-            rng_data[i] = static_cast<rng_value>(rng());
-        data.resize(size);
+                // Generate some deterministic data from our rng; we're cheating a little here with the RNG
+                // output value (which means this test won't be the same on different endian machines).
+                data.resize(size_data);
+                auto* rng_data = reinterpret_cast<rng_value*>(data.data());
+                for (size_t i = 0; i < rng_chunks; i++)
+                    rng_data[i] = static_cast<rng_value>(rng());
+                data.resize(size);
 
-        // Hash/checksum it (so that we can verify the hash response at the end)
-        if (!no_checksum)
-        {
-            uint64_t csum = 0;
-            const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
-            for (size_t i = 0; i < data.size() / 8; i++)
-                csum ^= stuff[i];
-            for (int i = 0; i < 8; i++)
-                checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
-            for (size_t i = data.size() & ~0b111; i < data.size(); i++)
-                checksum ^= static_cast<uint8_t>(data[i]);
-        }
+                // Hash/checksum it (so that we can verify the hash response at the end)
+                if (!no_checksum)
+                {
+                    uint64_t csum = 0;
+                    const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
+                    for (size_t i = 0; i < data.size() / 8; i++)
+                        csum ^= stuff[i];
+                    for (int i = 0; i < 8; i++)
+                        checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
+                    for (size_t i = data.size() & ~0b111; i < data.size(); i++)
+                        checksum ^= static_cast<uint8_t>(data[i]);
+                }
 
-        if (!no_blake2b)
-            crypto_generichash_blake2b_update(&hasher, reinterpret_cast<unsigned char*>(data.data()), data.size());
-    };
+                if (!no_hash)
+                    gnutls_hash(hasher, reinterpret_cast<unsigned char*>(data.data()), data.size());
+            };
 
     if (pregenerate)
     {
@@ -278,7 +280,7 @@ int main(int argc, char* argv[])
         {
             gen_data(s.rng, my_data, s.bufs[0], s.sent_hasher, s.checksum);
             s.hash.resize(32);
-            crypto_generichash_blake2b_final(&s.sent_hasher, reinterpret_cast<unsigned char*>(s.hash.data()), s.hash.size());
+            gnutls_hash_output(s.sent_hasher, reinterpret_cast<unsigned char*>(s.hash.data()));
         }
     }
     if (pregenerate)
@@ -321,8 +323,7 @@ int main(int argc, char* argv[])
                         if (sd.remaining == 0)
                         {
                             sd.hash.resize(32);
-                            crypto_generichash_blake2b_final(
-                                    &sd.sent_hasher, reinterpret_cast<unsigned char*>(sd.hash.data()), sd.hash.size());
+                            gnutls_hash_output(sd.sent_hasher, reinterpret_cast<unsigned char*>(sd.hash.data()));
                             sd.done_sending = true;
                         }
 

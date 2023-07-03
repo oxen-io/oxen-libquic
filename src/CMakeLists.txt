@@ -13,14 +13,18 @@ add_library(quic
 target_link_libraries(quic
     PUBLIC
     ngtcp2::crypto
-    libevent::core libevent::pthreads
-    gnutls
+    libevent::core libevent::threads
+    gnutls::gnutls
     oxen::logging
     common
     oxenc
     PRIVATE
     internal
 )
+
+if(WIN32)
+    target_link_libraries(quic PUBLIC ws2_32)
+endif()
 
 set(libquic_send_default "sendmsg")
 set(libquic_recvmmsg_default OFF)

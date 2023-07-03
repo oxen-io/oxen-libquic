@@ -1,12 +1,19 @@
 #include "connection.hpp"
 
+extern "C"
+{
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <arpa/inet.h>
+#include <netinet/ip.h>
+#endif
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
-#include <netinet/ip.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
+}
 
 #include <cassert>
 #include <chrono>
@@ -152,7 +159,7 @@ namespace oxen::quic
         return 0;
     }
 
-    int extend_max_local_streams_bidi(ngtcp2_conn* /*_conn*/, uint64_t /*max_streams*/, void* user_data)
+    int extend_max_local_streams_bidi([[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
