@@ -11,6 +11,7 @@ C++ library for multi-stream QUIC implementations.
 ### Requirements:
 
 - Cmake
+- Ninja
 - C++ 17 compiler (Clang, GCC, etc)
 - NGTCP2
 - GNUTLS
