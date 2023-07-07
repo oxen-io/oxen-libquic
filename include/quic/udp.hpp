@@ -74,10 +74,7 @@ namespace oxen::quic
         UDPSocket& operator=(UDPSocket&& s) = delete;
 
         /// Returns the local address of this UDP socket
-        const Address& address() const
-        {
-            return bound_;
-        }
+        const Address& address() const { return bound_; }
 
         /// Attempts to send one or more UDP payloads to a single destination.  Returns a pair: an
         /// io_result of either success (all packets were sent), `blocked()` if some or all of the
