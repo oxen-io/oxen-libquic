@@ -17,9 +17,9 @@ namespace oxen::quic::test
             std::future<bool> tls_future = tls.get_future();
             opt::max_streams max_streams{8};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5505};
+            opt::local_addr client_local{"127.0.0.1"s, 4410};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5505};
 
             gnutls_callback outbound_tls_cb =
                     [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
@@ -54,9 +54,9 @@ namespace oxen::quic::test
             std::future<bool> data_future = data_promise.get_future();
             opt::max_streams max_streams{8};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5506};
+            opt::local_addr client_local{"127.0.0.1"s, 4411};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5506};
 
             stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling server stream data callback... data received...");
@@ -91,9 +91,9 @@ namespace oxen::quic::test
 
             std::shared_ptr<connection_interface> server_ci;
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5507};
+            opt::local_addr client_local{"127.0.0.1"s, 4412};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5507};
 
             stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling server stream data callback... data received...");
@@ -153,12 +153,12 @@ namespace oxen::quic::test
         opt::max_streams max_streams{8};
         std::vector<std::shared_ptr<Stream>> streams{12};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        opt::local_addr server_local{"127.0.0.1"s, 5508};
+        opt::local_addr client_local{"127.0.0.1"s, 4413};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5508};
 
-        opt::local_addr server_local{"127.0.0.1"s, 5500};
-        opt::local_addr client_local{"127.0.0.1"s, 4400};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+        std::promise<bool> tls;
+        std::future<bool> tls_future = tls.get_future();
 
         std::vector<std::promise<bool>> send_promises{14}, receive_promises{13};
         std::vector<std::future<bool>> send_futures{14}, receive_futures{13};
@@ -169,6 +169,14 @@ namespace oxen::quic::test
             receive_futures[i] = receive_promises[i].get_future();
         }
         send_futures[13] = send_promises[13].get_future();
+
+        gnutls_callback outbound_tls_cb =
+                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+
+                    tls.set_value(true);
+                    return 0;
+                };
 
         stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
@@ -185,11 +193,17 @@ namespace oxen::quic::test
             }
         };
 
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        client_tls->set_client_tls_policy(outbound_tls_cb);
+
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams, server_stream_data_cb));
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
+
+        REQUIRE(tls_future.get());
 
         // 1) open 12 streams and send
         for (int i = 0; i < 12; ++i)

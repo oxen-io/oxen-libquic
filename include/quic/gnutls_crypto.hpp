@@ -132,7 +132,7 @@ namespace oxen::quic
         GNUTLSSession(GNUTLSCreds& creds, bool is_client);
         ~GNUTLSSession();
 
-        void* get_session() override { return reinterpret_cast<gnutls_session_t>(session); };
+        void* get_session() override { return session; };
 
         int do_tls_callback(
                 gnutls_session_t session,

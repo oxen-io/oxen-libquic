@@ -46,7 +46,7 @@ namespace oxen::quic
 
     std::string Path::to_string() const
     {
-        return "{{{} ➙ {}}}"_format(local.to_string(), remote.to_string());
+        return "{{{} ➙ {}}}"_format(local, remote);
     }
 
 }  // namespace oxen::quic

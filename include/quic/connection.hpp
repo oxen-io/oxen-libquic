@@ -177,7 +177,7 @@ namespace oxen::quic
 
         /// Datagram Numbering:
         /// Each datagram ID is incremented by four from the previous one, regardless of whether we are
-        /// splitting datagrams. The first 12 MSBs are the counter, and the 2 LSBs indicate if the packet
+        /// splitting packets. The first 12 MSBs are the counter, and the 2 LSBs indicate if the packet
         /// is split or not and which it is in the split (respectively). For example,
         ///
         ///     ID: 0bxxxx'xxxx'xxxx'xxzz
@@ -187,7 +187,7 @@ namespace oxen::quic
         /// Example - unsplit packets:
         ///     Packet Number   |   Packet ID
         ///         1           |       4           In the unsplit packet scheme, the dgram ID of each
-        ///         2           |       8           packet satisfies the rule:
+        ///         2           |       8           datagram satisfies the rule:
         ///         3           |       12                          (ID % 4) == 0
         ///         4           |       16          As a result, if a dgram ID is received that is a perfect
         ///         5           |       20          multiple of 4, that endpoint is NOT splitting packets
@@ -195,12 +195,12 @@ namespace oxen::quic
         /// Example - split packets:
         ///     Packet Number   |   Packet ID
         ///         1                   6           In the split-packet scheme, the dgram ID of the first
-        ///         2                   7           of two packets satisfies the rule:
+        ///         2                   7           of two datagrams satisfies the rule:
         ///         3                   10                          (ID % 4) == 2
-        ///         4                   11          The second of the two packets satisfies the rule:
+        ///         4                   11          The second of the two datagrams satisfies the rule:
         ///         5                   14                          (ID % 4) == 3
         ///         6                   15          As a result, a packet-splitting endpoint should never send
-        ///                                         or receive a packet whose ID is a perfect multiple of 4
+        ///                                         or receive a datagram whose ID is a perfect multiple of 4
         ///
         uint64_t _increment = 4;
         uint64_t _last_dgram_id{4};
@@ -260,6 +260,7 @@ namespace oxen::quic
         event_ptr packet_retransmit_timer;
         event_ptr packet_io_trigger;
 
+        event_ptr datagram_retransmit_timer;
         event_ptr datagram_io_trigger;
 
         void on_datagram_io_ready();

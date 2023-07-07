@@ -13,7 +13,7 @@ namespace oxen::quic::test
         {
             Network test_net{};
 
-            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4400};
+            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4406};
 
             auto client_a = test_net.endpoint(local_addr);
             auto client_b = test_net.endpoint(local_addr);
@@ -36,13 +36,13 @@ namespace oxen::quic::test
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
 
-        opt::local_addr server_local{"127.0.0.1"s, 5500};
+        opt::local_addr server_local{"127.0.0.1"s, 5504};
 
-        opt::local_addr client_a_local{"127.0.0.1"s, 4400};
-        opt::local_addr client_b_local{"127.0.0.1"s, 4422};
-        opt::local_addr client_c_local{"127.0.0.1"s, 4444};
-        opt::local_addr client_d_local{"127.0.0.1"s, 4466};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+        opt::local_addr client_a_local{"127.0.0.1"s, 4407};
+        opt::local_addr client_b_local{"127.0.0.1"s, 4408};
+        opt::local_addr client_c_local{"127.0.0.1"s, 4409};
+        opt::local_addr client_d_local{"127.0.0.1"s, 4410};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5504};
 
         auto p_itr = stream_promises.begin();
 

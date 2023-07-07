@@ -42,9 +42,9 @@ namespace oxen::quic::test
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-        opt::local_addr server_local{"127.0.0.1"s, 5500};
-        opt::local_addr client_local{"127.0.0.1"s, 4400};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+        opt::local_addr server_local{"127.0.0.1"s, 5509};
+        opt::local_addr client_local{"127.0.0.1"s, 4414};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5509};
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, stream_data_cb));
@@ -156,9 +156,9 @@ namespace oxen::quic::test
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-        opt::local_addr server_local{"127.0.0.1"s, 5500};
-        opt::local_addr client_local{"127.0.0.1"s, 4400};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+        opt::local_addr server_local{"127.0.0.1"s, 5510};
+        opt::local_addr client_local{"127.0.0.1"s, 4415};
+        opt::remote_addr client_remote{"127.0.0.1"s, 5510};
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, stream_data_cb));

@@ -289,6 +289,7 @@ namespace oxen::quic
     {
         auto ts = get_time();
         flush_datagrams(ts);
+        schedule_datagram_retransmit(ts);
     }
 
     void Connection::on_packet_io_ready()
@@ -393,17 +394,20 @@ namespace oxen::quic
         }
 
         std::vector<ngtcp2_vec> bufs = pending_datagrams();
+        auto b_itr = bufs.begin();
 
-        for (auto& b : bufs)
+        while (!bufs.empty())
         {
             auto nwrite = ngtcp2_conn_writev_datagram(
-                    conn.get(), _path, &pkt_info, buf_pos, max_size, &accepted, flags, 0, &b, 1, ts);
+                    conn.get(), _path, &pkt_info, buf_pos, max_size, &accepted, flags, 0, b_itr.base(), 1, ts);
+
+            log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
 
             // Datagrams are written all-or-nothing:
-            //  - if it is accepted, this value will be non-zero
+            //  - if it is accepted, this value will be non-zero with nwrite equal to payload size written
             if (accepted != 0)
             {
-                log::trace(log_cat, "Writing datagram successful");
+                log::trace(log_cat, "Writing whole datagram successful");
                 // increment buffer position by a whole datagram size, as we don't fill in the extra
                 // space if the payload is smaller than the max size
                 buf_pos += MAX_PMTUD_UDP_PAYLOAD;
@@ -416,39 +420,55 @@ namespace oxen::quic
                     if (!send(Send::DATAGRAMS, &pkt_updater))
                         return;
                 }
-
+                // pop datagram from unsent_datagrams buffer
+                unsent_datagrams.pop_front();
+                // advance iterator
+                b_itr = bufs.erase(b_itr);
                 continue;
             }
 
-            log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
-            // error handling
-            switch (nwrite)
+            // No more data can be sent due to:
+            //  - congestion control limit
+            //  - local endpoint has reached its amplification limit
+            if (nwrite == 0)
             {
-                // non-fatal errrors
-                case NGTCP2_ERR_INVALID_ARGUMENT:
-                    log::debug(log_cat, "Datagram frame size exceeds remote endpoint's max receivable size");
-                    break;
-                case NGTCP2_ERR_INVALID_STATE:
-                    log::debug(log_cat, "Remote endpoint does not express datagram frame support");
-                    break;
-                case NGTCP2_ERR_PKT_NUM_EXHAUSTED:
-                    log::warning(log_cat, "Datagram ID exhausted - this should not be returned with no splitting policy");
-                    break;
-                // fatal errors
-                case NGTCP2_ERR_NOMEM:
-                case NGTCP2_ERR_CALLBACK_FAILURE:
-                    log::warning(log_cat, "Fatal ngtcp2 error: could not write datagram - \"{}\"", ngtcp2_strerror(nwrite));
+                log::info(log_cat, "Could not write datagram - check connection congestion control or amplification limits");
+                return;
+            }
+
+            // error handling
+            if (nwrite < 0)
+            {
+                // fatal
+                if (nwrite < -500)
+                {
+                    log::critical(log_cat, "Fatal ngtcp2 error: could not write datagram - \"{}\"", ngtcp2_strerror(nwrite));
                     _endpoint.call([this, rv = nwrite]() {
                         log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
                         _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
                     });
-                    // should exit without sending any more datagrams
                     return;
-                // never returned w/o (flags & NGTCP2_WRITE_DATAGRAM_FLAG_MORE)
-                case NGTCP2_ERR_WRITE_MORE:
-                default:
-                    log::debug(log_cat, "Oops: this line should not be executed");
-                    break;
+                }
+                else  // non-fatal
+                {
+                    if (nwrite == NGTCP2_ERR_INVALID_ARGUMENT)
+                        log::debug(log_cat, "Datagram frame size exceeds remote endpoint's max receivable size");
+                    else if (nwrite == NGTCP2_ERR_INVALID_STATE)
+                        log::debug(log_cat, "Remote endpoint does not express datagram frame support");
+                    else if (nwrite == NGTCP2_ERR_PKT_NUM_EXHAUSTED)
+                        log::debug(log_cat, "Datagram ID exhausted - this should not be returned with no splitting policy");
+                    else if (nwrite == NGTCP2_ERR_WRITE_MORE)
+                        log::debug(
+                                log_cat,
+                                "Oops: this line should not be executed if NGTCP2_WRITE_DATAGRAM_FLAG_MORE is not set");
+                    else
+                        log::debug(
+                                log_cat,
+                                "Non-fatal ngtcp2 error: coult not write to datagram - \"{}\"",
+                                ngtcp2_strerror(nwrite));
+
+                    continue;
+                }
             }
         }
 
@@ -650,6 +670,33 @@ namespace oxen::quic
             send(Send::PACKETS, &pkt_updater);
         }
         log::debug(log_cat, "Exiting flush_streams()");
+    }
+
+    void Connection::schedule_datagram_retransmit(std::chrono::steady_clock::time_point ts)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        ngtcp2_tstamp exp_ns = ngtcp2_conn_get_expiry(conn.get());
+
+        if (exp_ns == std::numeric_limits<ngtcp2_tstamp>::max())
+        {
+            log::info(log_cat, "No retransmit needed right now");
+            event_del(datagram_retransmit_timer.get());
+            return;
+        }
+
+        auto delta = exp_ns * 1ns - ts.time_since_epoch();
+        log::trace(log_cat, "Expiry delta: {}ns", delta.count());
+
+        timeval* tv_ptr = nullptr;
+        timeval tv;
+        if (delta > 0s)
+        {
+            delta += 999ns;  // Round up to the next µs (libevent timers have µs precision)
+            tv.tv_sec = delta / 1s;
+            tv.tv_usec = (delta % 1s) / 1us;
+            tv_ptr = &tv;
+        }
+        event_add(datagram_retransmit_timer.get(), tv_ptr);
     }
 
     void Connection::schedule_packet_retransmit(std::chrono::steady_clock::time_point ts)
@@ -875,28 +922,28 @@ namespace oxen::quic
         if (!_datagrams_enabled)
             throw std::runtime_error{"Endpoint not configured for datagram IO"};
 
+        // check this first and once; already considers policy when returning
+        const auto max_size = get_max_datagram_size();
+
+        // we use >= instead of > for that just-in-case 1-byte cushion
+        if (data.size() >= max_size)
+        {
+            log::critical(
+                    log_cat,
+                    "Data of length {} cannot be sent with {} datagrams of max size {}",
+                    data.size(),
+                    packet_splitting_policy() == Splitting::NONE ? "unsplit" : "split",
+                    max_size);
+            throw std::invalid_argument{"Data too large to send as datagram with current policy"};
+        }
+
         // if packet_splitting is lazy OR packet_splitting is off, send as "normal" datagram
         _endpoint.call([this, data, keep_alive]() {
-            // check this first and once; already considers policy when returning
-            const auto max_size = get_max_datagram_size();
-
-            // we use >= instead of > for that just-in-case 1-byte cushion
-            if (data.size() >= max_size)
-            {
-                log::critical(
-                        log_cat,
-                        "Data of length {} cannot be sent with {} datagrams of max size {}",
-                        data.size(),
-                        _policy == Splitting::NONE ? "unsplit" : "split",
-                        max_size);
-                throw std::invalid_argument{"Data too large to send as datagram with current policy"};
-            }
-
             log::trace(
                     log_cat,
                     "Connection (CID: {}) sending {} datagram: {}",
                     _source_cid,
-                    _policy == Splitting::GREEDY ? "split" : "whole",
+                    packet_splitting_policy() == Splitting::GREEDY ? "split" : "whole",
                     buffer_printer{data});
             append_datagram_buffer(data, keep_alive);
         });
@@ -914,7 +961,7 @@ namespace oxen::quic
     size_t Connection::get_max_datagram_size() const
     {
         // If policy is greedy, we can take in doubel the datagram size
-        size_t multiple = (_policy == Splitting::GREEDY) ? 2 : 1;
+        size_t multiple = (packet_splitting_policy() == Splitting::GREEDY) ? 2 : 1;
 
         if (_datagrams_enabled)
             return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - DATAGRAM_OVERHEAD);
@@ -930,6 +977,22 @@ namespace oxen::quic
                 -1,
                 0,
                 [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_datagram_io_ready(); },
+                this));
+        datagram_retransmit_timer.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self_) {
+                    auto& self = *static_cast<Connection*>(self_);
+                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
+                    {
+                        log::warning(
+                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
+                        self.endpoint().close_connection(self, rv);
+                        return;
+                    }
+                    self.on_datagram_io_ready();
+                },
                 this));
         packet_io_trigger.reset(event_new(
                 ev_base,
@@ -955,6 +1018,7 @@ namespace oxen::quic
                 this));
 
         event_add(packet_retransmit_timer.get(), nullptr);
+        event_add(datagram_retransmit_timer.get(), nullptr);
 
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
@@ -1005,6 +1069,8 @@ namespace oxen::quic
         if (_datagrams_enabled)
         {
             log::trace(log_cat, "Enabling datagram support for connection");
+            // This is effectively an "unlimited" value, which lets us accept any size that fits into a QUIC packet
+            // (see rfc 9221)
             params.max_datagram_frame_size = 65535;
             // default ngtcp2 values set by ngtcp2_settings_default_versioned
             params.max_udp_payload_size = NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE;  // 65527

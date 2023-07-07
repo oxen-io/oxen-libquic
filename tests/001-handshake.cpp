@@ -12,7 +12,6 @@ namespace oxen::quic::test
         SECTION("TLS Credentials")
         {
             REQUIRE_NOTHROW(GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s));
-
             REQUIRE_THROWS(GNUTLSCreds::make(""s, ""s, ""s));
         };
 
@@ -42,7 +41,7 @@ namespace oxen::quic::test
         SECTION("Endpoint::listen()")
         {
             Network test_net{};
-            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4400};
+            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4401};
             auto local_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
             auto ep_notls = test_net.endpoint(default_addr);
@@ -59,7 +58,7 @@ namespace oxen::quic::test
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
             opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
+            opt::local_addr client_local{"127.0.0.1"s, 4402};
             opt::remote_addr client_remote{"127.0.0.1"s, 5500};
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -94,9 +93,9 @@ namespace oxen::quic::test
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5501};
+            opt::local_addr client_local{"127.0.0.1"s, 4403};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5501};
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_THROWS(server_endpoint->listen());
@@ -127,9 +126,9 @@ namespace oxen::quic::test
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5502};
+            opt::local_addr client_local{"127.0.0.1"s, 4404};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5502};
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE(server_endpoint->listen(server_tls));

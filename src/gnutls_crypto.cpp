@@ -34,6 +34,10 @@ namespace oxen::quic
 
     GNUTLSCreds::GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg)
     {
+        if (local_key.empty() || local_cert.empty())
+            throw std::runtime_error{
+                    "Must initialize GNUTLS credentials using local private key and certificate at minimum"};
+
         datum lkey = datum{local_key};
         datum lcert = datum{local_cert};
         datum rcert;

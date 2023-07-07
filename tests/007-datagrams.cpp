@@ -22,8 +22,8 @@ namespace oxen::quic::test
             opt::enable_datagrams default_dgram{},          // packet_splitting = false
                     lazy_dgram{true},                       // packet_splitting = true, policy = ::LAZY
                     greedy_dgram{true, Splitting::GREEDY};  // packet_splitting = true, policy = ::GREEDY
-            opt::local_addr local_a{"127.0.0.1"s, 4400}, local_b{"127.0.0.1"s, 4444}, local_c{"127.0.0.1"s, 4488},
-                    local_d{"127.0.0.1"s, 5522};
+            opt::local_addr local_a{"127.0.0.1"s, 4418}, local_b{"127.0.0.1"s, 4419}, local_c{"127.0.0.1"s, 4420},
+                    local_d{"127.0.0.1"s, 4421};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
@@ -77,9 +77,9 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5513};
+            opt::local_addr client_local{"127.0.0.1"s, 4422};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5513};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -117,9 +117,9 @@ namespace oxen::quic::test
 
             opt::enable_datagrams default_gram{};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5514};
+            opt::local_addr client_local{"127.0.0.1"s, 4423};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5514};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -159,9 +159,9 @@ namespace oxen::quic::test
                     };
 
             opt::enable_datagrams lazy{true};
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5515};
+            opt::local_addr client_local{"127.0.0.1"s, 4424};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5515};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -201,9 +201,9 @@ namespace oxen::quic::test
                     };
 
             opt::enable_datagrams greedy{true, Splitting::GREEDY};
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5516};
+            opt::local_addr client_local{"127.0.0.1"s, 4425};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5516};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -228,9 +228,9 @@ namespace oxen::quic::test
         };
     };
 
-    TEST_CASE("007 - Datagram support: Execute", "[007][datagrams][execute]")
+    TEST_CASE("007 - Datagram support: Execute No Splitting Policy", "[007][datagrams][execute]")
     {
-        SECTION("Simple datagram transmission - no splitting policy")
+        SECTION("Simple datagram transmission")
         {
             Network test_net{};
             auto msg = "hello from the other siiiii-iiiiide"_bsv;
@@ -254,9 +254,9 @@ namespace oxen::quic::test
 
             opt::enable_datagrams default_gram{};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5500};
-            opt::local_addr client_local{"127.0.0.1"s, 4400};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5500};
+            opt::local_addr server_local{"127.0.0.1"s, 5517};
+            opt::local_addr client_local{"127.0.0.1"s, 4426};
+            opt::remote_addr client_remote{"127.0.0.1"s, 5517};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
