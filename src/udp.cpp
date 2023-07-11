@@ -69,8 +69,8 @@ namespace oxen::quic
             if (auto rv = WSAIoctl(
                         tmpsock,
                         SIO_GET_EXTENSION_FUNCTION_POINTER,
-                        &recvmsg_guid,
-                        sizeof(recvmsg_guid),
+                        &sendmsg_guid,
+                        sizeof(sendmsg_guid),
                         &WSASendMsg,
                         sizeof(WSASendMsg),
                         &nothing,
