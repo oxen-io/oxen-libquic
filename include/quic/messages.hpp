@@ -8,6 +8,12 @@ namespace oxen::quic
 {
     class DatagramIO;
 
+#ifdef _WIN32
+    using msghdr = WSAMSG;
+#else
+    using msghdr = ::msghdr;
+#endif
+
     // Simple struct wrapping a packet and its corresponding information
     struct Packet
     {

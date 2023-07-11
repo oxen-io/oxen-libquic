@@ -24,12 +24,6 @@ extern "C"
 
 namespace oxen::quic
 {
-#ifdef _WIN32
-    using msghdr = WSAMSG;
-#else
-    using msghdr = ::msghdr;
-#endif
-
     /// RAII class wrapping a UDP socket; the socket is bound at construction and closed during
     /// destruction.
     class UDPSocket
