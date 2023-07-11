@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "crypto.hpp"
+#include "datagram.hpp"
 #include "opt.hpp"
 #include "stream.hpp"
 #include "udp.hpp"
@@ -55,6 +56,7 @@ namespace oxen::quic
       private:
         void handle_ioctx_opt(std::shared_ptr<TLSCreds> tls);
         void handle_ioctx_opt(opt::max_streams ms);
+        void handle_ioctx_opt(dgram_data_callback func);
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);

@@ -26,6 +26,7 @@ extern "C"
 #include <random>
 #include <stdexcept>
 
+#include "datagram.hpp"
 #include "endpoint.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
@@ -201,11 +202,6 @@ namespace oxen::quic
         event_active(packet_io_trigger.get(), 0, 0);
     }
 
-    void Connection::datagram_io_ready()
-    {
-        event_active(datagram_io_trigger.get(), 0, 0);
-    }
-
     // note: this does not need to return anything, it is never called except in on_stream_available
     // First, we check the list of pending streams on deck to see if they're ready for broadcast. If
     // so, we move them to the streams map, where they will get picked up by flush_streams and dump
@@ -257,24 +253,6 @@ namespace oxen::quic
         }
     }
 
-    std::vector<ngtcp2_vec> Connection::pending_datagrams()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        std::vector<ngtcp2_vec> bufs{};
-        bufs.reserve(std::distance(unsent_datagrams.begin(), unsent_datagrams.end()));
-
-        for (auto& b : unsent_datagrams)
-        {
-            auto& temp = bufs.emplace_back();
-
-            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(b.first.data()));
-            temp.len = b.first.size();
-        }
-
-        return bufs;
-    }
-
     void Connection::call_closing()
     {
         if (!on_closing)
@@ -285,17 +263,10 @@ namespace oxen::quic
         on_closing = nullptr;
     }
 
-    void Connection::on_datagram_io_ready()
-    {
-        auto ts = get_time();
-        flush_datagrams(ts);
-        schedule_datagram_retransmit(ts);
-    }
-
     void Connection::on_packet_io_ready()
     {
         auto ts = get_time();
-        flush_streams(ts);
+        flush_packets(ts);
         schedule_packet_retransmit(ts);
     }
 
@@ -336,7 +307,7 @@ namespace oxen::quic
     // packets before continuing).
     //
     // If pkt_updater is provided then we cancel it when an error (other than a block) occurs.
-    bool Connection::send(Send send_target, pkt_tx_timer_updater* pkt_updater)
+    bool Connection::send(pkt_tx_timer_updater* pkt_updater)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
@@ -350,10 +321,10 @@ namespace oxen::quic
             assert(n_packets > 0);  // n_packets, buf, bufsize now contain the unsent packets
             log::debug(log_cat, "Packet send blocked; queuing re-send");
 
-            _endpoint.get_socket()->when_writeable([this, target = send_target] {
-                if (send(target, nullptr))
+            _endpoint.get_socket()->when_writeable([this] {
+                if (send(nullptr))
                 {  // Send finished so we can start our timers up again
-                    (target == Send::PACKETS) ? packet_io_ready() : datagram_io_ready();
+                    packet_io_ready();
                 }
                 // Otherwise we're still blocked (or an error occured)
             });
@@ -373,125 +344,16 @@ namespace oxen::quic
         return true;
     }
 
-    void Connection::flush_datagrams(std::chrono::steady_clock::time_point tp)
-    {
-        int accepted{0};
-        ngtcp2_pkt_info pkt_info{};
-        // TODO: Add this back when implementing packet splitting
-        // size_t n_to_send = (_policy == Splitting::GREEDY) ? 2 : 1;
-        const auto max_size = get_max_datagram_size();
-        auto* buf_pos = reinterpret_cast<uint8_t*>(send_buffer.data());
-        auto ts = static_cast<uint64_t>(std::chrono::nanoseconds{tp.time_since_epoch()}.count());
-        pkt_tx_timer_updater pkt_updater{*this, ts};
-        // We don't append NGTCP2_WRITE_DATAGRAM_FLAG_MORE to flags, as we pre-size the datagrams. This
-        // has the dual effect of simplifying the possible outcomes of calling writev_datagram
-        uint32_t flags = NGTCP2_WRITE_DATAGRAM_FLAG_NONE;
-
-        if (unsent_datagrams.empty())
-        {
-            log::debug(log_cat, "No datagrams on deck to send");
-            return;
-        }
-
-        std::vector<ngtcp2_vec> bufs = pending_datagrams();
-        auto b_itr = bufs.begin();
-
-        while (!bufs.empty())
-        {
-            auto nwrite = ngtcp2_conn_writev_datagram(
-                    conn.get(), _path, &pkt_info, buf_pos, max_size, &accepted, flags, 0, b_itr.base(), 1, ts);
-
-            log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
-
-            // Datagrams are written all-or-nothing:
-            //  - if it is accepted, this value will be non-zero with nwrite equal to payload size written
-            if (accepted != 0)
-            {
-                log::trace(log_cat, "Writing whole datagram successful");
-                // increment buffer position by a whole datagram size, as we don't fill in the extra
-                // space if the payload is smaller than the max size
-                buf_pos += MAX_PMTUD_UDP_PAYLOAD;
-                send_buffer_size[n_packets++] = nwrite;
-                send_ecn = pkt_info.ecn;
-
-                if (n_packets == MAX_BATCH)
-                {
-                    log::trace(log_cat, "Max datagram batch size reached; sending");
-                    if (!send(Send::DATAGRAMS, &pkt_updater))
-                        return;
-                }
-                // pop datagram from unsent_datagrams buffer
-                unsent_datagrams.pop_front();
-                // advance iterator
-                b_itr = bufs.erase(b_itr);
-                continue;
-            }
-
-            // No more data can be sent due to:
-            //  - congestion control limit
-            //  - local endpoint has reached its amplification limit
-            if (nwrite == 0)
-            {
-                log::info(log_cat, "Could not write datagram - check connection congestion control or amplification limits");
-                return;
-            }
-
-            // error handling
-            if (nwrite < 0)
-            {
-                // fatal
-                if (nwrite < -500)
-                {
-                    log::critical(log_cat, "Fatal ngtcp2 error: could not write datagram - \"{}\"", ngtcp2_strerror(nwrite));
-                    _endpoint.call([this, rv = nwrite]() {
-                        log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
-                        _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
-                    });
-                    return;
-                }
-                else  // non-fatal
-                {
-                    if (nwrite == NGTCP2_ERR_INVALID_ARGUMENT)
-                        log::debug(log_cat, "Datagram frame size exceeds remote endpoint's max receivable size");
-                    else if (nwrite == NGTCP2_ERR_INVALID_STATE)
-                        log::debug(log_cat, "Remote endpoint does not express datagram frame support");
-                    else if (nwrite == NGTCP2_ERR_PKT_NUM_EXHAUSTED)
-                        log::debug(log_cat, "Datagram ID exhausted - this should not be returned with no splitting policy");
-                    else if (nwrite == NGTCP2_ERR_WRITE_MORE)
-                        log::debug(
-                                log_cat,
-                                "Oops: this line should not be executed if NGTCP2_WRITE_DATAGRAM_FLAG_MORE is not set");
-                    else
-                        log::debug(
-                                log_cat,
-                                "Non-fatal ngtcp2 error: coult not write to datagram - \"{}\"",
-                                ngtcp2_strerror(nwrite));
-
-                    continue;
-                }
-            }
-        }
-
-        if (n_packets > 0)
-        {
-            log::trace(log_cat, "Sending final datagram batch of {} datagrams", n_packets);
-            send(Send::DATAGRAMS, &pkt_updater);
-        }
-
-        log::debug(log_cat, "Exiting flush_datagrams()");
-    }
-
     // Don't worry about seeding this because it doesn't matter at all if the stream selection below
     // is predictable, we just want to shuffle it.
     thread_local std::mt19937 stream_start_rng{};
 
-    void Connection::flush_streams(std::chrono::steady_clock::time_point tp)
+    void Connection::flush_packets(std::chrono::steady_clock::time_point tp)
     {
         // Maximum number of stream data packets to send out at once; if we reach this then we'll
         // schedule another event loop call of ourselves (so that we don't starve the loop)
         const auto max_udp_payload_size = ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get());
         const auto max_stream_packets = ngtcp2_conn_get_send_quantum(conn.get()) / max_udp_payload_size;
-
         auto ts = static_cast<uint64_t>(std::chrono::nanoseconds{tp.time_since_epoch()}.count());
 
         if (n_packets > 0)
@@ -503,7 +365,7 @@ namespace oxen::quic
             return;
         }
 
-        std::list<Stream*> strs;
+        std::list<IOChannel*> channels;
         if (!streams.empty())
         {
             // Start from a random stream so that we aren't favouring early streams by potentially
@@ -514,14 +376,31 @@ namespace oxen::quic
             for (auto it = mid; it != streams.end(); ++it)
             {
                 auto& stream_ptr = it->second;
-                if (stream_ptr and not stream_ptr->sent_fin)
-                    strs.push_back(stream_ptr.get());
+                if (stream_ptr and not stream_ptr->_sent_fin)
+                    channels.push_back(stream_ptr.get());
             }
+
+            // if we have datagrams to send, then mix them into the streams
+            if (not datagrams->is_empty())
+            {
+                log::trace(log_cat, "Datagram channel has things to send");
+                channels.push_back(datagrams.get());
+            }
+
             for (auto it = streams.begin(); it != mid; ++it)
             {
                 auto& stream_ptr = it->second;
-                if (stream_ptr and not stream_ptr->sent_fin)
-                    strs.push_back(stream_ptr.get());
+                if (stream_ptr and not stream_ptr->_sent_fin)
+                    channels.push_back(stream_ptr.get());
+            }
+        }
+        else if (not datagrams->is_empty())
+        {
+            // if we have only datagrams to send, then we should probably do that
+            if (not datagrams->is_empty())
+            {
+                log::trace(log_cat, "Datagram channel has things to send");
+                channels.push_back(datagrams.get());
             }
         }
 
@@ -530,103 +409,133 @@ namespace oxen::quic
         // congested); it takes care of things like initial handshake packets, acks, and also
         // finishes off any partially-filled packet from any previous streams that didn't form a
         // complete packet.
-        strs.push_back(nullptr);
-        auto streams_end_it = std::prev(strs.end());
+        channels.push_back(pseudo_stream.get());
+        auto streams_end_it = std::prev(channels.end());
 
         ngtcp2_pkt_info pkt_info{};
         auto* buf_pos = reinterpret_cast<uint8_t*>(send_buffer.data());
         pkt_tx_timer_updater pkt_updater{*this, ts};
         size_t stream_packets = 0;
-        while (!strs.empty())
+
+        while (!channels.empty())
         {
             log::trace(log_cat, "Creating packet {} of max {} batch stream packets", n_packets, MAX_BATCH);
+            int datagram_accepted = std::numeric_limits<int>::min();
+            ngtcp2_ssize nwrite = 0;
+            ngtcp2_ssize ndatalen;
+            uint32_t flags = 0;
+            int64_t stream_id = -10;
 
-            uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
+            auto* source = channels.front();
+            channels.pop_front();  // Pop it off; if this stream should be checked again, append just
+                                   // before streams_end_it.
 
-            auto* stream = strs.front();
-            strs.pop_front();  // Pop it off; if this stream should be checked again, append just
-                               // before streams_end_it.
+            std::vector<ngtcp2_vec> bufs = source->pending();
 
-            assert(stream || strs.empty());  // We should only get -1 at the end of the list
-
-            const int64_t stream_id = stream ? stream->_stream_id : -1;
-            std::vector<ngtcp2_vec> bufs;
-            if (stream)
+            // this block will execute all "real" streams plus the "pseudo stream" of ID -1 to finish
+            // off any packets that need to be sent
+            if (source->is_stream())
             {
-                bufs = stream->pending();
+                stream_id = source->stream_id();
 
-                if (stream->is_closing && !stream->sent_fin && stream->unsent() == 0)
+                if (stream_id != -1)
                 {
-                    log::trace(log_cat, "Sending FIN");
-                    flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
-                    stream->sent_fin = true;
+                    if (source->is_closing() && !source->sent_fin() && source->unsent() == 0)
+                    {
+                        log::trace(log_cat, "Sending FIN");
+                        flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
+                        source->set_fin(true);
+                    }
+                    else if (bufs.empty())
+                    {
+                        log::debug(log_cat, "pending() returned empty buffer for stream ID {}, moving on", stream_id);
+                        continue;
+                    }
                 }
-                else if (bufs.empty())
-                {
-                    log::debug(log_cat, "pending() returned empty buffer for stream ID {}, moving on", stream_id);
-                    continue;
-                }
+
+                nwrite = ngtcp2_conn_writev_stream(
+                        conn.get(),
+                        _path,
+                        &pkt_info,
+                        buf_pos,
+                        MAX_PMTUD_UDP_PAYLOAD,
+                        &ndatalen,
+                        flags |= NGTCP2_WRITE_STREAM_FLAG_MORE,
+                        stream_id,
+                        bufs.data(),
+                        bufs.size(),
+                        ts);
+
+                log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
+            }
+            else  // datagram block
+            {
+                nwrite = ngtcp2_conn_writev_datagram(
+                        conn.get(),
+                        _path,
+                        &pkt_info,
+                        buf_pos,
+                        MAX_PMTUD_UDP_PAYLOAD,
+                        &datagram_accepted,
+                        flags |= NGTCP2_WRITE_DATAGRAM_FLAG_MORE,
+                        0,
+                        bufs.data(),
+                        1,
+                        ts);
+
+                log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
+
+                if (datagram_accepted != 0)
+                    datagrams->user_buffers.pop_front();
             }
 
-            ngtcp2_ssize ndatalen;
-            auto nwrite = ngtcp2_conn_writev_stream(
-                    conn.get(),
-                    _path,
-                    &pkt_info,
-                    buf_pos,
-                    MAX_PMTUD_UDP_PAYLOAD,
-                    &ndatalen,
-                    flags,
-                    stream_id,
-                    bufs.data(),
-                    bufs.size(),
-                    ts);
-
-            log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
+            // congested
+            if (nwrite == 0)
+            {
+                log::trace(log_cat, "Done writing: connection is congested");
+                if (source->is_stream() && stream_id != -1)
+                    // we are congested, so clear all pending streams (aside from the -1
+                    // pseudo-stream at the end) so that our next call hits the -1 to finish off.
+                    channels.erase(channels.begin(), streams_end_it);
+                continue;
+            }
 
             if (nwrite < 0)
             {
-                if (nwrite == NGTCP2_ERR_WRITE_MORE)  // -240
+                if (ngtcp2_err_is_fatal(nwrite))
                 {
-                    log::trace(log_cat, "Consumed {} bytes from stream {} and have space left", ndatalen, stream_id);
-                    assert(ndatalen >= 0);
-                    if (stream)
-                        stream->wrote(ndatalen);
-                    // If we had more data on the stream, we wouldn't have got a WRITE_MORE, so
-                    // don't need to re-add the stream to strs.
+                    log::critical(log_cat, "Fatal ngtcp2 error: could not write frame - \"{}\"", ngtcp2_strerror(nwrite));
+                    _endpoint.call([this, rv = nwrite]() {
+                        log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
+                        _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
+                    });
+                    return;
                 }
-                else if (nwrite == NGTCP2_ERR_CLOSING)  // -230
-                    log::debug(log_cat, "Cannot write to {}: connection is closing", stream_id);
-                else if (nwrite == NGTCP2_ERR_STREAM_SHUT_WR)  // -221
-                    log::debug(log_cat, "Cannot add to stream {}: stream is shut, proceeding", stream_id);
-                else if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)  // -210
-                    log::debug(log_cat, "Cannot add to stream {}: stream is blocked", stream_id);
+                else if (nwrite == NGTCP2_ERR_WRITE_MORE)
+                {
+                    if (source->is_stream())
+                    {
+                        log::trace(log_cat, "Consumed {} bytes from stream {} and have space left", ndatalen, stream_id);
+                        assert(ndatalen >= 0);
+                        if (stream_id != -1)
+                            source->wrote(ndatalen);
+                    }
+                }
                 else
-                    log::error(log_cat, "Error writing stream data: {}", ngtcp2_strerror(nwrite));
+                {
+                    log::debug(log_cat, "Non-fatal ngtcp2 error: {}", ngtcp2_strerror(nwrite));
+                }
 
                 continue;
             }
 
-            if (nwrite == 0)  // we are congested (or done)
-            {
-                log::trace(
-                        log_cat,
-                        "Done stream writing to {} ({}connection is congested)",
-                        stream_id,
-                        stream ? "" : "nothing else to write or ");
-                if (stream)
-                    // we are congested, so clear all pending streams (aside from the -1
-                    // pseudo-stream at the end) so that our next call hits the -1 to finish off.
-                    strs.erase(strs.begin(), streams_end_it);
-                continue;
-            }
-
-            if (ndatalen > 0 && stream)
+            if (stream_id > -1 && ndatalen > 0)
             {
                 log::trace(log_cat, "consumed {} bytes from stream {}", ndatalen, stream_id);
-                stream->wrote(ndatalen);
+                source->wrote(ndatalen);
             }
 
+            // success
             buf_pos += nwrite;
             send_buffer_size[n_packets++] = nwrite;
             send_ecn = pkt_info.ecn;
@@ -635,7 +544,7 @@ namespace oxen::quic
             if (n_packets == MAX_BATCH)
             {
                 log::trace(log_cat, "Sending stream data packet batch");
-                if (!send(Send::PACKETS, &pkt_updater))
+                if (!send(&pkt_updater))
                     return;
 
                 assert(n_packets == 0);
@@ -648,55 +557,34 @@ namespace oxen::quic
                 break;
             }
 
-            if (!stream)
+            // packet is full and the datagram was NOT included, so it must be written to the next packet
+            if (datagram_accepted == 0 && nwrite > 0)
+            {
+                channels.push_front(datagrams.get());
+                continue;
+            }
+
+            if (stream_id == -1 && channels.empty())
             {
                 // For the -1 pseudo stream, we only exit once we get nwrite==0 above, so always
                 // re-insert it if we get here.
-                assert(strs.empty());
-                strs.push_back(stream);
+                channels.push_back(source);
             }
-            else if (stream->unsent() > 0)
+            else if (source->has_unsent())
             {
                 // For an actual stream with more data we want to let it be checked again, so
                 // insert it just before the final -1 fake stream for potential reconsideration.
-                assert(!strs.empty());
-                strs.insert(streams_end_it, stream);
+                assert(!channels.empty());
+                channels.insert(streams_end_it, source);
             }
         }
 
         if (n_packets > 0)
         {
             log::trace(log_cat, "Sending final packet batch of {} packets", n_packets);
-            send(Send::PACKETS, &pkt_updater);
+            send(&pkt_updater);
         }
         log::debug(log_cat, "Exiting flush_streams()");
-    }
-
-    void Connection::schedule_datagram_retransmit(std::chrono::steady_clock::time_point ts)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        ngtcp2_tstamp exp_ns = ngtcp2_conn_get_expiry(conn.get());
-
-        if (exp_ns == std::numeric_limits<ngtcp2_tstamp>::max())
-        {
-            log::info(log_cat, "No retransmit needed right now");
-            event_del(datagram_retransmit_timer.get());
-            return;
-        }
-
-        auto delta = exp_ns * 1ns - ts.time_since_epoch();
-        log::trace(log_cat, "Expiry delta: {}ns", delta.count());
-
-        timeval* tv_ptr = nullptr;
-        timeval tv;
-        if (delta > 0s)
-        {
-            delta += 999ns;  // Round up to the next µs (libevent timers have µs precision)
-            tv.tv_sec = delta / 1s;
-            tv.tv_usec = (delta % 1s) / 1us;
-            tv_ptr = &tv;
-        }
-        event_add(datagram_retransmit_timer.get(), tv_ptr);
     }
 
     void Connection::schedule_packet_retransmit(std::chrono::steady_clock::time_point ts)
@@ -766,8 +654,8 @@ namespace oxen::quic
             return;
 
         auto& stream = *it->second;
-        const bool was_closing = stream.is_closing;
-        stream.is_closing = stream.is_shutdown = true;
+        const bool was_closing = stream._is_closing;
+        stream._is_closing = stream.is_shutdown = true;
 
         if (!was_closing && stream.close_callback)
         {
@@ -862,7 +750,7 @@ namespace oxen::quic
             // TODO: should this logic go earlier in the process inside handle_packet?
         }
 
-        if (!dgram_data_cb)
+        if (!datagrams->dgram_data_cb)
             log::debug(log_cat, "Connection (CID: {}) has no endpoint-supplied datagram data callback", _source_cid);
         else
         {
@@ -870,7 +758,7 @@ namespace oxen::quic
 
             try
             {
-                dgram_data_cb(data, fin);
+                datagrams->dgram_data_cb(data);
                 good = true;
             }
             catch (const std::exception& e)
@@ -907,14 +795,6 @@ namespace oxen::quic
         return 0;
     }
 
-    void Connection::append_datagram_buffer(bstring_view data, std::shared_ptr<void> keep_alive)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        unsent_datagrams.emplace_back(data, std::move(keep_alive));
-
-        datagram_io_ready();
-    }
-
     void Connection::send_datagram(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -922,31 +802,7 @@ namespace oxen::quic
         if (!_datagrams_enabled)
             throw std::runtime_error{"Endpoint not configured for datagram IO"};
 
-        // check this first and once; already considers policy when returning
-        const auto max_size = get_max_datagram_size();
-
-        // we use >= instead of > for that just-in-case 1-byte cushion
-        if (data.size() >= max_size)
-        {
-            log::critical(
-                    log_cat,
-                    "Data of length {} cannot be sent with {} datagrams of max size {}",
-                    data.size(),
-                    packet_splitting_policy() == Splitting::NONE ? "unsplit" : "split",
-                    max_size);
-            throw std::invalid_argument{"Data too large to send as datagram with current policy"};
-        }
-
-        // if packet_splitting is lazy OR packet_splitting is off, send as "normal" datagram
-        _endpoint.call([this, data, keep_alive]() {
-            log::trace(
-                    log_cat,
-                    "Connection (CID: {}) sending {} datagram: {}",
-                    _source_cid,
-                    packet_splitting_policy() == Splitting::GREEDY ? "split" : "whole",
-                    buffer_printer{data});
-            append_datagram_buffer(data, keep_alive);
-        });
+        datagrams->send(data, std::move(keep_alive));
     }
 
     int Connection::get_streams_available() const
@@ -972,28 +828,6 @@ namespace oxen::quic
     {
         auto* ev_base = endpoint().get_loop().get();
 
-        datagram_io_trigger.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_datagram_io_ready(); },
-                this));
-        datagram_retransmit_timer.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self_) {
-                    auto& self = *static_cast<Connection*>(self_);
-                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
-                    {
-                        log::warning(
-                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                        self.endpoint().close_connection(self, rv);
-                        return;
-                    }
-                    self.on_datagram_io_ready();
-                },
-                this));
         packet_io_trigger.reset(event_new(
                 ev_base,
                 -1,
@@ -1018,7 +852,6 @@ namespace oxen::quic
                 this));
 
         event_add(packet_retransmit_timer.get(), nullptr);
-        event_add(datagram_retransmit_timer.get(), nullptr);
 
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
@@ -1105,9 +938,11 @@ namespace oxen::quic
             _datagrams_enabled{context->config.datagram_support},
             _packet_splitting{context->config.split_packet},
             _policy{context->config.policy},
-            dgram_data_cb{ep.dgram_recv_cb},
             tls_creds{context->tls_creds}
     {
+        datagrams = std::make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
+        pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);
+
         const auto is_outbound = (dir == Direction::OUTBOUND);
         const auto d_str = is_outbound ? "outbound"s : "inbound"s;
         log::trace(log_cat, "Creating new {} connection object", d_str);
@@ -1185,7 +1020,6 @@ namespace oxen::quic
         std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), hdr}};
 
         conn->packet_io_ready();
-        conn->datagram_io_ready();
 
         return conn;
     }

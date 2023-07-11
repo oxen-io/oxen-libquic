@@ -19,11 +19,6 @@
 
 namespace oxen::quic
 {
-    // Datagram callbacks
-    using datagram_recv_callback = std::function<void(bstring_view data, bool fin)>;
-
-    enum class Send { PACKETS = 0, DATAGRAMS = 1 };
-
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
     {
@@ -117,7 +112,6 @@ namespace oxen::quic
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         void packet_io_ready();
-        void datagram_io_ready();
 
         const TLSSession* get_session() const { return tls_session.get(); };
 
@@ -173,7 +167,7 @@ namespace oxen::quic
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         const Splitting _policy{Splitting::NONE};
-        datagram_recv_callback dgram_data_cb;
+        std::atomic<bool> _congested{false};
 
         /// Datagram Numbering:
         /// Each datagram ID is incremented by four from the previous one, regardless of whether we are
@@ -250,35 +244,24 @@ namespace oxen::quic
 
         void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-        void append_datagram_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
-
-        std::vector<ngtcp2_vec> pending_datagrams();
-
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
 
         event_ptr packet_retransmit_timer;
         event_ptr packet_io_trigger;
 
-        event_ptr datagram_retransmit_timer;
-        event_ptr datagram_io_trigger;
-
-        void on_datagram_io_ready();
         void on_packet_io_ready();
 
         struct pkt_tx_timer_updater;
-        bool send(Send send_target, pkt_tx_timer_updater* pkt_updater = nullptr);
+        bool send(pkt_tx_timer_updater* pkt_updater = nullptr);
 
-        void flush_datagrams(std::chrono::steady_clock::time_point tp);
-
-        void flush_streams(std::chrono::steady_clock::time_point tp);
+        void flush_packets(std::chrono::steady_clock::time_point tp);
 
         std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD * DATAGRAM_BATCH_SIZE> send_buffer;
         std::array<size_t, DATAGRAM_BATCH_SIZE> send_buffer_size;
         uint8_t send_ecn = 0;
         size_t n_packets = 0;
 
-        void schedule_datagram_retransmit(std::chrono::steady_clock::time_point ts);
         void schedule_packet_retransmit(std::chrono::steady_clock::time_point ts);
 
         const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
@@ -288,6 +271,10 @@ namespace oxen::quic
 
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
+        // datagram "pseudo-stream"
+        std::shared_ptr<DatagramIO> datagrams;
+        // "pseudo-stream" to represent ngtcp2 stream ID -1
+        std::shared_ptr<Stream> pseudo_stream;
         // holds queue of pending streams not yet ready to broadcast
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;

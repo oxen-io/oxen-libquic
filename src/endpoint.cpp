@@ -34,7 +34,7 @@ namespace oxen::quic
                 _packet_splitting ? "" : "no");
     }
 
-    void Endpoint::handle_ep_opt(datagram_recv_callback func)
+    void Endpoint::handle_ep_opt(dgram_data_callback func)
     {
         log::trace(log_cat, "Endpoint given datagram recv callback");
         dgram_recv_cb = std::move(func);

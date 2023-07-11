@@ -23,7 +23,7 @@ namespace oxen::quic
             stream_data_callback data_cb,
             stream_close_callback close_cb,
             int64_t stream_id) :
-            data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, endpoint{_ep}, _stream_id{stream_id}
+            IOChannel{conn, _ep}, data_callback{data_cb}, close_callback{std::move(close_cb)}, _stream_id{stream_id}
     {
         log::trace(log_cat, "Creating Stream object...");
 
@@ -39,8 +39,8 @@ namespace oxen::quic
     {
         log::debug(log_cat, "Destroying stream {}", _stream_id);
 
-        bool was_closing = is_closing;
-        is_closing = is_shutdown = true;
+        bool was_closing = _is_closing;
+        _is_closing = is_shutdown = true;
 
         if (!was_closing && close_callback)
             close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
@@ -49,6 +49,11 @@ namespace oxen::quic
     Connection& Stream::get_conn()
     {
         return conn;
+    }
+
+    std::shared_ptr<Stream> Stream::get_stream()
+    {
+        return shared_from_this();
     }
 
     void Stream::close(uint64_t error_code)
@@ -60,11 +65,11 @@ namespace oxen::quic
 
             if (is_shutdown)
                 log::info(log_cat, "Stream is already shutting down");
-            else if (is_closing)
+            else if (_is_closing)
                 log::debug(log_cat, "Stream is already closing");
             else
             {
-                is_closing = is_shutdown = true;
+                _is_closing = is_shutdown = true;
                 log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ngtcp2_strerror(error_code));
                 ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, error_code);
             }

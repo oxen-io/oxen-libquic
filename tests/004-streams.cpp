@@ -178,7 +178,7 @@ namespace oxen::quic::test
                     return 0;
                 };
 
-        stream_data_callback server_stream_data_cb = [&](Stream&, bstring_view) {
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
 
             try
@@ -198,7 +198,7 @@ namespace oxen::quic::test
         client_tls->set_client_tls_policy(outbound_tls_cb);
 
         auto server_endpoint = test_net.endpoint(server_local);
-        REQUIRE(server_endpoint->listen(server_tls, max_streams, server_stream_data_cb));
+        REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);

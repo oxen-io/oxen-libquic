@@ -246,7 +246,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            datagram_recv_callback recv_dgram_cb = [&](bstring_view, bool) {
+            dgram_data_callback recv_dgram_cb = [&](bstring_view) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 data_promise.set_value(true);

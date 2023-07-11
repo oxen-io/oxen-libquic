@@ -38,7 +38,7 @@ namespace oxen::quic
     {
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
-        void handle_ep_opt(datagram_recv_callback func);
+        void handle_ep_opt(dgram_data_callback dgram_cb);
 
       public:
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
@@ -171,7 +171,7 @@ namespace oxen::quic
         Splitting splitting_policy() const { return _policy; }
 
         // this is public so the connection constructor can delegate initialize its own local copy to call later
-        datagram_recv_callback dgram_recv_cb;
+        dgram_data_callback dgram_recv_cb;
 
       private:
         Network& net;
