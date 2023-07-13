@@ -1,9 +1,12 @@
 
 add_library(quic
+    address.cpp
     connection.cpp
     context.cpp
-    gnutls_crypto.cpp
+    datagram.cpp
     endpoint.cpp
+    format.cpp
+    gnutls_crypto.cpp
     network.cpp
     stream.cpp
     udp.cpp

@@ -7,21 +7,23 @@ extern "C"
 
 #include <cstddef>
 #include <cstdio>
+#include <stdexcept>
 
 #include "connection.hpp"
 #include "context.hpp"
 #include "endpoint.hpp"
 #include "network.hpp"
+#include "types.hpp"
 
 namespace oxen::quic
 {
     Stream::Stream(
             Connection& conn,
             Endpoint& _ep,
-            stream_data_callback_t data_cb,
-            stream_close_callback_t close_cb,
+            stream_data_callback data_cb,
+            stream_close_callback close_cb,
             int64_t stream_id) :
-            data_callback{data_cb}, close_callback{std::move(close_cb)}, conn{conn}, stream_id{stream_id}, endpoint{_ep}
+            IOChannel{conn, _ep}, data_callback{data_cb}, close_callback{std::move(close_cb)}, _stream_id{stream_id}
     {
         log::trace(log_cat, "Creating Stream object...");
 
@@ -35,10 +37,10 @@ namespace oxen::quic
 
     Stream::~Stream()
     {
-        log::debug(log_cat, "Destroying stream {}", stream_id);
+        log::debug(log_cat, "Destroying stream {}", _stream_id);
 
-        bool was_closing = is_closing;
-        is_closing = is_shutdown = true;
+        bool was_closing = _is_closing;
+        _is_closing = is_shutdown = true;
 
         if (!was_closing && close_callback)
             close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
@@ -49,27 +51,32 @@ namespace oxen::quic
         return conn;
     }
 
+    std::shared_ptr<Stream> Stream::get_stream()
+    {
+        return shared_from_this();
+    }
+
     void Stream::close(uint64_t error_code)
     {
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
-        endpoint.net.call([this, error_code]() {
+        endpoint.call([this, error_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
                 log::info(log_cat, "Stream is already shutting down");
-            else if (is_closing)
+            else if (_is_closing)
                 log::debug(log_cat, "Stream is already closing");
             else
             {
-                is_closing = is_shutdown = true;
-                log::info(log_cat, "Closing stream (ID: {}) with error code {}", stream_id, ngtcp2_strerror(error_code));
-                ngtcp2_conn_shutdown_stream(conn, 0, stream_id, error_code);
+                _is_closing = is_shutdown = true;
+                log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ngtcp2_strerror(error_code));
+                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, error_code);
             }
             if (is_shutdown)
                 data_callback = nullptr;
 
-            conn.io_ready();
+            conn.packet_io_ready();
         });
     }
 
@@ -78,7 +85,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, std::move(keep_alive));
         if (ready)
-            conn.io_ready();
+            conn.packet_io_ready();
         else
             log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
     }
@@ -145,7 +152,6 @@ namespace oxen::quic
         temp.len = it->first.size() - offset;
         while (++it != user_buffers.end())
         {
-            log::trace(log_cat, "call F");
             auto& temp = nbufs.emplace_back();
             temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
             temp.len = it->first.size();
@@ -156,8 +162,11 @@ namespace oxen::quic
 
     void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        endpoint.net.call([this, data, keep_alive]() {
-            log::trace(log_cat, "Stream (ID: {}) sending message: {}", stream_id, buffer_printer{data});
+        if (data.empty())
+            throw std::invalid_argument{"Cannot send empty byte string"};
+
+        endpoint.call([this, data, keep_alive]() {
+            log::trace(log_cat, "Stream (ID: {}) sending message: {}", _stream_id, buffer_printer{data});
             append_buffer(data, keep_alive);
         });
     }

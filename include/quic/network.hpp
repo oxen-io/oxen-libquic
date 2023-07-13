@@ -48,7 +48,14 @@ namespace oxen::quic
         Network();
         ~Network();
 
-        std::shared_ptr<Endpoint> endpoint(const Address& local_addr);
+        template <typename... Opt>
+        std::shared_ptr<Endpoint> endpoint(const Address& local_addr, Opt&&... opts)
+        {
+            auto [it, added] =
+                    endpoint_map.emplace(std::make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...));
+
+            return *it;
+        }
 
         /// Initiates shutdown the network, closing all endpoint connections and stopping the event
         /// loop (if Network-managed).  If graceful is true (the default) this call initiates a
@@ -64,7 +71,7 @@ namespace oxen::quic
         std::optional<std::thread> loop_thread;
         std::thread::id loop_thread_id;
 
-        std::unordered_map<Address, std::shared_ptr<Endpoint>> endpoint_map;
+        std::unordered_set<std::shared_ptr<Endpoint>> endpoint_map;
 
         event_ptr job_waker;
         std::queue<Job> job_queue;

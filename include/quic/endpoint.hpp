@@ -36,15 +36,9 @@ namespace oxen::quic
 {
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
-        friend class Network;
-        friend class Connection;
-        friend class Stream;
-
-        const Address local;
-        event_ptr expiry_timer;
-        std::unique_ptr<UDPSocket> socket;
-        bool accepting_inbound{false};
-        Network& net;
+      private:
+        void handle_ep_opt(opt::enable_datagrams dc);
+        void handle_ep_opt(dgram_data_callback dgram_cb);
 
       public:
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
@@ -53,7 +47,14 @@ namespace oxen::quic
         Endpoint(Endpoint&&) = delete;
         Endpoint& operator=(Endpoint&&) = delete;
 
-        explicit Endpoint(Network& n, const Address& listen_addr);
+        std::string local_addr() { return _local.to_string(); }
+
+        template <typename... Opt>
+        Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
+        {
+            _init_internals();
+            ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+        }
 
         template <typename... Opt>
         bool listen(Opt&&... opts)
@@ -65,8 +66,9 @@ namespace oxen::quic
                 try
                 {
                     // initialize client context and client tls context simultaneously
-                    inbound_ctx = std::make_shared<InboundContext>(std::forward<Opt>(opts)...);
-                    accepting_inbound = true;
+                    inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
+                    _set_context_globals(inbound_ctx);
+                    _accepting_inbound = true;
 
                     log::debug(log_cat, "Inbound context ready for incoming connections");
 
@@ -83,28 +85,29 @@ namespace oxen::quic
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
-        std::shared_ptr<connection_interface> connect(const Address& remote, Opt&&... opts)
+        std::shared_ptr<connection_interface> connect(Address remote, Opt&&... opts)
         {
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
-            net.call([&opts..., &p, path = Path{local, remote}, this]() mutable {
+            if (_local.is_ipv6() && !remote.is_ipv6())
+                remote.map_ipv4_as_ipv6();
+
+            Path _path = Path{_local, remote};
+
+            net.call([&opts..., &p, path = _path, this]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
-                    outbound_ctx = std::make_shared<OutboundContext>(std::forward<Opt>(opts)...);
+                    outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
+                    _set_context_globals(outbound_ctx);
 
                     for (;;)
                     {
                         if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
                         {
                             itr->second = Connection::make_conn(
-                                    *this,
-                                    itr->first,
-                                    ConnectionID::random(),
-                                    std::move(path),
-                                    outbound_ctx,
-                                    Direction::OUTBOUND);
+                                    *this, itr->first, ConnectionID::random(), std::move(path), outbound_ctx);
 
                             p.set_value(itr->second);
                             return;
@@ -120,6 +123,12 @@ namespace oxen::quic
             return f.get();
         }
 
+        template <typename... Args>
+        void call(Args&&... args)
+        {
+            return net.call(std::forward<Args>(args)...);
+        }
+
         const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
@@ -132,13 +141,59 @@ namespace oxen::quic
         // Query by connection id; returns nullptr if not found.
         Connection* get_conn(const ConnectionID& ID);
 
-      private:
-        std::shared_ptr<ContextBase> outbound_ctx;
-        std::shared_ptr<ContextBase> inbound_ctx;
+        bool in_event_loop() const;
+
+        /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
+        ///
+        /// Upon success, updates n_pkts to 0 and returns an io_result with `.success()` true.
+        ///
+        /// If no packets could be sent because the socket would block, this returns an io_result
+        /// with `.blocked()` set to true.  buf/bufsize/n_pkts are not altered (since they have not
+        /// been sent).
+        ///
+        /// If some, but not all, packets were sent then `buf`, `bufsize`, and `n_pkts` will be
+        /// updated so that the *unsent* `n_pkts` packets begin at buf, with sizes given in
+        /// `bufsize` -- so that the same `buf`/`bufsize`/`n_pkts` can be passed in when ready to
+        /// retry sending.
+        ///
+        /// If a more serious error occurs (other than a blocked socket) then `n_pkts` is set to 0
+        /// (effectively dropping all packets) and a result is returned with `.failure()` true (and
+        /// `.blocked()` false).
+        io_result send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
+
+        void close_conns(std::optional<Direction> d = std::nullopt);
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
-        void close_conns(std::optional<Direction> d = std::nullopt);
+        const Address& local() { return _local; }
+
+        bool is_accepting() const { return _accepting_inbound; }
+
+        bool datagrams_enabled() const { return _datagrams; }
+
+        bool packet_splitting_enabled() const { return _packet_splitting; }
+
+        Splitting splitting_policy() const { return _policy; }
+
+        // this is public so the connection constructor can delegate initialize its own local copy to call later
+        dgram_data_callback dgram_recv_cb;
+
+      private:
+        Network& net;
+        Address _local;
+        event_ptr expiry_timer;
+        std::unique_ptr<UDPSocket> socket;
+        bool _accepting_inbound{false};
+        bool _datagrams{false};
+        bool _packet_splitting{false};
+        Splitting _policy{Splitting::NONE};
+
+        std::shared_ptr<IOContext> outbound_ctx;
+        std::shared_ptr<IOContext> inbound_ctx;
+
+        void _init_internals();
+
+        void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
         void delete_connection(const ConnectionID& cid);
 
@@ -180,24 +235,6 @@ namespace oxen::quic
         void handle_conn_packet(Connection& conn, const Packet& pkt);
 
         io_result read_packet(Connection& conn, const Packet& pkt);
-
-        /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
-        ///
-        /// Upon success, updates n_pkts to 0 and returns an io_result with `.success()` true.
-        ///
-        /// If no packets could be sent because the socket would block, this returns an io_result
-        /// with `.blocked()` set to true.  buf/bufsize/n_pkts are not altered (since they have not
-        /// been sent).
-        ///
-        /// If some, but not all, packets were sent then `buf`, `bufsize`, and `n_pkts` will be
-        /// updated so that the *unsent* `n_pkts` packets begin at buf, with sizes given in
-        /// `bufsize` -- so that the same `buf`/`bufsize`/`n_pkts` can be passed in when ready to
-        /// retry sending.
-        ///
-        /// If a more serious error occurs (other than a blocked socket) then `n_pkts` is set to 0
-        /// (effectively dropping all packets) and a result is returned with `.failure()` true (and
-        /// `.blocked()` false).
-        io_result send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
 
         // Less efficient wrapper around send_packets that takes care of queuing the packet if the
         // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via

@@ -15,74 +15,50 @@ extern "C"
 #include <variant>
 #include <vector>
 
+#include "datagram.hpp"
+#include "types.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    class Connection;
+    class Stream;
     class Endpoint;
+    class Connection;
 
-    class Stream : public std::enable_shared_from_this<Stream>
+    // Stream callbacks
+    using stream_data_callback = std::function<void(Stream&, bstring_view)>;
+    using stream_close_callback = std::function<void(Stream&, uint64_t error_code)>;
+    // returns 0 on success
+    using stream_open_callback = std::function<uint64_t(Stream&)>;
+    using stream_unblocked_callback = std::function<bool(Stream&)>;
+
+    class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class Connection;
 
       public:
         Stream(Connection& conn,
                Endpoint& ep,
-               stream_data_callback_t data_cb = nullptr,
-               stream_close_callback_t close_cb = nullptr,
+               stream_data_callback data_cb = nullptr,
+               stream_close_callback close_cb = nullptr,
                int64_t stream_id = -1);
         Stream(Connection& conn, Endpoint& ep, int64_t stream_id) : Stream{conn, ep, nullptr, nullptr, stream_id} {}
         ~Stream();
 
-        // non-copyable, non-moveable (you must always hold a stream in a shared_ptr)
-        Stream(const Stream&) = delete;
-        Stream& operator=(const Stream&) = delete;
-        Stream(Stream&&) = delete;
-        Stream& operator=(Stream&&) = delete;
+        bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
+        bool is_stream() override { return true; }
 
-        stream_data_callback_t data_callback;
-        stream_close_callback_t close_callback;
-        Connection& conn;
+        int64_t stream_id() const override { return _stream_id; }
 
-        int64_t stream_id;
-        std::vector<uint8_t> data;
-        size_t datalen;
-        size_t nwrite;
+        bool is_closing() const override { return _is_closing; }
+        bool sent_fin() const override { return _sent_fin; }
+        void set_fin(bool v) override { _sent_fin = v; }
 
-        std::deque<std::pair<bstring_view, std::shared_ptr<void>>> user_buffers;
-
-        Connection& get_conn();
+        std::shared_ptr<Stream> get_stream() override;
 
         void close(uint64_t error_code = 0);
 
-        void wrote(size_t bytes);
-
-        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
-
-        void acknowledge(size_t bytes);
-
-        inline bool available() const { return !(is_closing || is_shutdown || sent_fin); }
-
-        inline size_t size() const
-        {
-            size_t sum{0};
-            if (user_buffers.empty())
-                return sum;
-            for (const auto& [data, store] : user_buffers)
-                sum += data.size();
-            return sum;
-        }
-
-        inline size_t unacked() const { return unacked_size; }
-
-        inline size_t unsent() const
-        {
-            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-            return size() - unacked();
-        }
-
-        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr);
+        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
         template <
                 typename CharType,
@@ -106,7 +82,47 @@ namespace oxen::quic
             send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
         }
 
+        stream_data_callback data_callback;
+        stream_close_callback close_callback;
+
       private:
+        std::vector<ngtcp2_vec> pending() override;
+
+        size_t unacked_size{0};
+        bool _is_closing{false};
+        bool is_shutdown{false};
+        bool _sent_fin{false};
+        bool ready{false};
+        int64_t _stream_id;
+
+        Connection& get_conn();
+
+        bool is_empty() const override { return user_buffers.empty(); }
+
+        void wrote(size_t bytes) override;
+
+        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive) override;
+
+        void acknowledge(size_t bytes);
+
+        inline size_t size() const
+        {
+            size_t sum{0};
+            if (user_buffers.empty())
+                return sum;
+            for (const auto& [data, store] : user_buffers)
+                sum += data.size();
+            return sum;
+        }
+
+        inline size_t unacked() const { return unacked_size; }
+
+        inline size_t unsent() const override
+        {
+            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+            return size() - unacked();
+        }
+
         // Implementations classes for send_chunks()
 
         // chunk_sender: When sending chunks we construct *one* of these, then share its ownership
@@ -247,18 +263,5 @@ namespace oxen::quic
             log::trace(log_cat, "Setting stream not ready");
             ready = false;
         }
-
-      private:
-        std::vector<ngtcp2_vec> pending();
-
-        // amount of unacked bytes
-        size_t unacked_size{0};
-
-        bool is_closing{false};
-        bool is_shutdown{false};
-        bool sent_fin{false};
-        bool ready{false};
-
-        Endpoint& endpoint;
     };
 }  // namespace oxen::quic

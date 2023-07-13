@@ -78,7 +78,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         + (if tests then [
              'cd build',
              '../utils/gen-certs.sh',
-             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --colour-mode ansi',
+             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --no-ipv6 --colour-mode ansi',
              'cd ..',
            ] else []);
 
@@ -291,7 +291,7 @@ local mac_builder(name,
   debian_pipeline('Debian sid -mmsg', docker_base + 'debian-sid', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF'),
   debian_pipeline('Debian sid -GSO/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmmsg'),
   debian_pipeline('Debian sid -mmsg/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF'),
-  debian_pipeline('Debian testing (amd64)', docker_base + 'debian-testing/i386'),
+  debian_pipeline('Debian testing (i386)', docker_base + 'debian-testing/i386'),
   debian_pipeline('Debian 12 static', docker_base + 'debian-bookworm', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=['g++']),
   debian_pipeline('Debian 12 bookworm (i386)', docker_base + 'debian-bookworm/i386'),
   debian_pipeline('Debian 11 bullseye (amd64)', docker_base + 'debian-bullseye', deps=default_deps_old, extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake'])),

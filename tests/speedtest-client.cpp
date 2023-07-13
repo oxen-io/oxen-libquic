@@ -147,23 +147,24 @@ int main(int argc, char* argv[])
     std::vector<std::unique_ptr<stream_data>> streams;
     streams.reserve(parallel);
 
-    stream_close_callback_t stream_closed = [&](Stream& s, uint64_t errcode) {
-        size_t i = s.stream_id >> 2;
-        log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id, errcode);
+    stream_close_callback stream_closed = [&](Stream& s, uint64_t errcode) {
+        size_t i = s.stream_id() >> 2;
+        log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id(), errcode);
     };
 
-    stream_data_callback_t on_stream_data = [&](Stream& s, bstring_view data) {
-        size_t i = s.stream_id >> 2;
+    stream_data_callback on_stream_data = [&](Stream& s, bstring_view data) {
+        size_t i = s.stream_id() >> 2;
         if (i >= parallel)
         {
-            log::critical(test_cat, "Something getting wrong: got unexpected stream id {}", s.stream_id);
+            log::critical(test_cat, "Something getting wrong: got unexpected stream id {}", s.stream_id());
             return;
         }
 
         auto& sd = *streams[i];
         if (sd.done)
         {
-            log::error(test_cat, "Already got a hash from the other side of stream {}, what is this nonsense‽", s.stream_id);
+            log::error(
+                    test_cat, "Already got a hash from the other side of stream {}, what is this nonsense‽", s.stream_id());
             return;
         }
 
@@ -172,7 +173,7 @@ int main(int argc, char* argv[])
             log::error(
                     test_cat,
                     "Got a stream (stream {}) response ({}B) before we were done sending data!",
-                    s.stream_id,
+                    s.stream_id(),
                     data.size());
             sd.failed = true;
         }

@@ -12,6 +12,8 @@
 
 namespace oxen::quic
 {
+    extern bool disable_ipv6;
+
     inline auto test_cat = oxen::log::Cat("test");
 
     inline void add_log_opts(CLI::App& cli, std::string& file, std::string& level)

@@ -219,6 +219,12 @@ namespace oxen::quic
 
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
     {
+
+        log::trace(
+                log_cat,
+                "Processing packet from {}: {}",
+                Address{(sockaddr*)hdr.msg_name, hdr.msg_namelen},
+                buffer_printer{payload});
         if (payload.empty())
         {
             // This is unexpected, and not something a proper libquic client would ever send so
@@ -251,7 +257,7 @@ namespace oxen::quic
         std::array<iovec, DATAGRAM_BATCH_SIZE> iovs;
         std::array<mmsghdr, DATAGRAM_BATCH_SIZE> msgs = {};
 
-        std::array<std::array<std::byte, max_payload_size>, DATAGRAM_BATCH_SIZE> data;
+        std::array<std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD>, DATAGRAM_BATCH_SIZE> data;
 
         for (size_t i = 0; i < DATAGRAM_BATCH_SIZE; i++)
         {
@@ -299,7 +305,7 @@ namespace oxen::quic
 #else  // no recvmmsg
 
         sockaddr_storage peer{};
-        std::array<std::byte, max_payload_size> data;
+        std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD> data;
 #ifdef _WIN32
         // Microsoft renames everything but uses the same structure just to be obtuse:
         WSABUF iov;
@@ -451,6 +457,7 @@ namespace oxen::quic
         do
         {
             rv = sendmmsg(sock_, msgs.data(), msg_count, 0);
+            log::trace(log_cat, "sendmmsg returned {}", rv);
         } while (rv == -1 && errno == EINTR);
 
         // Figure out number of packets we actually sent:

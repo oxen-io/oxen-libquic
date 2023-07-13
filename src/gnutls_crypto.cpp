@@ -34,6 +34,10 @@ namespace oxen::quic
 
     GNUTLSCreds::GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg)
     {
+        if (local_key.empty() || local_cert.empty())
+            throw std::runtime_error{
+                    "Must initialize GNUTLS credentials using local private key and certificate at minimum"};
+
         datum lkey = datum{local_key};
         datum lcert = datum{local_cert};
         datum rcert;
@@ -76,7 +80,7 @@ namespace oxen::quic
 
     GNUTLSCreds::~GNUTLSCreds()
     {
-        log::warning(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_certificate_free_credentials(cred);
     }
 
@@ -88,26 +92,47 @@ namespace oxen::quic
         return p;
     }
 
-    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client)
+    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(bool is_client)
     {
-        return std::make_unique<GNUTLSSession>(*this, conn_ref, is_client);
+        return std::make_unique<GNUTLSSession>(*this, is_client);
+    }
+
+    void GNUTLSCreds::set_client_tls_policy(
+            gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
+    {
+        client_tls_policy.f = std::move(func);
+        client_tls_policy.htype = htype;
+        client_tls_policy.when = when;
+        client_tls_policy.incoming = incoming;
+    }
+
+    void GNUTLSCreds::set_server_tls_policy(
+            gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
+    {
+        server_tls_policy.f = std::move(func);
+        server_tls_policy.htype = htype;
+        server_tls_policy.when = when;
+        server_tls_policy.incoming = incoming;
     }
 
     GNUTLSSession::~GNUTLSSession()
     {
-        log::warning(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_deinit(session);
     }
 
     void GNUTLSSession::set_tls_hook_functions()
     {
+        log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, gnutls_callback_wrapper);
     }
 
-    GNUTLSSession::GNUTLSSession(GNUTLSCreds& creds, const ngtcp2_crypto_conn_ref& conn_ref_, bool is_client) :
-            TLSSession{conn_ref_}, creds{creds}, is_client{is_client}
+    GNUTLSSession::GNUTLSSession(GNUTLSCreds& creds, bool is_client) : creds{creds}, is_client{is_client}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+
+        log::trace(log_cat, "Creating {} GNUTLSSession", (is_client) ? "client" : "server");
+
         if (auto rv = gnutls_init(&session, is_client ? GNUTLS_CLIENT : GNUTLS_SERVER); rv < 0)
         {
             auto s = (is_client) ? "Client"s : "Server"s;
@@ -123,6 +148,7 @@ namespace oxen::quic
 
         if (is_client)
         {
+            log::trace(log_cat, "gnutls configuring client session...");
             if (auto rv = ngtcp2_crypto_gnutls_configure_client_session(session); rv < 0)
             {
                 log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_client_session failed: {}", ngtcp2_strerror(rv));
@@ -131,6 +157,7 @@ namespace oxen::quic
         }
         else
         {
+            log::trace(log_cat, "gnutls configuring server session...");
             if (auto rv = ngtcp2_crypto_gnutls_configure_server_session(session); rv < 0)
             {
                 log::warning(log_cat, "ngtcp2_crypto_gnutls_configure_server_session failed: {}", ngtcp2_strerror(rv));
@@ -166,11 +193,17 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg) const
     {
-        if (is_client && creds.client_tls_policy)
-            return creds.client_tls_policy(session, htype, when, incoming, msg);
-        else if ((not is_client) && creds.server_tls_policy)
-            return creds.server_tls_policy(session, htype, when, incoming, msg);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        auto& policy = (is_client) ? creds.client_tls_policy : creds.server_tls_policy;
 
+        if (policy)
+        {
+            if (policy.htype == htype && policy.when == when && policy.incoming == incoming)
+            {
+                log::debug(log_cat, "Calling {} tls policy cb", (is_client) ? "client" : "server");
+                return policy(session, htype, when, incoming, msg);
+            }
+        }
         return 0;
     }
 

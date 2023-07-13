@@ -137,20 +137,6 @@ namespace oxen::quic
         assert(job_waker);
     }
 
-    std::shared_ptr<Endpoint> Network::endpoint(const Address& local_addr)
-    {
-        if (auto [it, added] = endpoint_map.emplace(local_addr, nullptr); !added)
-        {
-            log::info(log_cat, "Endpoint already exists for listening address {}", local_addr);
-            return it->second;
-        }
-        else
-        {
-            it->second = std::make_shared<Endpoint>(*this, local_addr);
-            return it->second;
-        }
-    }
-
     std::future<void> Network::close(bool graceful)
     {
         auto prom = std::make_shared<std::promise<void>>();
@@ -231,7 +217,7 @@ namespace oxen::quic
     {
         call([this, done = std::move(done)]() mutable {
             for (const auto& ep : endpoint_map)
-                ep.second->close_conns();
+                ep->close_conns();
             // FIXME TODO
             log::critical(
                     log_cat,

@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "crypto.hpp"
+#include "datagram.hpp"
 #include "opt.hpp"
 #include "stream.hpp"
 #include "udp.hpp"
@@ -12,73 +13,53 @@
 namespace oxen::quic
 {
     // created to store user configuration values; more values to be added later
-    struct config_t
+    struct user_config
     {
         // max streams
         int max_streams = 0;
+        // datagram support
+        bool datagram_support = false;
+        // datagram splitting support
+        bool split_packet = false;
+        // splitting policy
+        Splitting policy = Splitting::NONE;
 
-        config_t() = default;
+        user_config() = default;
     };
 
-    struct ContextBase
+    struct IOContext
     {
       public:
+        Direction dir;
         std::shared_ptr<TLSCreds> tls_creds;
-        stream_data_callback_t stream_data_cb;
-        stream_open_callback_t stream_open_cb;
-        stream_close_callback_t stream_close_cb;
-        config_t config{};
+        stream_data_callback stream_data_cb;
+        stream_open_callback stream_open_cb;
+        stream_close_callback stream_close_cb;
+        user_config config{};
 
-        // TODO: I think we can move the handle_opt calls here
-
-        virtual ~ContextBase() = default;
-    };
-
-    struct OutboundContext : public ContextBase
-    {
         template <typename... Opt>
-        OutboundContext(Opt&&... opts)
+        IOContext(Direction d, Opt&&... opts) : dir{d}
         {
-            log::trace(log_cat, "Making outbound session context...");
+            log::trace(log_cat, "Making IO session context");
             // parse all options
-            ((void)handle_outbound_opt(std::forward<Opt>(opts)), ...);
+            ((void)handle_ioctx_opt(std::forward<Opt>(opts)), ...);
 
-            log::debug(log_cat, "Outbound session context created successfully");
+            if (tls_creds == nullptr)
+                throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
+
+            log::debug(
+                    log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
         }
 
-      private:
-        void handle_outbound_opt(std::shared_ptr<TLSCreds> tls);
-        void handle_outbound_opt(opt::max_streams ms);
-        void handle_outbound_opt(stream_data_callback_t func);
-        void handle_outbound_opt(stream_open_callback_t func);
-        void handle_outbound_opt(stream_close_callback_t func);
-    };
-
-    struct InboundContext : public ContextBase
-    {
-        template <typename... Opt>
-        InboundContext(Opt&&... opts)
-        {
-            log::trace(log_cat, "Making inbound session context...");
-            // parse all options
-            ((void)handle_inbound_opt(std::forward<Opt>(opts)), ...);
-
-            log::debug(log_cat, "Inbound session context successfully created");
-        }
+        ~IOContext() = default;
 
       private:
-        void handle_inbound_opt(std::shared_ptr<TLSCreds> tls);
-        void handle_inbound_opt(opt::max_streams ms);
-        void handle_inbound_opt(stream_data_callback_t func);
-        void handle_inbound_opt(stream_open_callback_t func);
-        void handle_inbound_opt(stream_close_callback_t func);
+        void handle_ioctx_opt(std::shared_ptr<TLSCreds> tls);
+        void handle_ioctx_opt(opt::max_streams ms);
+        void handle_ioctx_opt(dgram_data_callback func);
+        void handle_ioctx_opt(stream_data_callback func);
+        void handle_ioctx_opt(stream_open_callback func);
+        void handle_ioctx_opt(stream_close_callback func);
     };
-
-    /*
-        1:1 with connection:
-            stream data cb
-            stream open cb
-            max streams
-    */
 
 }  // namespace oxen::quic

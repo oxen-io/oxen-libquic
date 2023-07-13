@@ -1,5 +1,7 @@
 #include "endpoint.hpp"
 
+#include "opt.hpp"
+
 extern "C"
 {
 #include <ngtcp2/ngtcp2.h>
@@ -15,14 +17,36 @@ extern "C"
 
 #include "connection.hpp"
 #include "internal.hpp"
+#include "types.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
-    Endpoint::Endpoint(Network& n, const Address& listen_addr) : local{listen_addr}, net{n}
+    void Endpoint::handle_ep_opt(opt::enable_datagrams dc)
     {
-        log::debug(log_cat, "Starting new UDP socket on {}", local);
-        socket = std::make_unique<UDPSocket>(get_loop().get(), local, [this](const auto& packet) { handle_packet(packet); });
+        _datagrams = true;
+        _packet_splitting = dc.split_packets;
+        _policy = dc.mode;
+
+        log::trace(
+                log_cat,
+                "User has activated endpoint datagram support with {} split-packet support",
+                _packet_splitting ? "" : "no");
+    }
+
+    void Endpoint::handle_ep_opt(dgram_data_callback func)
+    {
+        log::trace(log_cat, "Endpoint given datagram recv callback");
+        dgram_recv_cb = std::move(func);
+    }
+
+    void Endpoint::_init_internals()
+    {
+        log::debug(log_cat, "Starting new UDP socket on {}", _local);
+        socket =
+                std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
+
+        _local = socket->address();
 
         expiry_timer.reset(event_new(
                 get_loop().get(),
@@ -34,8 +58,13 @@ namespace oxen::quic
         exp_interval.tv_sec = 0;
         exp_interval.tv_usec = 250'000;
         event_add(expiry_timer.get(), &exp_interval);
+    }
 
-        log::info(log_cat, "Created QUIC endpoint listening on {}", local);
+    void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
+    {
+        ctx->config.datagram_support = _datagrams;
+        ctx->config.split_packet = _packet_splitting;
+        ctx->config.policy = _policy;
     }
 
     std::list<std::shared_ptr<connection_interface>> Endpoint::get_all_conns(std::optional<Direction> d)
@@ -99,7 +128,7 @@ namespace oxen::quic
 
         if (!cptr)
         {
-            if (accepting_inbound)
+            if (_accepting_inbound)
             {
                 cptr = accept_initial_connection(pkt);
 
@@ -111,7 +140,7 @@ namespace oxen::quic
             }
             else
             {
-                log::warning(log_cat, "Dropping packet; unknown connection ID (and we aren't accepting inbound conns)");
+                log::info(log_cat, "Dropping packet; unknown connection ID to endpoint not accepting inbound conns");
                 return;
             }
         }
@@ -153,7 +182,7 @@ namespace oxen::quic
         ngtcp2_ccerr_set_liberr(&err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
 
         std::vector<std::byte> buf;
-        buf.resize(max_payload_size);
+        buf.resize(MAX_PMTUD_UDP_PAYLOAD);
         ngtcp2_pkt_info pkt_info{};
 
         auto written = ngtcp2_conn_write_connection_close(
@@ -176,7 +205,10 @@ namespace oxen::quic
             if (rv.failure())
             {
                 log::warning(
-                        log_cat, "Error: failed to send close packet [{}]; removing connection [CID: {}]", rv.str(), cid);
+                        log_cat,
+                        "Error: failed to send close packet [{}]; removing connection [CID: {}]",
+                        rv.str_error(),
+                        cid);
                 delete_connection(cid);
             }
         });
@@ -252,13 +284,14 @@ namespace oxen::quic
             return nullptr;
         }
 
+        log::debug(log_cat, "Constructing path using packet path: {}", pkt.path);
+
         assert(net.in_event_loop());
         for (;;)
         {
             if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
-                itr->second =
-                        Connection::make_conn(*this, itr->first, hdr.scid, pkt.path, inbound_ctx, Direction::INBOUND, &hdr);
+                itr->second = Connection::make_conn(*this, itr->first, hdr.scid, pkt.path, inbound_ctx, &hdr);
                 return itr->second.get();
             }
         }
@@ -293,7 +326,7 @@ namespace oxen::quic
         switch (rv)
         {
             case 0:
-                conn.io_ready();
+                conn.packet_io_ready();
                 break;
             case NGTCP2_ERR_DRAINING:
                 log::debug(log_cat, "Draining connection {}", *conn.scid().data);
@@ -344,7 +377,7 @@ namespace oxen::quic
 
         if (ret.failure() && !ret.blocked())
         {
-            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str());
+            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str_error());
             n_pkts = 0;  // Drop any packets, as we had a serious error
             return ret;
         }
@@ -403,9 +436,10 @@ namespace oxen::quic
 
     void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p)
     {
-        auto randgen = make_mt19937();
+        uint8_t rint;
+        gnutls_rnd(GNUTLS_RND_RANDOM, &rint, 8);
         std::vector<std::byte> buf;
-        buf.resize(max_payload_size);
+        buf.resize(MAX_PMTUD_UDP_PAYLOAD);
         std::array<uint32_t, NGTCP2_PROTO_VER_MAX - NGTCP2_PROTO_VER_MIN + 2> versions;
         std::iota(versions.begin() + 1, versions.end(), NGTCP2_PROTO_VER_MIN);
         // we're supposed to send some 0x?a?a?a?a version to trigger version negotiation
@@ -414,7 +448,7 @@ namespace oxen::quic
         auto nwrite = ngtcp2_pkt_write_version_negotiation(
                 u8data(buf),
                 buf.size(),
-                std::uniform_int_distribution<uint8_t>()(randgen),
+                rint,
                 vid.dcid,
                 vid.dcidlen,
                 vid.scid,
@@ -452,6 +486,11 @@ namespace oxen::quic
         if (auto it = conns.find(id); it != conns.end())
             return it->second.get();
         return nullptr;
+    }
+
+    bool Endpoint::in_event_loop() const
+    {
+        return net.in_event_loop();
     }
 
 }  // namespace oxen::quic

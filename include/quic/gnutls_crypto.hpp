@@ -15,13 +15,33 @@ namespace fs = std::filesystem;
 
 namespace oxen::quic
 {
-
     using gnutls_callback = std::function<int(
             gnutls_session_t session,
             unsigned int htype,
             unsigned int when,
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
+
+    struct gnutls_callback_wrapper
+    {
+        gnutls_callback f = nullptr;
+        unsigned int htype = 20;
+        unsigned int when = 1;
+        unsigned int incoming = 0;
+
+        bool applies(unsigned int h, unsigned int w, unsigned int i) const
+        {
+            return f && htype == h && when == w && incoming == i;
+        }
+
+        operator bool() const { return f != nullptr; }
+
+        template <typename... Args>
+        auto operator()(Args&&... args) const
+        {
+            return f(std::forward<Args>(args)...);
+        }
+    };
 
     // Struct to wrap cert/key information. Can hold either a string-path, gnutls_datum of the
     // actual key or cert, plus extension and type info.
@@ -85,13 +105,18 @@ namespace oxen::quic
 
         gnutls_certificate_credentials_t cred;
 
-        gnutls_callback client_tls_policy{nullptr};
-        gnutls_callback server_tls_policy{nullptr};
+        gnutls_callback_wrapper client_tls_policy{};
+        gnutls_callback_wrapper server_tls_policy{};
+
+        void set_client_tls_policy(
+                gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
+        void set_server_tls_policy(
+                gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
-        std::unique_ptr<TLSSession> make_session(const ngtcp2_crypto_conn_ref& conn_ref, bool is_client = false) override;
+        std::unique_ptr<TLSSession> make_session(bool is_client = false) override;
     };
 
     class GNUTLSSession : public TLSSession
@@ -104,7 +129,7 @@ namespace oxen::quic
 
         void set_tls_hook_functions();  // TODO: which and when?
       public:
-        GNUTLSSession(GNUTLSCreds& creds, const ngtcp2_crypto_conn_ref& conn_ref_, bool is_client);
+        GNUTLSSession(GNUTLSCreds& creds, bool is_client);
         ~GNUTLSSession();
 
         void* get_session() override { return session; };

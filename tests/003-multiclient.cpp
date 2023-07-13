@@ -7,58 +7,84 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("003: Multi-client to server transmission", "[003][multi-client]")
+    TEST_CASE("003 - Multi-client to server transmission: Types", "[003][multi-client][types]")
     {
-        logger_config();
+        SECTION("Multiple clients with the same address")
+        {
+            Network test_net{};
 
-        log::debug(log_cat, "Beginning test of multi-client connection...");
+            opt::local_addr default_addr{};
 
+            std::shared_ptr<Endpoint> client_b;
+
+            auto client_a = test_net.endpoint(default_addr);
+
+            REQUIRE_THROWS(client_b = test_net.endpoint(opt::remote_addr{"127.0.0.1"s, client_a->local().port()}));
+
+            auto client_c = test_net.endpoint(default_addr);
+
+            REQUIRE_FALSE(client_a == client_c);
+        };
+    };
+
+    TEST_CASE("003 - Multi-client to server transmission: Execution", "[003][multi-client][execute]")
+    {
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
         std::atomic<int> data_check{0};
+        std::vector<std::promise<bool>> stream_promises{4};
+        std::vector<std::future<bool>> stream_futures{4};
 
-        stream_data_callback_t server_data_cb = [&](Stream&, bstring_view) {
+        for (int i = 0; i < 4; ++i)
+            stream_futures[i] = stream_promises[i].get_future();
+
+        opt::local_addr server_local{};
+
+        opt::local_addr client_a_local{};
+        opt::local_addr client_b_local{};
+        opt::local_addr client_c_local{};
+        opt::local_addr client_d_local{};
+
+        auto p_itr = stream_promises.begin();
+
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             data_check += 1;
+            p_itr->set_value(true);
+            ++p_itr;
         };
 
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-        opt::local_addr server_local{"127.0.0.1"s, 5500};
-
-        opt::local_addr client_a_local{"127.0.0.1"s, 4400};
-        opt::local_addr client_b_local{"127.0.0.1"s, 4422};
-        opt::local_addr client_c_local{"127.0.0.1"s, 4444};
-        opt::local_addr client_d_local{"127.0.0.1"s, 4466};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5500};
-
         auto server_endpoint = test_net.endpoint(server_local);
-        bool sinit = server_endpoint->listen(server_tls, server_data_cb);
+        REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
-        REQUIRE(sinit);
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        // client A
-        auto client_a = test_net.endpoint(client_a_local);
-        auto c_interface_a = client_a->connect(client_remote, client_tls);
+        std::thread async_thread_a{[&]() {
+            log::debug(log_cat, "Async thread A called");
 
-        // client B
-        auto client_b = test_net.endpoint(client_b_local);
-        auto c_interface_b = client_b->connect(client_remote, client_tls);
+            // client A
+            auto client_a = test_net.endpoint(client_a_local);
+            auto c_interface_a = client_a->connect(client_remote, client_tls);
 
-        std::this_thread::sleep_for(100ms);
+            // client B
+            auto client_b = test_net.endpoint(client_b_local);
+            auto c_interface_b = client_b->connect(client_remote, client_tls);
 
-        // open streams
-        auto stream_a = c_interface_a->get_new_stream();
-        auto stream_b = c_interface_b->get_new_stream();
+            // open streams
+            auto stream_a = c_interface_a->get_new_stream();
+            auto stream_b = c_interface_b->get_new_stream();
 
-        // send
-        stream_a->send(msg);
-        stream_b->send(msg);
+            // send
+            stream_a->send(msg);
+            stream_b->send(msg);
+        }};
 
-        std::thread async_thread{[&]() {
-            log::debug(log_cat, "Async thread called");
+        std::thread async_thread_b{[&]() {
+            log::debug(log_cat, "Async thread B called");
 
             // client C
             auto client_c = test_net.endpoint(client_c_local);
@@ -68,8 +94,6 @@ namespace oxen::quic::test
             auto client_d = test_net.endpoint(client_d_local);
             auto c_interface_d = client_d->connect(client_remote, client_tls);
 
-            std::this_thread::sleep_for(100ms);
-
             // open streams
             auto stream_c = c_interface_c->get_new_stream();
             auto stream_d = c_interface_d->get_new_stream();
@@ -77,14 +101,13 @@ namespace oxen::quic::test
             // send
             stream_c->send(msg);
             stream_d->send(msg);
-
-            std::this_thread::sleep_for(100ms);
         }};
 
-        std::this_thread::sleep_for(100ms);
+        for (auto& f : stream_futures)
+            REQUIRE(f.get());
 
-        async_thread.join();
-
+        async_thread_b.join();
+        async_thread_a.join();
         REQUIRE(data_check == 4);
         test_net.close();
     };
