@@ -51,16 +51,10 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Endpoint> endpoint(const Address& local_addr, Opt&&... opts)
         {
-            if (auto [it, added] = endpoint_map.emplace(local_addr, nullptr); !added)
-            {
-                log::info(log_cat, "Endpoint already exists for listening address {}", local_addr);
-                return it->second;
-            }
-            else
-            {
-                it->second = std::make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...);
-                return it->second;
-            }
+            auto [it, added] =
+                    endpoint_map.emplace(std::make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...));
+
+            return *it;
         }
 
         /// Initiates shutdown the network, closing all endpoint connections and stopping the event
@@ -77,7 +71,7 @@ namespace oxen::quic
         std::optional<std::thread> loop_thread;
         std::thread::id loop_thread_id;
 
-        std::unordered_map<Address, std::shared_ptr<Endpoint>> endpoint_map;
+        std::unordered_set<std::shared_ptr<Endpoint>> endpoint_map;
 
         event_ptr job_waker;
         std::queue<Job> job_queue;

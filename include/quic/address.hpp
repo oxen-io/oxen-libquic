@@ -60,6 +60,8 @@ namespace oxen::quic
             return *this;
         }
 
+        void map_ipv4_as_ipv6();
+
         bool is_set() const { return is_ipv4() || is_ipv6(); }
 
         inline bool is_ipv4() const
@@ -76,7 +78,7 @@ namespace oxen::quic
         // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
         inline const sockaddr_in& in4() const
         {
-            assert(is_ipv4());
+            // assert(is_ipv4());
             return reinterpret_cast<const sockaddr_in&>(_sock_addr);
         }
 
@@ -161,6 +163,8 @@ namespace oxen::quic
         // address via one of the sockaddr* pointer operators.  (It is not needed when assigning a
         // sockaddr pointer).
         void update_socklen(socklen_t len) { _addr.addrlen = len; }
+
+        std::string host() const;
 
         // Convenience method for debugging, etc.  This is usually called implicitly by passing the
         // Address to fmt to format it.

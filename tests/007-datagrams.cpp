@@ -22,8 +22,8 @@ namespace oxen::quic::test
             opt::enable_datagrams default_dgram{},          // packet_splitting = false
                     lazy_dgram{true},                       // packet_splitting = true, policy = ::LAZY
                     greedy_dgram{true, Splitting::GREEDY};  // packet_splitting = true, policy = ::GREEDY
-            opt::local_addr local_a{"127.0.0.1"s, 4418}, local_b{"127.0.0.1"s, 4419}, local_c{"127.0.0.1"s, 4420},
-                    local_d{"127.0.0.1"s, 4421};
+
+            opt::local_addr local_a{}, local_b{}, local_c{}, local_d{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
@@ -77,16 +77,17 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            opt::local_addr server_local{"127.0.0.1"s, 5513};
-            opt::local_addr client_local{"127.0.0.1"s, 4422};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5513};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto ep = test_net.endpoint(server_local);
-            REQUIRE_NOTHROW(ep->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -117,16 +118,17 @@ namespace oxen::quic::test
 
             opt::enable_datagrams default_gram{};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5514};
-            opt::local_addr client_local{"127.0.0.1"s, 4423};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5514};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto ep = test_net.endpoint(server_local, default_gram);
-            REQUIRE_NOTHROW(ep->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, default_gram);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, default_gram);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -159,16 +161,17 @@ namespace oxen::quic::test
                     };
 
             opt::enable_datagrams lazy{true};
-            opt::local_addr server_local{"127.0.0.1"s, 5515};
-            opt::local_addr client_local{"127.0.0.1"s, 4424};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5515};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto ep = test_net.endpoint(server_local, lazy);
-            REQUIRE_NOTHROW(ep->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, lazy);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, lazy);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -201,16 +204,17 @@ namespace oxen::quic::test
                     };
 
             opt::enable_datagrams greedy{true, Splitting::GREEDY};
-            opt::local_addr server_local{"127.0.0.1"s, 5516};
-            opt::local_addr client_local{"127.0.0.1"s, 4425};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5516};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto ep = test_net.endpoint(server_local, greedy);
-            REQUIRE_NOTHROW(ep->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, greedy);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, greedy);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -254,23 +258,24 @@ namespace oxen::quic::test
 
             opt::enable_datagrams default_gram{};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5517};
-            opt::local_addr client_local{"127.0.0.1"s, 4426};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5517};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
             client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto server = test_net.endpoint(server_local, default_gram, recv_dgram_cb);
-            REQUIRE_NOTHROW(server->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, default_gram, recv_dgram_cb);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, default_gram);
             auto conn_interface = client->connect(client_remote, client_tls);
 
             REQUIRE(tls_future.get());
 
-            REQUIRE(server->datagrams_enabled());
+            REQUIRE(server_endpoint->datagrams_enabled());
             REQUIRE(client->datagrams_enabled());
 
             REQUIRE(conn_interface->datagrams_enabled());

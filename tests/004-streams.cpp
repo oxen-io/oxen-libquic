@@ -17,9 +17,8 @@ namespace oxen::quic::test
             std::future<bool> tls_future = tls.get_future();
             opt::max_streams max_streams{8};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5505};
-            opt::local_addr client_local{"127.0.0.1"s, 4410};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5505};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             gnutls_callback outbound_tls_cb =
                     [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
@@ -35,6 +34,8 @@ namespace oxen::quic::test
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE(server_endpoint->listen(server_tls, max_streams));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
@@ -54,9 +55,8 @@ namespace oxen::quic::test
             std::future<bool> data_future = data_promise.get_future();
             opt::max_streams max_streams{8};
 
-            opt::local_addr server_local{"127.0.0.1"s, 5506};
-            opt::local_addr client_local{"127.0.0.1"s, 4411};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5506};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling server stream data callback... data received...");
@@ -68,6 +68,8 @@ namespace oxen::quic::test
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
@@ -91,9 +93,8 @@ namespace oxen::quic::test
 
             std::shared_ptr<connection_interface> server_ci;
 
-            opt::local_addr server_local{"127.0.0.1"s, 5507};
-            opt::local_addr client_local{"127.0.0.1"s, 4412};
-            opt::remote_addr client_remote{"127.0.0.1"s, 5507};
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
 
             stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
                 log::debug(log_cat, "Calling server stream data callback... data received...");
@@ -114,6 +115,8 @@ namespace oxen::quic::test
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE(server_endpoint->listen(server_tls, server_config, server_data_cb));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
@@ -153,9 +156,8 @@ namespace oxen::quic::test
         opt::max_streams max_streams{8};
         std::vector<std::shared_ptr<Stream>> streams{12};
 
-        opt::local_addr server_local{"127.0.0.1"s, 5508};
-        opt::local_addr client_local{"127.0.0.1"s, 4413};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5508};
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
 
         std::promise<bool> tls;
         std::future<bool> tls_future = tls.get_future();
@@ -183,9 +185,9 @@ namespace oxen::quic::test
 
             try
             {
+                data_check += 1;
                 receive_promises.at(index).set_value(true);
                 ++index;
-                data_check += 1;
             }
             catch (std::exception& e)
             {
@@ -199,6 +201,8 @@ namespace oxen::quic::test
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
+
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);

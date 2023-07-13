@@ -13,13 +13,16 @@ namespace oxen::quic::test
         {
             Network test_net{};
 
-            opt::local_addr default_addr{}, local_addr{"127.0.0.1"s, 4406};
+            opt::local_addr default_addr{};
 
-            auto client_a = test_net.endpoint(local_addr);
-            auto client_b = test_net.endpoint(local_addr);
+            std::shared_ptr<Endpoint> client_b;
+
+            auto client_a = test_net.endpoint(default_addr);
+
+            REQUIRE_THROWS(client_b = test_net.endpoint(opt::remote_addr{"127.0.0.1"s, client_a->local().port()}));
+
             auto client_c = test_net.endpoint(default_addr);
 
-            REQUIRE(client_a == client_b);
             REQUIRE_FALSE(client_a == client_c);
         };
     };
@@ -36,21 +39,20 @@ namespace oxen::quic::test
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
 
-        opt::local_addr server_local{"127.0.0.1"s, 5504};
+        opt::local_addr server_local{};
 
-        opt::local_addr client_a_local{"127.0.0.1"s, 4407};
-        opt::local_addr client_b_local{"127.0.0.1"s, 4408};
-        opt::local_addr client_c_local{"127.0.0.1"s, 4409};
-        opt::local_addr client_d_local{"127.0.0.1"s, 4410};
-        opt::remote_addr client_remote{"127.0.0.1"s, 5504};
+        opt::local_addr client_a_local{};
+        opt::local_addr client_b_local{};
+        opt::local_addr client_c_local{};
+        opt::local_addr client_d_local{};
 
         auto p_itr = stream_promises.begin();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
+            data_check += 1;
             p_itr->set_value(true);
             ++p_itr;
-            data_check += 1;
         };
 
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
@@ -58,6 +60,8 @@ namespace oxen::quic::test
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
+
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
             log::debug(log_cat, "Async thread A called");

@@ -32,6 +32,31 @@ namespace oxen::quic
             std::system_error{errno, std::system_category()};
     }
 
+    void Address::map_ipv4_as_ipv6()
+    {
+        const auto& a4 = in4();
+        sockaddr_in6 a6{};
+        a6.sin6_family = AF_INET6;
+        a6.sin6_port = a4.sin_port;
+        a6.sin6_addr.s6_addr[10] = 0xff;
+        a6.sin6_addr.s6_addr[11] = 0xff;
+        std::memcpy(&a6.sin6_addr.s6_addr[12], &a4.sin_addr.s_addr, 4);
+        std::memcpy(&_sock_addr, &a6, sizeof(a6));
+        update_socklen(sizeof(a6));
+    }
+
+    std::string Address::host() const
+    {
+        char buf[INET6_ADDRSTRLEN] = {};
+        if (is_ipv6())
+        {
+            inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_addr, buf, sizeof(buf));
+            return "[{}]:{}"_format(buf, port());
+        }
+        inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_addr, buf, sizeof(buf));
+        return "{}"_format(buf);
+    }
+
     std::string Address::to_string() const
     {
         char buf[INET6_ADDRSTRLEN] = {};

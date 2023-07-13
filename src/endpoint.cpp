@@ -46,6 +46,8 @@ namespace oxen::quic
         socket =
                 std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
 
+        _local = socket->address();
+
         expiry_timer.reset(event_new(
                 get_loop().get(),
                 -1,          // Not attached to an actual socket
@@ -281,6 +283,8 @@ namespace oxen::quic
             log::warning(log_cat, "Warning: Unexpected token in initial packet");
             return nullptr;
         }
+
+        log::debug(log_cat, "Constructing path using packet path: {}", pkt.path);
 
         assert(net.in_event_loop());
         for (;;)

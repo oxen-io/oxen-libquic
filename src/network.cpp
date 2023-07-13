@@ -217,7 +217,7 @@ namespace oxen::quic
     {
         call([this, done = std::move(done)]() mutable {
             for (const auto& ep : endpoint_map)
-                ep.second->close_conns();
+                ep->close_conns();
             // FIXME TODO
             log::critical(
                     log_cat,

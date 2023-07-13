@@ -85,12 +85,17 @@ namespace oxen::quic
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
-        std::shared_ptr<connection_interface> connect(const Address& remote, Opt&&... opts)
+        std::shared_ptr<connection_interface> connect(Address remote, Opt&&... opts)
         {
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
-            net.call([&opts..., &p, path = Path{_local, remote}, this]() mutable {
+            if (_local.is_ipv6() && !remote.is_ipv6())
+                remote.map_ipv4_as_ipv6();
+
+            Path _path = Path{_local, remote};
+
+            net.call([&opts..., &p, path = _path, this]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
@@ -175,7 +180,7 @@ namespace oxen::quic
 
       private:
         Network& net;
-        const Address _local;
+        Address _local;
         event_ptr expiry_timer;
         std::unique_ptr<UDPSocket> socket;
         bool _accepting_inbound{false};

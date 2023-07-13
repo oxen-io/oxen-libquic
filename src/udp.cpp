@@ -219,6 +219,12 @@ namespace oxen::quic
 
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
     {
+
+        log::trace(
+                log_cat,
+                "Processing packet from {}: {}",
+                Address{(sockaddr*)hdr.msg_name, hdr.msg_namelen},
+                buffer_printer{payload});
         if (payload.empty())
         {
             // This is unexpected, and not something a proper libquic client would ever send so
@@ -451,6 +457,7 @@ namespace oxen::quic
         do
         {
             rv = sendmmsg(sock_, msgs.data(), msg_count, 0);
+            log::trace(log_cat, "sendmmsg returned {}", rv);
         } while (rv == -1 && errno == EINTR);
 
         // Figure out number of packets we actually sent:
