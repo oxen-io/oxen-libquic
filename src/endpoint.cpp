@@ -145,7 +145,8 @@ namespace oxen::quic
             }
         }
 
-        handle_conn_packet(*cptr, pkt);
+        cptr->handle_conn_packet(pkt);
+
         return;
     }
 
@@ -295,69 +296,6 @@ namespace oxen::quic
                 return itr->second.get();
             }
         }
-    }
-
-    void Endpoint::handle_conn_packet(Connection& conn, const Packet& pkt)
-    {
-        if (auto rv = ngtcp2_conn_in_closing_period(conn); rv != 0)
-        {
-            log::debug(log_cat, "Error: connection (CID: {}) is in closing period; dropping connection", *conn.scid().data);
-            delete_connection(conn.scid());
-            return;
-        }
-
-        if (conn.is_draining())
-        {
-            log::debug(log_cat, "Error: connection is already draining; dropping");
-        }
-
-        // TODO: if read packet gives us failure, should we close?
-        if (read_packet(conn, pkt).success())
-            log::trace(log_cat, "done with incoming packet");
-        else
-            log::trace(log_cat, "read packet failed");  // error will be already logged
-    }
-
-    io_result Endpoint::read_packet(Connection& conn, const Packet& pkt)
-    {
-        auto ts = get_timestamp().count();
-        auto rv = ngtcp2_conn_read_pkt(conn, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), ts);
-
-        switch (rv)
-        {
-            case 0:
-                conn.packet_io_ready();
-                break;
-            case NGTCP2_ERR_DRAINING:
-                log::debug(log_cat, "Draining connection {}", *conn.scid().data);
-                drain_connection(conn);
-                break;
-            case NGTCP2_ERR_PROTO:
-                log::debug(log_cat, "Closing connection {} due to error {}", *conn.scid().data, ngtcp2_strerror(rv));
-                close_connection(conn, rv, "ERR_PROTO"sv);
-                break;
-            case NGTCP2_ERR_DROP_CONN:
-                // drop connection without calling ngtcp2_conn_write_connection_close()
-                log::debug(log_cat, "Dropping connection {} due to error {}", *conn.scid().data, ngtcp2_strerror(rv));
-                delete_connection(conn.scid());
-                break;
-            case NGTCP2_ERR_CRYPTO:
-                // drop conn without calling ngtcp2_conn_write_connection_close()
-                log::debug(
-                        log_cat,
-                        "Dropping connection {} due to error {} (code: {})",
-                        *conn.scid().data,
-                        ngtcp2_conn_get_tls_alert(conn),
-                        ngtcp2_strerror(rv));
-                delete_connection(conn.scid());
-                break;
-            default:
-                log::debug(log_cat, "Closing connection {} due to error {}", *conn.scid().data, ngtcp2_strerror(rv));
-                close_connection(conn, rv, ngtcp2_strerror(rv));
-                break;
-        }
-
-        return io_result::ngtcp2(rv);
     }
 
     io_result Endpoint::send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)

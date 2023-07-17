@@ -45,8 +45,8 @@ namespace oxen::quic::opt
         Splitting mode = Splitting::NONE;
 
         enable_datagrams() = default;
-        explicit enable_datagrams(bool e) : split_packets{e}, mode{Splitting::LAZY} {}
-        explicit enable_datagrams(bool e, Splitting m) : split_packets{e}, mode{m} {}
+        explicit enable_datagrams(bool e) = delete;
+        explicit enable_datagrams(Splitting m) : split_packets{true}, mode{m} {}
     };
 
 }  // namespace oxen::quic::opt

@@ -177,6 +177,9 @@ namespace oxen::quic
 
         // this is public so the connection constructor can delegate initialize its own local copy to call later
         dgram_data_callback dgram_recv_cb;
+        // public so connections can call when handling conn packets
+        void delete_connection(const ConnectionID& cid);
+        void drain_connection(Connection& conn);
 
       private:
         Network& net;
@@ -194,10 +197,6 @@ namespace oxen::quic
         void _init_internals();
 
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
-
-        void delete_connection(const ConnectionID& cid);
-
-        void drain_connection(Connection& conn);
 
         void on_receive(const Packet& pkt);
 
@@ -231,10 +230,6 @@ namespace oxen::quic
         std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
 
         std::optional<ConnectionID> handle_packet_connid(const Packet& pkt);
-
-        void handle_conn_packet(Connection& conn, const Packet& pkt);
-
-        io_result read_packet(Connection& conn, const Packet& pkt);
 
         // Less efficient wrapper around send_packets that takes care of queuing the packet if the
         // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via

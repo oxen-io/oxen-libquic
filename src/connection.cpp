@@ -68,6 +68,12 @@ namespace oxen::quic
         return 0;
     }
 
+    int on_ack_datagram(ngtcp2_conn* /* conn */, uint64_t dgram_id, void* user_data)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return static_cast<Connection*>(user_data)->ack_datagram(dgram_id);
+    }
+
     int on_recv_datagram(ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -191,15 +197,106 @@ namespace oxen::quic
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
     }
 
-    uint64_t Connection::next_dgram_id()
-    {
-        _last_dgram_id += _increment;
-        return _last_dgram_id;
-    }
-
     void Connection::packet_io_ready()
     {
         event_active(packet_io_trigger.get(), 0, 0);
+    }
+
+    void Connection::handle_conn_packet(const Packet& pkt)
+    {
+        if (auto rv = ngtcp2_conn_in_closing_period(*this); rv != 0)
+        {
+            log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
+
+            _endpoint.call([&]() {
+                log::debug(
+                        log_cat, "Error: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
+                _endpoint.delete_connection(scid());
+            });
+            return;
+        }
+
+        if (is_draining())
+        {
+            log::debug(log_cat, "Error: connection is already draining; dropping");
+        }
+
+        // TODO: if read packet gives us failure, should we close?
+        if (read_packet(pkt).success())
+            log::trace(log_cat, "done with incoming packet");
+        else
+            log::trace(log_cat, "read packet failed");  // error will be already logged
+    }
+
+    io_result Connection::read_packet(const Packet& pkt)
+    {
+        auto ts = get_timestamp().count();
+        log::trace(log_cat, "Calling ngtcp2_conn_read_pkt...");
+        auto rv = ngtcp2_conn_read_pkt(*this, pkt.path, &pkt.pkt_info, u8data(pkt.data), pkt.data.size(), ts);
+
+        switch (rv)
+        {
+            case 0:
+                packet_io_ready();
+                break;
+            case NGTCP2_ERR_DRAINING:
+                log::trace(log_cat, "Note: CID-{} is draining; signaling endpoint to drain connection", scid());
+                _endpoint.call([&]() {
+                    log::debug(log_cat, "Endpoint draining CID: {}", scid());
+                    _endpoint.drain_connection(*this);
+                });
+                break;
+            case NGTCP2_ERR_PROTO:
+                log::trace(
+                        log_cat,
+                        "Note: CID-{} encountered error {}; signaling endpoint to close connection",
+                        scid(),
+                        ngtcp2_strerror(rv));
+                _endpoint.call([&]() {
+                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                    _endpoint.close_connection(*this, rv, "ERR_PROTO"sv);
+                });
+                break;
+            case NGTCP2_ERR_DROP_CONN:
+                // drop connection without calling ngtcp2_conn_write_connection_close()
+                log::trace(
+                        log_cat,
+                        "Note: CID-{} encountered ngtcp2 error {}; signaling endpoint to delete connection",
+                        scid(),
+                        ngtcp2_strerror(rv));
+                _endpoint.call([&]() {
+                    log::debug(log_cat, "Endpoint deleting CID: {}", scid());
+                    _endpoint.delete_connection(scid());
+                });
+                break;
+            case NGTCP2_ERR_CRYPTO:
+                // drop conn without calling ngtcp2_conn_write_connection_close()
+                log::trace(
+                        log_cat,
+                        "Note: CID-{} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
+                        "connection",
+                        scid(),
+                        ngtcp2_conn_get_tls_alert(*this),
+                        ngtcp2_strerror(rv));
+                _endpoint.call([&]() {
+                    log::debug(log_cat, "Endpoint deleting CID: {}", scid());
+                    _endpoint.delete_connection(scid());
+                });
+                break;
+            default:
+                log::trace(
+                        log_cat,
+                        "Note: CID-{} encountered error {}; signaling endpoint to close connection",
+                        scid(),
+                        ngtcp2_strerror(rv));
+                _endpoint.call([&]() {
+                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                    _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
+                });
+                break;
+        }
+
+        return io_result::ngtcp2(rv);
     }
 
     // note: this does not need to return anything, it is never called except in on_stream_available
@@ -397,11 +494,8 @@ namespace oxen::quic
         else if (not datagrams->is_empty())
         {
             // if we have only datagrams to send, then we should probably do that
-            if (not datagrams->is_empty())
-            {
-                log::trace(log_cat, "Datagram channel has things to send");
-                channels.push_back(datagrams.get());
-            }
+            log::trace(log_cat, "Datagram channel has things to send");
+            channels.push_back(datagrams.get());
         }
 
         // This is our non-stream value (i.e. we give stream id -1 to ngtcp2 when we hit this).  We
@@ -430,12 +524,12 @@ namespace oxen::quic
             channels.pop_front();  // Pop it off; if this stream should be checked again, append just
                                    // before streams_end_it.
 
-            std::vector<ngtcp2_vec> bufs = source->pending();
-
             // this block will execute all "real" streams plus the "pseudo stream" of ID -1 to finish
             // off any packets that need to be sent
             if (source->is_stream())
             {
+                std::vector<ngtcp2_vec> bufs = source->pending();
+
                 stream_id = source->stream_id();
 
                 if (stream_id != -1)
@@ -470,6 +564,9 @@ namespace oxen::quic
             }
             else  // datagram block
             {
+                auto dgram = source->pending_datagram();
+                // std::vector<ngtcp2_vec> bufs = source->pending();
+
                 nwrite = ngtcp2_conn_writev_datagram(
                         conn.get(),
                         _path,
@@ -478,15 +575,22 @@ namespace oxen::quic
                         MAX_PMTUD_UDP_PAYLOAD,
                         &datagram_accepted,
                         flags |= NGTCP2_WRITE_DATAGRAM_FLAG_MORE,
-                        0,
-                        bufs.data(),
-                        1,
+                        dgram.id,
+                        dgram.data(),
+                        dgram.size(),
                         ts);
 
                 log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
 
                 if (datagram_accepted != 0)
-                    datagrams->user_buffers.pop_front();
+                {
+                    log::trace(log_cat, "ngtcp2 accepted datagram ID: {} for transmission", dgram.id);
+
+                    // we only drop the data from the send_buffer if the unsplit datagram was sent OR the second
+                    // part of the split datagram was sent
+                    if (dgram.id % 4 == 0 || dgram.id % 4 == 3)
+                        datagrams->send_buffer.pop_front();
+                }
             }
 
             // congested
@@ -740,6 +844,13 @@ namespace oxen::quic
         return 0;
     }
 
+    // this callback is defined for debugging datagrams
+    int Connection::ack_datagram(uint64_t dgram_id)
+    {
+        log::trace(log_cat, "Connection (CID: {}) acked datagram ID:{}", _source_cid, dgram_id);
+        return 0;
+    }
+
     int Connection::recv_datagram(bstring_view data, bool fin)
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
@@ -747,7 +858,7 @@ namespace oxen::quic
         // append received datagram to tetris_buffer if packet_splitting is enabled
         if (_packet_splitting)
         {
-            // TODO: should this logic go earlier in the process inside handle_packet?
+            //
         }
 
         if (!datagrams->dgram_data_cb)
@@ -817,7 +928,7 @@ namespace oxen::quic
     size_t Connection::get_max_datagram_size() const
     {
         // If policy is greedy, we can take in doubel the datagram size
-        size_t multiple = (packet_splitting_policy() == Splitting::GREEDY) ? 2 : 1;
+        size_t multiple = (_packet_splitting) ? 2 : 1;
 
         if (_datagrams_enabled)
             return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - DATAGRAM_OVERHEAD);
@@ -910,6 +1021,7 @@ namespace oxen::quic
             settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;                // 1500 - 48 (approximate overhead)
             // settings.no_tx_udp_payload_size_shaping = 1;
             callbacks.recv_datagram = on_recv_datagram;
+            callbacks.ack_datagram = on_ack_datagram;
         }
         else
         {
@@ -937,7 +1049,6 @@ namespace oxen::quic
             _max_streams{context->config.max_streams ? context->config.max_streams : DEFAULT_MAX_BIDI_STREAMS},
             _datagrams_enabled{context->config.datagram_support},
             _packet_splitting{context->config.split_packet},
-            _policy{context->config.policy},
             tls_creds{context->tls_creds}
     {
         datagrams = std::make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);

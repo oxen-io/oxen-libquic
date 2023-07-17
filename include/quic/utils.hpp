@@ -32,6 +32,7 @@ extern "C"
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <list>
 #include <map>
 #include <oxen/log.hpp>
 #include <oxen/log/format.hpp>
@@ -102,12 +103,11 @@ namespace oxen::quic
     // two datagrams. (Note: NGTCP2_MAX_UDP_PAYLOAD_SIZE is badly named, so we're using more accurate
     // ones)
     inline constexpr size_t DATAGRAM_OVERHEAD = 44;
-    inline constexpr size_t MIN_UDP_PAYLOAD = NGTCP2_MAX_UDP_PAYLOAD_SIZE;                     // 1200
-    inline constexpr size_t MIN_LAZY_UDP_PAYLOAD = MIN_UDP_PAYLOAD;                            // 1200
-    inline constexpr size_t MIN_GREEDY_UDP_PAYLOAD = (MIN_LAZY_UDP_PAYLOAD << 1);              // 2400
-    inline constexpr size_t MAX_PMTUD_UDP_PAYLOAD = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;         // 1452
-    inline constexpr size_t MAX_LAZY_PMTUD_UDP_PAYLOAD = MAX_PMTUD_UDP_PAYLOAD;                // 1452
-    inline constexpr size_t MAX_GREEDY_PMTUD_UDP_PAYLOAD = (MAX_LAZY_PMTUD_UDP_PAYLOAD << 1);  // 2904
+    inline constexpr size_t MIN_UDP_PAYLOAD = NGTCP2_MAX_UDP_PAYLOAD_SIZE;                // 1200
+    inline constexpr size_t MIN_LAZY_UDP_PAYLOAD = MIN_UDP_PAYLOAD;                       // 1200
+    inline constexpr size_t MIN_GREEDY_UDP_PAYLOAD = (MIN_LAZY_UDP_PAYLOAD << 1);         // 2400
+    inline constexpr size_t MAX_PMTUD_UDP_PAYLOAD = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;    // 1452
+    inline constexpr size_t MAX_GREEDY_PMTUD_UDP_PAYLOAD = (MAX_PMTUD_UDP_PAYLOAD << 1);  // 2904
 
     // Maximum number of packets we can send in one batch when using sendmmsg/GSO, and maximum we
     // receive in one batch when using recvmmsg.

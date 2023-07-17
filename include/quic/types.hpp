@@ -14,7 +14,7 @@ namespace oxen::quic
 
     enum class Direction { OUTBOUND = 0, INBOUND = 1 };
 
-    enum class Splitting { NONE = 0, LAZY = 1, GREEDY = 2 };
+    enum class Splitting { NONE = 0, ACTIVE = 1 };
 
     // Struct returned as a result of send_packet that either is implicitly
     // convertible to bool, but also is able to carry an error code

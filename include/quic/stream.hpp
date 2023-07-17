@@ -86,6 +86,8 @@ namespace oxen::quic
         stream_close_callback close_callback;
 
       private:
+        buffer_que user_buffers;
+
         std::vector<ngtcp2_vec> pending() override;
 
         size_t unacked_size{0};
@@ -101,7 +103,7 @@ namespace oxen::quic
 
         void wrote(size_t bytes) override;
 
-        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive) override;
+        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
 
         void acknowledge(size_t bytes);
 
@@ -217,6 +219,12 @@ namespace oxen::quic
                 log::trace(log_cat, "got chunk to send of size {}", bsv.size());
                 str.send(bsv, std::move(next));
             }
+        };
+
+        prepared_datagram pending_datagram() override
+        {
+            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return prepared_datagram{};
         };
 
       public:
