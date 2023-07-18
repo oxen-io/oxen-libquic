@@ -173,6 +173,8 @@ namespace oxen::quic
 
         bool packet_splitting_enabled() const { return _packet_splitting; }
 
+        int datagram_bufsize() const { return _rbufsize; }
+
         Splitting splitting_policy() const { return _policy; }
 
         // this is public so the connection constructor can delegate initialize its own local copy to call later
@@ -180,6 +182,8 @@ namespace oxen::quic
         // public so connections can call when handling conn packets
         void delete_connection(const ConnectionID& cid);
         void drain_connection(Connection& conn);
+
+        int _rbufsize{1024};
 
       private:
         Network& net;

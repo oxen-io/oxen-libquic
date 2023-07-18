@@ -34,6 +34,7 @@ extern "C"
 #include <iostream>
 #include <list>
 #include <map>
+#include <optional>
 #include <oxen/log.hpp>
 #include <oxen/log/format.hpp>
 #include <random>

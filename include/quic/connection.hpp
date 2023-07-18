@@ -71,7 +71,7 @@ namespace oxen::quic
             send_datagram(view, std::move(keep_alive));
         }
 
-        // TOFIX: We can't template virtual functions; do this a better way if it ends up working
+        // note: We can't template virtual functions; do this a better way if it ends up working
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
 
         virtual int get_max_streams() const = 0;
@@ -80,6 +80,11 @@ namespace oxen::quic
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
         virtual const ConnectionID& scid() const = 0;
+
+        // public debug functions: remove this with testfixture friend classes
+        virtual int datagrams_stored() = 0;
+        virtual int last_cleared() = 0;
+        virtual int datagram_bufsize() = 0;
 
         virtual ~connection_interface() = default;
     };
@@ -98,9 +103,7 @@ namespace oxen::quic
         //      scid: local ("primary") CID used for this connection (random for outgoing)
         //		dcid: remote CID used for this connection
         //      path: network path used to reach remote client
-        //		creds: relevant tls information per connection
-        //		u_config: user configuration values passed in struct
-        //      dir: enum specifying configuration detailts for client vs. server
+        //      ctx: IO session dedicated for this connection context
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
@@ -141,6 +144,11 @@ namespace oxen::quic
         int get_max_streams() const override { return _max_streams; }
         bool datagrams_enabled() const override { return _datagrams_enabled; }
         bool packet_splitting_enabled() const override { return _packet_splitting; }
+
+        // public debug functions; to be removed with friend test fixture class
+        int datagrams_stored() override;  // TOFIX: this one
+        int last_cleared() override;
+        int datagram_bufsize() override;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
@@ -203,7 +211,7 @@ namespace oxen::quic
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
         // datagram "pseudo-stream"
-        std::shared_ptr<DatagramIO> datagrams;
+        std::unique_ptr<DatagramIO> datagrams;
         // "pseudo-stream" to represent ngtcp2 stream ID -1
         std::shared_ptr<Stream> pseudo_stream;
         // holds queue of pending streams not yet ready to broadcast

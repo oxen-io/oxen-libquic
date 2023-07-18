@@ -5,21 +5,18 @@
 
 namespace oxen::quic
 {
+    extern std::atomic<bool> enable_test_features;
+    extern std::atomic<int> test_counter;
+
     class IOChannel;
     class Connection;
     class Endpoint;
     class Stream;
 
     // IO callbacks
-    using dgram_data_callback = std::function<void(bstring_view)>;
+    using dgram_data_callback = std::function<void(bstring)>;
 
     using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
-
-    struct rotating_buffer
-    {
-        std::mutex m;
-        std::array<std::array<Packet*, 1024>, 4> rotating_buffer;
-    };
 
     struct prepared_datagram
     {
@@ -30,6 +27,44 @@ namespace oxen::quic
 
         const ngtcp2_vec* data() const { return bufs.data(); }
         size_t size() const { return bufs_len; }
+    };
+
+    struct received_datagram
+    {
+        uint16_t id{0};
+        bstring data{};
+        // -1 = first half, 1 = second half
+        int part{0};
+
+        received_datagram() = default;
+        explicit received_datagram(uint16_t dgid, bstring_view d) : id{dgid}, data{d} { part = (dgid % 4 == 2) ? -1 : 1; };
+
+        void clear_entry()
+        {
+            id = 0;
+            part = 0;
+            data.clear();
+        };
+
+        bool empty() const { return data.empty() && part == 0; }
+    };
+
+    struct rotating_buffer
+    {
+        std::atomic<int> row{0}, col{0}, last_cleared{-1};
+        const int bufsize{4096};
+        const int rowsize{bufsize / 4};
+
+        rotating_buffer() = default;
+        explicit rotating_buffer(int b) : bufsize{b} {};
+
+        std::mutex m;
+        // std::array<std::array<received_datagram, 1024>, 4> buf{};
+        std::vector<std::vector<received_datagram>> buf{4, std::vector<received_datagram>(rowsize)};
+
+        std::optional<bstring> receive(bstring_view data, uint16_t dgid);
+        void clear_row(int index);
+        int datagrams_stored();
     };
 
     class IOChannel
@@ -108,7 +143,6 @@ namespace oxen::quic
         ///         8                   23
         ///
         uint16_t _last_dgram_id{0};
-        int _last_cleared{-1};
 
         // used to track if just sent an unsplit packet and need to increment by an extra 4 to send a split packet
         bool _skip_next{false};
@@ -125,33 +159,34 @@ namespace oxen::quic
         /// The next row to clear is found as:
         ///
         ///         to_clear = (i + 2) % 4;
-        ///         if (to_clear == (last_cleared+2)%4)
+        ///         if (to_clear == (last_cleared+1)%4)
         ///         {
         ///             clear(to_clear)
         ///             last_cleared = to_clear
         ///         }
         ///
-        /// In full, given 'last_cleared' and a current tetris_buffer index 'i', we find 'to_clear' to be:
-        ///     last_cleared  |  i  |  to_clear
-        /// (init) -1                    1
-        ///         0                    2
-        ///         1                    3
-        ///         2                    0
-        ///         3                    1
+        /// In full, given 'last_cleared' and a target index 'to_clear', we clear 'to_clear' when 'i' is:
+        ///     last_cleared  |  to_clear  |  i
+        /// (init) -1               1         3
+        ///         0               2         0
+        ///         1               3         1
+        ///         2               0         2
+        ///         3               1         3
         ///
         rotating_buffer recv_buffer;
         dgram_buffer send_buffer;
 
-        // internal buffer for datagram construction
-        std::list<uint8_t> buf;
-
         bool is_empty() const override { return send_buffer.empty(); }
 
         void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
-        // void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive) override;
+
         prepared_datagram pending_datagram() override;
 
         bool is_stream() override { return false; }
+
+        std::optional<bstring> to_buffer(bstring_view data, uint16_t dgid);
+
+        int datagrams_stored() { return recv_buffer.datagrams_stored(); };
 
       private:
         const bool _packet_splitting{false};
@@ -191,5 +226,4 @@ namespace oxen::quic
         void wrote(size_t) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
         std::vector<ngtcp2_vec> pending() override;
     };
-
 }  // namespace oxen::quic

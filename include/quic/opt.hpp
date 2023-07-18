@@ -43,10 +43,16 @@ namespace oxen::quic::opt
     {
         bool split_packets = false;
         Splitting mode = Splitting::NONE;
+        int bufsize = 4096;
 
         enable_datagrams() = default;
         explicit enable_datagrams(bool e) = delete;
         explicit enable_datagrams(Splitting m) : split_packets{true}, mode{m} {}
+        explicit enable_datagrams(Splitting m, int b) : split_packets{true}, mode{m}, bufsize{b}
+        {
+            if (b % 4 != 0)
+                throw std::invalid_argument{"Bufsize must be evenly divisible between 4 rows"};
+        }
     };
 
 }  // namespace oxen::quic::opt

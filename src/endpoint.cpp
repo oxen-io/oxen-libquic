@@ -27,6 +27,7 @@ namespace oxen::quic
         _datagrams = true;
         _packet_splitting = dc.split_packets;
         _policy = dc.mode;
+        _rbufsize = dc.bufsize;
 
         log::trace(
                 log_cat,

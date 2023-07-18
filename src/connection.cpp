@@ -177,6 +177,32 @@ namespace oxen::quic
         return 0;
     }
 
+    int Connection::datagrams_stored()
+    {
+        volatile int r = 0;
+
+        std::promise<void> p;
+        std::future<void> f = p.get_future();
+
+        _endpoint.call([&]() {
+            r = datagrams->datagrams_stored();
+            p.set_value();
+        });
+
+        f.get();
+        return r;
+    }
+
+    int Connection::last_cleared()
+    {
+        return datagrams->recv_buffer.last_cleared;
+    }
+
+    int Connection::datagram_bufsize()
+    {
+        return datagrams->recv_buffer.bufsize;
+    }
+
     ConnectionID::ConnectionID(const uint8_t* cid, size_t length)
     {
         assert(length <= NGTCP2_MAX_CIDLEN);
@@ -565,7 +591,6 @@ namespace oxen::quic
             else  // datagram block
             {
                 auto dgram = source->pending_datagram();
-                // std::vector<ngtcp2_vec> bufs = source->pending();
 
                 nwrite = ngtcp2_conn_writev_datagram(
                         conn.get(),
@@ -585,11 +610,7 @@ namespace oxen::quic
                 if (datagram_accepted != 0)
                 {
                     log::trace(log_cat, "ngtcp2 accepted datagram ID: {} for transmission", dgram.id);
-
-                    // we only drop the data from the send_buffer if the unsplit datagram was sent OR the second
-                    // part of the split datagram was sent
-                    if (dgram.id % 4 == 0 || dgram.id % 4 == 3)
-                        datagrams->send_buffer.pop_front();
+                    datagrams->send_buffer.pop_front();
                 }
             }
 
@@ -855,10 +876,30 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
 
-        // append received datagram to tetris_buffer if packet_splitting is enabled
-        if (_packet_splitting)
+        std::optional<bstring> maybe_data;
+        uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
+
+        if (dgid % 4 == 0)
+            log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
+        else if (_packet_splitting)
         {
-            //
+            try
+            {
+                // send received datagram to tetris_buffer if packet_splitting is enabled
+                maybe_data = datagrams->to_buffer(data, dgid);
+            }
+            catch (std::exception& e)
+            {
+                log::error(log_cat, "Exception: {}", e.what());
+                return -1;
+            }
+
+            // split datagram did not have a match
+            if (not maybe_data)
+            {
+                log::trace(log_cat, "Datagram (ID: {}) awaiting counterpart", dgid);
+                return 0;
+            }
         }
 
         if (!datagrams->dgram_data_cb)
@@ -869,7 +910,7 @@ namespace oxen::quic
 
             try
             {
-                datagrams->dgram_data_cb(data);
+                datagrams->dgram_data_cb((maybe_data ? *maybe_data : bstring{data.begin(), data.end()}));
                 good = true;
             }
             catch (const std::exception& e)
@@ -929,9 +970,10 @@ namespace oxen::quic
     {
         // If policy is greedy, we can take in doubel the datagram size
         size_t multiple = (_packet_splitting) ? 2 : 1;
+        size_t adjustment = DATAGRAM_OVERHEAD + (_packet_splitting ? 4 : 0);
 
         if (_datagrams_enabled)
-            return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - DATAGRAM_OVERHEAD);
+            return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - adjustment);
         return 0;
     }
 
@@ -1021,7 +1063,9 @@ namespace oxen::quic
             settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;                // 1500 - 48 (approximate overhead)
             // settings.no_tx_udp_payload_size_shaping = 1;
             callbacks.recv_datagram = on_recv_datagram;
+#ifndef NDEBUG
             callbacks.ack_datagram = on_ack_datagram;
+#endif
         }
         else
         {
@@ -1051,7 +1095,7 @@ namespace oxen::quic
             _packet_splitting{context->config.split_packet},
             tls_creds{context->tls_creds}
     {
-        datagrams = std::make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
+        datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);
 
         const auto is_outbound = (dir == Direction::OUTBOUND);
