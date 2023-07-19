@@ -1,6 +1,4 @@
-build/
-certs/
-.gdb_history
+/build*
 .cache/
 .vscode/
 .DS_Store
@@ -12,3 +10,4 @@ certs/
 rebuild.sh
 full_rebuild.sh
 notes.txt
+/compile_commands.json
