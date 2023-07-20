@@ -706,19 +706,28 @@ namespace oxen::quic::test
 
             test_counter = 0;
 
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{medium});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
-            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            std::promise<bool> pr;
+            std::future<bool> ftr = pr.get_future();
+
+            client->call([&]() {
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{medium});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+                conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+
+                pr.set_value(true);
+            });
+
+            REQUIRE(ftr.get());
 
             for (auto& f : data_futures)
                 REQUIRE(f.get());
