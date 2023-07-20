@@ -179,18 +179,12 @@ namespace oxen::quic
 
     int Connection::datagrams_stored()
     {
-        volatile int r = 0;
+        std::promise<int> p;
+        std::future<int> f = p.get_future();
 
-        std::promise<void> p;
-        std::future<void> f = p.get_future();
+        _endpoint.call([&]() { p.set_value(datagrams->datagrams_stored()); });
 
-        _endpoint.call([&]() {
-            r = datagrams->datagrams_stored();
-            p.set_value();
-        });
-
-        f.get();
-        return r;
+        return f.get();
     }
 
     int Connection::last_cleared()
@@ -417,8 +411,6 @@ namespace oxen::quic
         }
     };
 
-    int64_t sent_counter = 0;
-
     // Sends the current `n_packets` packets queued in `send_buffer` with individual lengths
     // `send_buffer_size`.
     //
@@ -435,8 +427,9 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
-        sent_counter += n_packets;
-
+#ifndef NDEBUG
+        test_counter += n_packets;
+#endif
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
@@ -537,6 +530,8 @@ namespace oxen::quic
         pkt_tx_timer_updater pkt_updater{*this, ts};
         size_t stream_packets = 0;
 
+        std::atomic<bool> prefer_big_first{true};
+
         while (!channels.empty())
         {
             log::trace(log_cat, "Creating packet {} of max {} batch stream packets", n_packets, MAX_BATCH);
@@ -587,10 +582,14 @@ namespace oxen::quic
                         ts);
 
                 log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
+
+                // if we just loaded stream frames into the packet, we should not reverse the order of the next split
+                // datagram
+                // prefer_big_first = false;
             }
             else  // datagram block
             {
-                auto dgram = source->pending_datagram();
+                auto dgram = source->pending_datagram(prefer_big_first);
 
                 nwrite = ngtcp2_conn_writev_datagram(
                         conn.get(),
@@ -610,7 +609,8 @@ namespace oxen::quic
                 if (datagram_accepted != 0)
                 {
                     log::trace(log_cat, "ngtcp2 accepted datagram ID: {} for transmission", dgram.id);
-                    datagrams->send_buffer.pop_front();
+                    datagrams->send_buffer.drop_front(prefer_big_first);
+                    // datagrams->send_buffer.erase(dgram.target);
                 }
             }
 
@@ -638,12 +638,20 @@ namespace oxen::quic
                 }
                 else if (nwrite == NGTCP2_ERR_WRITE_MORE)
                 {
+                    // lets try fitting a small end of a split datagram in
+                    prefer_big_first = false;
+
                     if (source->is_stream())
                     {
                         log::trace(log_cat, "Consumed {} bytes from stream {} and have space left", ndatalen, stream_id);
                         assert(ndatalen >= 0);
                         if (stream_id != -1)
                             source->wrote(ndatalen);
+                    }
+                    else
+                    {
+                        if (source->has_unsent())
+                            channels.push_front(datagrams.get());
                     }
                 }
                 else
@@ -653,6 +661,8 @@ namespace oxen::quic
 
                 continue;
             }
+
+            prefer_big_first = true;
 
             if (stream_id > -1 && ndatalen > 0)
             {
@@ -877,28 +887,27 @@ namespace oxen::quic
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
 
         std::optional<bstring> maybe_data;
-        uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
-        if (dgid % 4 == 0)
-            log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
-        else if (_packet_splitting)
+        if (_packet_splitting)
         {
-            try
+            uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
+
+            // drop prefix
+            data.remove_prefix(2);
+
+            if (dgid % 4 == 0)
+                log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
+            else
             {
                 // send received datagram to tetris_buffer if packet_splitting is enabled
                 maybe_data = datagrams->to_buffer(data, dgid);
-            }
-            catch (std::exception& e)
-            {
-                log::error(log_cat, "Exception: {}", e.what());
-                return -1;
-            }
 
-            // split datagram did not have a match
-            if (not maybe_data)
-            {
-                log::trace(log_cat, "Datagram (ID: {}) awaiting counterpart", dgid);
-                return 0;
+                // split datagram did not have a match
+                if (not maybe_data)
+                {
+                    log::trace(log_cat, "Datagram (ID: {}) awaiting counterpart", dgid);
+                    return 0;
+                }
             }
         }
 
@@ -910,7 +919,7 @@ namespace oxen::quic
 
             try
             {
-                datagrams->dgram_data_cb((maybe_data ? *maybe_data : bstring{data.begin(), data.end()}));
+                datagrams->dgram_data_cb((maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
                 good = true;
             }
             catch (const std::exception& e)

@@ -27,15 +27,18 @@ namespace oxen::quic::opt
     };
 
     /// This can be initialized a few different ways. Simply passing a default constructed struct
-    /// to Network::Endpoint(...) will enable datagrams without packet-splitting. From there, a
-    /// 'true' boolean can be passed to the constructor to enable packet-splitting. The default
-    /// mode is 'lazy', where the already split packets are handed to libQUIC to be sent out in
-    /// pairs. 'Greedy' mode takes in a double-sized packet, splits it, and sends it out.
+    /// to Network::Endpoint(...) will enable datagrams without packet-splitting. From there, pass
+    /// `Splitting::ACTIVE` to the constructor to enable packet-splitting.
     ///
-    /// In either mode, the max size of a transmittable datagram can be queried directly from
-    /// connection_interface::get_max_datagram_size(). At connection initialization, ngtcp2 will
-    /// default this value to 1200. The actual value is negotiated upwards via path discovery,
-    /// reaching a theoretical maximum of NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE (1452), or near it.
+    /// The size of the rotating datagram buffer can also be specified as a second parameter to the
+    /// constructor. Buffer size is subdivided amongst 4 equally sized buffer rows, so the bufsize
+    /// must be perfectly divisible by 4
+    ///
+    /// The max size of a transmittable datagram can be queried directly from connection_interface::
+    /// get_max_datagram_size(). At connection initialization, ngtcp2 will default this value to 1200.
+    /// The actual value is negotiated upwards via path discovery, reaching a theoretical maximum of
+    /// NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE (1452), or near it, per datagram. Please note that enabling
+    /// datagram splitting will double whatever value is returned.
     ///
     /// Note: this setting CANNOT be changed for an endpoint after creation, it must be
     /// destroyed and re-initialized with the desired settings.
@@ -43,6 +46,7 @@ namespace oxen::quic::opt
     {
         bool split_packets = false;
         Splitting mode = Splitting::NONE;
+        // Note: this is the size of the entire buffer, divided amongst 4 rows
         int bufsize = 4096;
 
         enable_datagrams() = default;

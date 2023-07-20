@@ -5,8 +5,11 @@
 
 namespace oxen::quic
 {
-    extern std::atomic<bool> enable_test_features;
+#ifndef NDEBUG
+    extern std::atomic<bool> enable_datagram_drop_test;
+    extern std::atomic<bool> enable_datagram_flip_flop_test;
     extern std::atomic<int> test_counter;
+#endif
 
     class IOChannel;
     class Connection;
@@ -18,12 +21,28 @@ namespace oxen::quic
 
     using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
 
+    enum class dgram { STANDARD = 0, OVERSIZED = 1 };
+
+    struct outbound_dgram
+    {
+        bstring_view data;
+        uint16_t id;
+        // -1: payload, 1: addendum
+        int type{0};
+        // is the datagram_storage container empty after sending this payload?
+        bool is_empty{false};
+
+        outbound_dgram() = default;
+    };
+
     struct prepared_datagram
     {
         uint64_t id;                  // internal ID for ngtcp2
         std::array<uint8_t, 2> dgid;  // optional transmitted ID buffer (for packet splitting)
         std::array<ngtcp2_vec, 2> bufs;
         size_t bufs_len;  // either 1 or 2 depending on how much of data is populated
+        // is the datagram_storage container empty after sending this payload?
+        bool is_empty{false};
 
         const ngtcp2_vec* data() const { return bufs.data(); }
         size_t size() const { return bufs_len; }
@@ -32,12 +51,16 @@ namespace oxen::quic
     struct received_datagram
     {
         uint16_t id{0};
-        bstring data{};
-        // -1 = first half, 1 = second half
+        // -1 = payload, 1 = addendum
         int part{0};
+        bstring data{};
 
         received_datagram() = default;
-        explicit received_datagram(uint16_t dgid, bstring_view d) : id{dgid}, data{d} { part = (dgid % 4 == 2) ? -1 : 1; };
+        explicit received_datagram(uint16_t dgid, bstring_view d) : id{dgid}, part{(dgid % 4 == 2) ? -1 : 1}
+        {
+            data.reserve(d.size() + MAX_PMTUD_UDP_PAYLOAD);
+            data.append(d);
+        };
 
         void clear_entry()
         {
@@ -49,22 +72,68 @@ namespace oxen::quic
         bool empty() const { return data.empty() && part == 0; }
     };
 
+    struct datagram_storage
+    {
+        uint16_t pload_id;
+        std::optional<uint16_t> add_id;
+        std::optional<bstring_view> payload, addendum;
+        std::shared_ptr<void> keep_alive;
+        dgram type;
+
+        static datagram_storage make(
+                bstring_view pload, uint16_t d_id, std::shared_ptr<void> data, dgram type, size_t max_size = 0);
+
+        bool empty() const { return !(payload || addendum); }
+
+        outbound_dgram fetch(std::atomic<bool>& b);
+
+        size_t size() const { return payload->length() + addendum->length(); }
+
+      private:
+        explicit datagram_storage(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data) :
+                pload_id{p_id}, payload{pload}, keep_alive{std::move(data)}, type{dgram::STANDARD}
+        {}
+
+        explicit datagram_storage(
+                bstring_view pload, bstring_view add, uint16_t p_id, uint16_t a_id, std::shared_ptr<void> data) :
+                pload_id{p_id},
+                add_id{a_id},
+                payload{pload},
+                addendum{add},
+                keep_alive{std::move(data)},
+                type{dgram::OVERSIZED}
+        {}
+    };
+
     struct rotating_buffer
     {
-        std::atomic<int> row{0}, col{0}, last_cleared{-1};
+        int row{0}, col{0}, last_cleared{-1};
         const int bufsize{4096};
         const int rowsize{bufsize / 4};
 
         rotating_buffer() = default;
         explicit rotating_buffer(int b) : bufsize{b} {};
 
-        std::mutex m;
-        // std::array<std::array<received_datagram, 1024>, 4> buf{};
         std::vector<std::vector<received_datagram>> buf{4, std::vector<received_datagram>(rowsize)};
 
         std::optional<bstring> receive(bstring_view data, uint16_t dgid);
         void clear_row(int index);
         int datagrams_stored();
+    };
+
+    struct buffer_que
+    {
+        std::deque<datagram_storage> buf{};
+        size_t quantity{0};
+
+        bool empty() const { return buf.empty(); }
+        size_t size() const { return quantity; }
+
+        void drop_front(std::atomic<bool>& b);
+
+        prepared_datagram prepare(std::atomic<bool>& b, int is_splitting);
+
+        void emplace(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data, dgram type, size_t max_size = 0);
     };
 
     class IOChannel
@@ -86,16 +155,16 @@ namespace oxen::quic
         virtual bool is_stream() = 0;
         virtual bool is_empty() const = 0;
         virtual std::shared_ptr<Stream> get_stream() = 0;
-        virtual void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
+        virtual void send(bstring_view, std::shared_ptr<void> keep_alive = nullptr) = 0;
         virtual std::vector<ngtcp2_vec> pending() = 0;
-        virtual prepared_datagram pending_datagram() = 0;
+        virtual prepared_datagram pending_datagram(std::atomic<bool>&) = 0;
         virtual int64_t stream_id() const = 0;
         virtual bool is_closing() const = 0;
         virtual bool sent_fin() const = 0;
-        virtual void set_fin(bool v) = 0;
+        virtual void set_fin(bool) = 0;
         virtual size_t unsent() const = 0;
-        virtual void wrote(size_t n) = 0;
-        virtual bool has_unsent() const { return (unsent() > 0); };
+        virtual void wrote(size_t) = 0;
+        virtual bool has_unsent() const = 0;
     };
 
     class DatagramIO : public IOChannel
@@ -145,7 +214,7 @@ namespace oxen::quic
         uint16_t _last_dgram_id{0};
 
         // used to track if just sent an unsplit packet and need to increment by an extra 4 to send a split packet
-        bool _skip_next{false};
+        bool _skip_next{false};  // TOFIX: do i even use this?!
 
         /// Holds received datagrams in a rotating "tetris" ring-buffer arrangement of split, unmatched packets.
         /// When a datagram with ID N is recieved, we store it as:
@@ -174,13 +243,14 @@ namespace oxen::quic
         ///         3               1         3
         ///
         rotating_buffer recv_buffer;
-        dgram_buffer send_buffer;
+        // dgram_buffer send_buffer;
+        buffer_que send_buffer;
 
         bool is_empty() const override { return send_buffer.empty(); }
 
         void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-        prepared_datagram pending_datagram() override;
+        prepared_datagram pending_datagram(std::atomic<bool>& r) override;
 
         bool is_stream() override { return false; }
 
@@ -218,12 +288,27 @@ namespace oxen::quic
             size_t sum{0};
             if (send_buffer.empty())
                 return sum;
-            for (const auto& [id, data] : send_buffer)
-                sum += data.first.size();
+            for (const auto& entry : send_buffer.buf)
+                sum += entry.size();
             return sum;
         };
-        bool has_unsent() const override { return is_empty(); }
+        bool has_unsent() const override { return not is_empty(); }
         void wrote(size_t) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
-        std::vector<ngtcp2_vec> pending() override;
+        std::vector<ngtcp2_vec> pending() override
+        {
+            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return std::vector<ngtcp2_vec>{};
+        };
     };
 }  // namespace oxen::quic
+
+/*
+
+Revolving send buffer:
+    - both datagram halves have the same right shifted index
+
+Receive buffer:
+    - more rows can increase tolerance in misordering
+    - too many short ones leads to pinstriping
+
+*/

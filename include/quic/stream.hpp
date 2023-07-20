@@ -50,6 +50,8 @@ namespace oxen::quic
 
         int64_t stream_id() const override { return _stream_id; }
 
+        bool has_unsent() const override { return not is_empty(); }
+
         bool is_closing() const override { return _is_closing; }
         bool sent_fin() const override { return _sent_fin; }
         void set_fin(bool v) override { _sent_fin = v; }
@@ -86,7 +88,7 @@ namespace oxen::quic
         stream_close_callback close_callback;
 
       private:
-        buffer_que user_buffers;
+        stream_buffer user_buffers;
 
         std::vector<ngtcp2_vec> pending() override;
 
@@ -221,9 +223,9 @@ namespace oxen::quic
             }
         };
 
-        prepared_datagram pending_datagram() override
+        prepared_datagram pending_datagram(std::atomic<bool>&) override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
             return prepared_datagram{};
         };
 

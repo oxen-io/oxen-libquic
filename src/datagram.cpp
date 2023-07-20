@@ -3,8 +3,11 @@
 #include "connection.hpp"
 #include "endpoint.hpp"
 
-std::atomic<bool> oxen::quic::enable_test_features;
+#ifndef NDEBUG
+std::atomic<bool> oxen::quic::enable_datagram_drop_test;
+std::atomic<bool> oxen::quic::enable_datagram_flip_flop_test;
 std::atomic<int> oxen::quic::test_counter;
+#endif
 
 namespace oxen::quic
 {
@@ -50,199 +53,164 @@ namespace oxen::quic
                     buffer_printer{data});
 
             auto half_size = max_size / 2;
-
-            // TOFIX: reduce below decision tree
             bool oversize = (data.size() > half_size);  // if true, split this packet
-            // only split if packet splitting and datagram needs to be split
+
+            // incrementing the second half of a split datagram is done internally, so this should never be true
+            assert(_last_dgram_id % 4 != 3);
+
             if (_packet_splitting && oversize)
             {
-                log::trace(log_cat, "Sending oversized datagram...");
-                assert(data.size() <= max_size);
-
-                if (_last_dgram_id == 0)  // first pkt
-                {
-                    _last_dgram_id += 2;
-                }
-                else if (_last_dgram_id % 4 == 0)  // last datagram was unsplit
-                {
-                    _last_dgram_id += 6;
-                }
-                else if (_last_dgram_id % 4 == 3)  // last datagram was split
-                {
-                    _last_dgram_id += 3;
-                }
-
-                // if _skip_next is true, then the last datagram sent was unsplit with an ID that is a
-                // perfect multiple of 4. For the next split-datagram, we increment by 6 to get the id
-                // for the first of the split-datagrams that satisfies (id % 4) == 2
-                //
-                // if _skip_next is false, then the last datagram sent was unsplit with an ID that
-                // satisfies (id % 4) == 3. For the next split-datagram, we increment by 3 to ge the id
-                // for the first of the split-datagrams that satisfies (id % 4) == 2
-                // _last_dgram_id += (_skip_next) ? 6 : 3;
-
-                auto first_half = data.substr(0, half_size), second_half = data.substr(half_size);
-
-                std::shared_ptr<void> keep_copy(keep_alive);
-                send_buffer.emplace_back(_last_dgram_id, std::make_pair(first_half, std::move(keep_copy)));
-
-                _last_dgram_id += 1;
-                send_buffer.emplace_back(_last_dgram_id, std::make_pair(second_half, std::move(keep_alive)));
-
-                _skip_next = false;
-            }
-            else if (_packet_splitting && not oversize)
-            {
-                log::trace(log_cat, "Sending standard sized datagram...");
-
-                if (_last_dgram_id % 4 == 0)  // last datagram was unsplit
-                {
+                // jump to the next size 4 block
+                if (_last_dgram_id != 0)
                     _last_dgram_id += 4;
-                }
-                else if (_last_dgram_id % 4 == 3)  // last datagram was split
-                {
-                    _last_dgram_id += 1;
-                }
 
-                send_buffer.emplace_back(_last_dgram_id, std::make_pair(data, std::move(keep_alive)));
+                // if the last dgram was unsplit, the previous increment needs an extra two
+                if (_last_dgram_id % 4 == 0)
+                    _last_dgram_id += 2;
+
+                send_buffer.emplace(data, _last_dgram_id, std::move(keep_alive), dgram::OVERSIZED, max_size);
             }
             else
             {
-                log::trace(log_cat, "Sending standard datagram...");
-                _last_dgram_id += 4;
-                send_buffer.emplace_back(_last_dgram_id, std::make_pair(data, std::move(keep_alive)));
-                _skip_next = true;
+                // if last dgram was split, increment by 2, else by 4
+                _last_dgram_id += (_last_dgram_id % 4 == 2) ? 2 : 4;
+
+                send_buffer.emplace(data, _last_dgram_id, std::move(keep_alive), dgram::STANDARD);
             }
 
             conn.packet_io_ready();
         });
     }
 
-    std::vector<ngtcp2_vec> DatagramIO::pending()
+    prepared_datagram DatagramIO::pending_datagram(std::atomic<bool>& r)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        std::vector<ngtcp2_vec> bufs{};
-        bufs.reserve(2);
-
-        auto& b = send_buffer.front();
-
-        auto& did = bufs.emplace_back();
-        did.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(&b));
-        did.len = 2;
-
-        auto& dat = bufs.emplace_back();
-        dat.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(b.second.first.data()));
-        dat.len = b.second.first.size();
-
-        return bufs;
-    }
-
-    prepared_datagram DatagramIO::pending_datagram()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        std::pair<uint64_t, std::vector<ngtcp2_vec>> bufs;
-        bufs.second.reserve(2);
-
-        auto& b = send_buffer.front();
-
-        prepared_datagram d{};
-        d.id = b.first;
-        d.bufs_len = 1;
-
-        oxenc::write_host_as_big(static_cast<uint16_t>(b.first), d.dgid.data());
-
-        if (_packet_splitting)
-        {
-            d.bufs[0].base = d.dgid.data();
-            d.bufs[0].len = 2;
-            d.bufs_len++;
-        }
-
-        d.bufs[d.bufs_len - 1].base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(b.second.first.data()));
-        d.bufs[d.bufs_len - 1].len = b.second.first.size();
-
-        return d;
+        return send_buffer.prepare(r, _packet_splitting);
     }
 
     std::optional<bstring> DatagramIO::to_buffer(bstring_view data, uint16_t dgid)
     {
         log::trace(log_cat, "DatagramIO handed datagram with endian swapped ID: {}", dgid);
 
-        auto r = recv_buffer.receive(data, dgid);
+#ifndef NDEBUG
+        if (enable_datagram_flip_flop_test)
+        {
+            log::debug(log_cat, "enable_datagram_flip_flop_test is true, bypassing buffer");
+            test_counter += 1;
+            log::debug(log_cat, "test counter: {}", test_counter.load());
+            return std::nullopt;
+        }
+        else
+        {
+            log::debug(log_cat, "enable_datagram_flip_flop_test is false, skipping optional logic");
+        }
 
-        if (r)
-            return r;
+#endif
 
-        return std::nullopt;
+        return recv_buffer.receive(data, dgid);
     }
 
     std::optional<bstring> rotating_buffer::receive(bstring_view data, uint16_t dgid)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
+        auto idx = dgid >> 2;
+
+        row = (idx % bufsize) / rowsize;
+        col = idx % rowsize;
+
+        auto& b = buf[row][col];
+
+        if (not b.empty())
         {
-            std::lock_guard<std::mutex> buffer_lock(m);
-
-            auto idx = dgid >> 2;
-
-            row = (idx % bufsize) / rowsize;
-            col = idx % rowsize;
-
-            auto& b = buf.at(row).at(col);
-
-            if (not b.empty())
-            {
 #ifndef NDEBUG
-                if (enable_test_features)
-                {
-                    log::debug(log_cat, "enable_test_features is true, inducing packet loss");
-                    test_counter += 1;
-                    log::debug(log_cat, "test counter: {}", test_counter);
-                    return std::nullopt;
-                }
-                else
-                {
-                    log::debug(log_cat, "enable_test_features is false, skipping optional logic");
-                }
+            if (enable_datagram_drop_test)
+            {
+                log::debug(log_cat, "enable_datagram_drop_test is true, inducing packet loss");
+                test_counter += 1;
+                log::debug(log_cat, "test counter: {}", test_counter.load());
+                return std::nullopt;
+            }
+            else
+            {
+                log::debug(log_cat, "enable_datagram_drop_test is false, skipping optional logic");
+            }
 #endif
 
-                log::trace(log_cat, "Pairing datagram (ID: {}) with counterpart at buffer pos [{},{}]", dgid, row, col);
+            log::trace(
+                    log_cat,
+                    "Pairing datagram (ID: {}) with {} half at buffer pos [{},{}]",
+                    dgid,
+                    (b.part < 0 ? "first"s : "second"s),
+                    row,
+                    col);
 
-                bstring out{};
-                out.reserve(data.size() + b.data.size());
-
-                bool order = (b.part < 0);  // if true, we have the first part already stored
-                // must use substring or we will end up with two datagram ID's at the beginning and middle
-                out.append((order ? b.data.substr(2) : data.substr(2)));
-                out.append((order ? data.substr(2) : b.data.substr(2)));
-
-                b.clear_entry();
-
-                return out;
-            }
-
-            log::trace(log_cat, "Storing datagram (ID: {}) at buffer pos [{},{}]", dgid, row, col);
-
-            b = received_datagram{dgid, data};
-
-            int to_clear = (row + 2) % 4;
-
-            if (to_clear == (last_cleared.load() + 1) % 4)
+            if (b.part < 0)  // if true, we have the first part already stored
+                b.data.append(data);
+            else
             {
-                clear_row(to_clear);
-                last_cleared = to_clear;
+                b.data.reserve(b.data.size() + data.size());
+                b.data.insert(0, data.data());
             }
+
+            bstring out{std::move(b.data)};
+
+            b.clear_entry();
+
+            return out;
+        }
+
+        log::trace(log_cat, "Storing datagram (ID: {}) at buffer pos [{},{}]", dgid, row, col);
+
+        b = received_datagram{dgid, data};
+
+        int to_clear = (row + 2) % 4;
+
+        if (to_clear == (last_cleared + 1) % 4)
+        {
+            clear_row(to_clear);
+            last_cleared = to_clear;
         }
 
         return std::nullopt;
     }
 
+    void buffer_que::emplace(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data, dgram type, size_t max_size)
+    {
+        auto d_storage = datagram_storage::make(pload, p_id, std::move(data), type, max_size);
+
+        buf.push_back(std::move(d_storage));
+    }
+
+    void buffer_que::drop_front(std::atomic<bool>& b)
+    {
+        auto& f = buf.front();
+
+        if (f.type == dgram::STANDARD)
+        {
+            f.payload.reset();
+            buf.pop_front();
+            return;
+        }
+
+        if (f.payload && not f.addendum)
+            f.payload.reset();
+        else if (f.addendum && not f.payload)
+            f.addendum.reset();
+        else
+        {
+            (b ? f.payload : f.addendum).reset();
+            return;
+        }
+
+        assert(f.empty());
+        buf.pop_front();
+    }
+
     void rotating_buffer::clear_row(int index)
     {
-        // only called by ::receive, which already has a lock_guard in place
-        log::trace(log_cat, "Clearing buffer row {} (i = {}, j = {})", index, row.load(), col.load());
+        log::trace(log_cat, "Clearing buffer row {} (i = {}, j = {})", index, row, col);
 
         for (auto& b : buf[index])
             b.clear_entry();
@@ -250,10 +218,76 @@ namespace oxen::quic
 
     int rotating_buffer::datagrams_stored()
     {
-        std::lock_guard<std::mutex> buffer_lock(m);
-        log::trace(log_cat, "last_cleared: {}, i: {}, j: {}", last_cleared.load(), row.load(), col.load());
+        log::trace(log_cat, "last_cleared: {}, i: {}, j: {}", last_cleared, row, col);
 
-        return (3 - last_cleared.load() + row.load()) * rowsize + col.load();
+        return (3 - last_cleared + row) * rowsize + col;
     }
 
+    outbound_dgram datagram_storage::fetch(std::atomic<bool>& b)
+    {
+        if (type == dgram::STANDARD)
+            return {*payload, pload_id, -1, true};
+
+        if (payload && not addendum)
+            return {*payload, pload_id, -1, true};
+        else if (addendum && not payload)
+            return {*addendum, *add_id, 1, true};
+        else
+            return {(b ? *payload : *addendum), (b ? pload_id : *add_id), (b ? -1 : 1), false};
+    }
+
+    prepared_datagram buffer_que::prepare(std::atomic<bool>& b, int is_splitting)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        prepared_datagram d{};
+
+        outbound_dgram out = buf.front().fetch(b);
+        d.id = out.id;
+        d.bufs_len = 1;
+        d.is_empty = out.is_empty;
+
+        oxenc::write_host_as_big(out.id, d.dgid.data());
+
+        if (is_splitting)
+        {
+            d.bufs[0].base = d.dgid.data();
+            d.bufs[0].len = 2;
+            d.bufs_len++;
+        }
+
+        d.bufs[d.bufs_len - 1].base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(out.data.data()));
+        d.bufs[d.bufs_len - 1].len = out.data.size();
+
+        log::trace(
+                log_cat,
+                "Preparing datagram (id: {}) payload (size: {}): {}",
+                out.id,
+                out.data.size(),
+                buffer_printer{out.data});
+
+        for (size_t i = 0; i < d.bufs_len; ++i)
+        {
+            log::trace(log_cat, "Checking index {}", i);
+            assert(d.bufs[i].len);
+        }
+
+        return d;
+    }
+
+    datagram_storage datagram_storage::make(
+            bstring_view pload, uint16_t d_id, std::shared_ptr<void> data, dgram type, size_t max_size)
+    {
+        if (type == dgram::STANDARD)
+            return datagram_storage(pload, d_id, std::move(data));
+
+        assert(max_size != 0);
+
+        auto half_size = max_size / 2;
+        auto first_half = pload.substr(0, half_size), second_half = pload.substr(half_size);
+
+        assert(d_id % 4 == 2);
+
+        return datagram_storage(first_half, second_half, d_id, d_id + 1, std::move(data));
+    }
 }  // namespace oxen::quic

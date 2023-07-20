@@ -219,12 +219,6 @@ namespace oxen::quic
 
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
     {
-
-        log::trace(
-                log_cat,
-                "Processing packet from {}: {}",
-                Address{(sockaddr*)hdr.msg_name, hdr.msg_namelen},
-                buffer_printer{payload});
         if (payload.empty())
         {
             // This is unexpected, and not something a proper libquic client would ever send so
@@ -392,7 +386,6 @@ namespace oxen::quic
     std::pair<io_result, size_t> UDPSocket::send(
             const Address& dest, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
     {
-
         auto* next_buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
         int rv = 0;
         size_t sent = 0;

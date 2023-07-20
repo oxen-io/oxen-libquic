@@ -143,7 +143,6 @@ namespace oxen::quic::test
             REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
 
             std::this_thread::sleep_for(5ms);
-
             REQUIRE(conn_interface->get_max_datagram_size() < MAX_PMTUD_UDP_PAYLOAD);
 
             test_net.close();
@@ -185,7 +184,6 @@ namespace oxen::quic::test
             REQUIRE(conn_interface->packet_splitting_enabled());
 
             std::this_thread::sleep_for(5ms);
-
             REQUIRE(conn_interface->get_max_datagram_size() < MAX_GREEDY_PMTUD_UDP_PAYLOAD);
 
             test_net.close();
@@ -240,6 +238,8 @@ namespace oxen::quic::test
 
             REQUIRE(conn_interface->datagrams_enabled());
             REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
+
+            std::this_thread::sleep_for(5ms);
             REQUIRE(conn_interface->get_max_datagram_size() < MAX_GREEDY_PMTUD_UDP_PAYLOAD);
 
             conn_interface->send_datagram(msg);
@@ -300,6 +300,7 @@ namespace oxen::quic::test
             REQUIRE(conn_interface->datagrams_enabled());
             REQUIRE(conn_interface->packet_splitting_enabled());
 
+            std::this_thread::sleep_for(5ms);
             auto max_size = conn_interface->get_max_datagram_size();
 
             std::string good_msg{}, oversize_msg{};
@@ -392,6 +393,7 @@ namespace oxen::quic::test
             REQUIRE(conn_interface->datagrams_enabled());
             REQUIRE(conn_interface->packet_splitting_enabled());
 
+            std::this_thread::sleep_for(5ms);
             auto max_size = conn_interface->get_max_datagram_size();
 
             std::basic_string<uint8_t> good_msg{};
@@ -488,6 +490,7 @@ namespace oxen::quic::test
             REQUIRE(conn_interface->datagrams_enabled());
             REQUIRE(conn_interface->packet_splitting_enabled());
 
+            std::this_thread::sleep_for(5ms);
             auto max_size = conn_interface->get_max_datagram_size();
 
             std::basic_string<uint8_t> big_msg{}, small_msg{};
@@ -518,7 +521,9 @@ namespace oxen::quic::test
     {
         if (disable_rotating_buffer)
             SKIP("Rotating buffer testing not enabled for this test iteration!");
-
+#ifdef NDEBUG
+        SKIP("Induced test loss requires a debug build");
+#else
         SECTION("Simple datagram transmission - induced loss")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
@@ -588,7 +593,7 @@ namespace oxen::quic::test
             bstring successful_msg(1500, std::byte{'+'});
 
             test_counter = 0;
-            enable_test_features = true;
+            enable_datagram_drop_test = true;
 
             for (int i = 0; i < quarter; ++i)
                 conn_interface->send_datagram(bstring_view{dropped_msg});
@@ -596,7 +601,7 @@ namespace oxen::quic::test
             while (test_counter < quarter)
                 std::this_thread::sleep_for(10ms);
 
-            enable_test_features = false;
+            enable_datagram_drop_test = false;
 
             for (int i = 0; i < bufsize; ++i)
                 conn_interface->send_datagram(bstring_view{successful_msg});
@@ -609,6 +614,120 @@ namespace oxen::quic::test
 
             test_net.close();
         };
+#endif
     };
 
+    TEST_CASE("007 - Datagram support: Rotating Buffer, Flip-Flop Ordering", "[007][datagrams][execute][split][flipflop]")
+    {
+#ifdef NDEBUG
+        SKIP("Induced test loss requires a debug build");
+#else
+        SECTION("Simple datagram transmission - flip flop ordering")
+        {
+            log::trace(log_cat, "Beginning the unit test from hell");
+            Network test_net{};
+
+            std::atomic<int> index{0};
+            std::atomic<int> data_counter{0};
+            size_t n = 13;
+
+            std::vector<std::promise<bool>> data_promises{n};
+            std::vector<std::future<bool>> data_futures{n};
+
+            for (size_t i = 0; i < n; ++i)
+                data_futures[i] = data_promises[i].get_future();
+
+            std::promise<bool> tls_promise;
+            std::future<bool> tls_future = tls_promise.get_future();
+
+            gnutls_callback outbound_tls_cb =
+                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+
+                        tls_promise.set_value(true);
+                        return 0;
+                    };
+
+            dgram_data_callback recv_dgram_cb = [&](bstring) {
+                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+
+                try
+                {
+                    data_counter += 1;
+                    log::trace(log_cat, "Data counter: {}", data_counter);
+                    data_promises.at(index).set_value(true);
+                    index += 1;
+                }
+                catch (std::exception& e)
+                {
+                    throw std::runtime_error(e.what());
+                }
+            };
+
+            opt::enable_datagrams split_dgram{Splitting::ACTIVE};
+
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
+
+            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            client_tls->set_client_tls_policy(outbound_tls_cb);
+
+            auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client = test_net.endpoint(client_local, split_dgram);
+            auto conn_interface = client->connect(client_remote, client_tls);
+
+            REQUIRE(tls_future.get());
+
+            REQUIRE(server_endpoint->datagrams_enabled());
+            REQUIRE(client->datagrams_enabled());
+
+            REQUIRE(conn_interface->datagrams_enabled());
+            REQUIRE(conn_interface->packet_splitting_enabled());
+
+            std::this_thread::sleep_for(5ms);
+            auto max_size = conn_interface->get_max_datagram_size();
+
+            std::basic_string<uint8_t> big{}, medium{}, small{};
+            uint8_t v{0};
+
+            while (big.size() < max_size * 2 / 3)
+                big += v++;
+
+            while (medium.size() < max_size / 2 - 100)
+                medium += v++;
+
+            while (small.size() < 50)
+                small += v++;
+
+            test_counter = 0;
+
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{medium});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+            conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
+
+            for (auto& f : data_futures)
+                REQUIRE(f.get());
+
+            REQUIRE(data_counter == int(n));
+            REQUIRE(test_counter == 8);
+
+            test_net.close();
+        };
+#endif
+    };
 }  // namespace oxen::quic::test
