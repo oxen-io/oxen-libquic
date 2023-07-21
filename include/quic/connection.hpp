@@ -41,7 +41,22 @@ namespace oxen::quic
     template <>
     constexpr inline bool IsToStringFormattable<ConnectionID> = true;
 
+#ifndef NDEBUG
+    class debug_interface
+    {
+      public:
+        std::atomic<bool> enable_datagram_drop_test;
+        std::atomic<int> test_drop_counter;
+        std::atomic<bool> enable_datagram_flip_flop_test;
+        std::atomic<int> test_flip_flop_counter;
+    };
+
+#endif
+
     class connection_interface
+#ifndef NDEBUG
+            : public debug_interface
+#endif
     {
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
@@ -249,6 +264,13 @@ namespace oxen::quic
 
         // returns number of currently pending streams for use in test cases
         size_t num_pending() const { return pending_streams.size(); }
+
+#ifndef NDEBUG
+        // static std::atomic<bool> enable_datagram_drop_test;
+        // static std::atomic<int> test_drop_counter;
+        // static std::atomic<bool> enable_datagram_flip_flop_test;
+        // static std::atomic<int> test_flip_flop_counter;
+#endif
     };
 
     extern "C"

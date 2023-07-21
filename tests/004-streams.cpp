@@ -258,7 +258,17 @@ namespace oxen::quic::test
         auto* conn = client_endpoint->get_conn(conn_interface->scid());
 
         REQUIRE(conn);
-        REQUIRE(conn->num_pending() == 1);
+
+        std::promise<bool> p;
+        std::future<bool> f = p.get_future();
+
+        client_endpoint->call([&]() {
+            REQUIRE(conn->num_pending() == 1);
+            p.set_value(true);
+        });
+
+        REQUIRE(f.get());
+
         REQUIRE(data_check == 13);
 
         test_net.close();

@@ -8,6 +8,7 @@
 #include "quic/endpoint.hpp"
 #include "quic/format.hpp"
 #include "quic/gnutls_crypto.hpp"
+#include "quic/messages.hpp"
 #include "quic/network.hpp"
 #include "quic/opt.hpp"
 #include "quic/stream.hpp"

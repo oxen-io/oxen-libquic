@@ -7,6 +7,7 @@ add_library(quic
     endpoint.cpp
     format.cpp
     gnutls_crypto.cpp
+    messages.cpp
     network.cpp
     stream.cpp
     udp.cpp

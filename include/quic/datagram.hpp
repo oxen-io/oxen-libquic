@@ -1,17 +1,18 @@
 #pragma once
 
+#include "messages.hpp"
 #include "udp.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
 #ifndef NDEBUG
-    extern std::atomic<bool> enable_datagram_drop_test;
-    extern std::atomic<bool> enable_datagram_flip_flop_test;
-    extern std::atomic<int> test_counter;
+    // extern std::atomic<bool> enable_datagram_drop_test;
+    // extern std::atomic<int> test_drop_counter;
+    // extern std::atomic<bool> enable_datagram_flip_flop_test;
+    // extern std::atomic<int> test_flip_flop_counter;
 #endif
 
-    class IOChannel;
     class Connection;
     class Endpoint;
     class Stream;
@@ -20,121 +21,6 @@ namespace oxen::quic
     using dgram_data_callback = std::function<void(bstring)>;
 
     using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
-
-    enum class dgram { STANDARD = 0, OVERSIZED = 1 };
-
-    struct outbound_dgram
-    {
-        bstring_view data;
-        uint16_t id;
-        // -1: payload, 1: addendum
-        int type{0};
-        // is the datagram_storage container empty after sending this payload?
-        bool is_empty{false};
-
-        outbound_dgram() = default;
-    };
-
-    struct prepared_datagram
-    {
-        uint64_t id;                  // internal ID for ngtcp2
-        std::array<uint8_t, 2> dgid;  // optional transmitted ID buffer (for packet splitting)
-        std::array<ngtcp2_vec, 2> bufs;
-        size_t bufs_len;  // either 1 or 2 depending on how much of data is populated
-        // is the datagram_storage container empty after sending this payload?
-        bool is_empty{false};
-
-        const ngtcp2_vec* data() const { return bufs.data(); }
-        size_t size() const { return bufs_len; }
-    };
-
-    struct received_datagram
-    {
-        uint16_t id{0};
-        // -1 = payload, 1 = addendum
-        int part{0};
-        bstring data{};
-
-        received_datagram() = default;
-        explicit received_datagram(uint16_t dgid, bstring_view d) : id{dgid}, part{(dgid % 4 == 2) ? -1 : 1}
-        {
-            data.reserve(d.size() + MAX_PMTUD_UDP_PAYLOAD);
-            data.append(d);
-        };
-
-        void clear_entry()
-        {
-            id = 0;
-            part = 0;
-            data.clear();
-        };
-
-        bool empty() const { return data.empty() && part == 0; }
-    };
-
-    struct datagram_storage
-    {
-        uint16_t pload_id;
-        std::optional<uint16_t> add_id;
-        std::optional<bstring_view> payload, addendum;
-        std::shared_ptr<void> keep_alive;
-        dgram type;
-
-        static datagram_storage make(
-                bstring_view pload, uint16_t d_id, std::shared_ptr<void> data, dgram type, size_t max_size = 0);
-
-        bool empty() const { return !(payload || addendum); }
-
-        outbound_dgram fetch(std::atomic<bool>& b);
-
-        size_t size() const { return payload->length() + addendum->length(); }
-
-      private:
-        explicit datagram_storage(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data) :
-                pload_id{p_id}, payload{pload}, keep_alive{std::move(data)}, type{dgram::STANDARD}
-        {}
-
-        explicit datagram_storage(
-                bstring_view pload, bstring_view add, uint16_t p_id, uint16_t a_id, std::shared_ptr<void> data) :
-                pload_id{p_id},
-                add_id{a_id},
-                payload{pload},
-                addendum{add},
-                keep_alive{std::move(data)},
-                type{dgram::OVERSIZED}
-        {}
-    };
-
-    struct rotating_buffer
-    {
-        int row{0}, col{0}, last_cleared{-1};
-        const int bufsize{4096};
-        const int rowsize{bufsize / 4};
-
-        rotating_buffer() = default;
-        explicit rotating_buffer(int b) : bufsize{b} {};
-
-        std::vector<std::vector<received_datagram>> buf{4, std::vector<received_datagram>(rowsize)};
-
-        std::optional<bstring> receive(bstring_view data, uint16_t dgid);
-        void clear_row(int index);
-        int datagrams_stored();
-    };
-
-    struct buffer_que
-    {
-        std::deque<datagram_storage> buf{};
-        size_t quantity{0};
-
-        bool empty() const { return buf.empty(); }
-        size_t size() const { return quantity; }
-
-        void drop_front(std::atomic<bool>& b);
-
-        prepared_datagram prepare(std::atomic<bool>& b, int is_splitting);
-
-        void emplace(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data, dgram type, size_t max_size = 0);
-    };
 
     class IOChannel
     {
@@ -300,6 +186,7 @@ namespace oxen::quic
             return std::vector<ngtcp2_vec>{};
         };
     };
+
 }  // namespace oxen::quic
 
 /*

@@ -428,7 +428,8 @@ namespace oxen::quic
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
 #ifndef NDEBUG
-        test_counter += n_packets;
+        test_flip_flop_counter += n_packets;
+        log::debug(log_cat, "enable_datagram_flip_flop_test is true; sent packet count: {}", test_flip_flop_counter.load());
 #endif
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
@@ -979,7 +980,7 @@ namespace oxen::quic
     {
         // If policy is greedy, we can take in doubel the datagram size
         size_t multiple = (_packet_splitting) ? 2 : 1;
-        size_t adjustment = DATAGRAM_OVERHEAD + (_packet_splitting ? 4 : 0);
+        size_t adjustment = DATAGRAM_OVERHEAD + (_packet_splitting ? 2 : 0);
 
         if (_datagrams_enabled)
             return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - adjustment);
@@ -1169,6 +1170,12 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
         }
 
+#ifndef NDEBUG
+        enable_datagram_drop_test = false;
+        enable_datagram_flip_flop_test = false;
+        test_drop_counter = 0;
+        test_flip_flop_counter = 0;
+#endif
         log::info(log_cat, "Successfully created new {} connection object", d_str);
     }
 

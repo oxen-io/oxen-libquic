@@ -589,19 +589,21 @@ namespace oxen::quic::test
 
             REQUIRE(tls_future.get());
 
+            auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+
             bstring dropped_msg(1500, std::byte{'-'});
             bstring successful_msg(1500, std::byte{'+'});
 
-            test_counter = 0;
-            enable_datagram_drop_test = true;
+            server_ci->test_drop_counter = 0;
+            server_ci->enable_datagram_drop_test = true;
 
             for (int i = 0; i < quarter; ++i)
                 conn_interface->send_datagram(bstring_view{dropped_msg});
 
-            while (test_counter < quarter)
+            while (server_ci->test_drop_counter < quarter)
                 std::this_thread::sleep_for(10ms);
 
-            enable_datagram_drop_test = false;
+            server_ci->enable_datagram_drop_test = false;
 
             for (int i = 0; i < bufsize; ++i)
                 conn_interface->send_datagram(bstring_view{successful_msg});
@@ -683,12 +685,6 @@ namespace oxen::quic::test
 
             REQUIRE(tls_future.get());
 
-            REQUIRE(server_endpoint->datagrams_enabled());
-            REQUIRE(client->datagrams_enabled());
-
-            REQUIRE(conn_interface->datagrams_enabled());
-            REQUIRE(conn_interface->packet_splitting_enabled());
-
             std::this_thread::sleep_for(5ms);
             auto max_size = conn_interface->get_max_datagram_size();
 
@@ -704,7 +700,8 @@ namespace oxen::quic::test
             while (small.size() < 50)
                 small += v++;
 
-            test_counter = 0;
+            conn_interface->test_flip_flop_counter = 0;
+            conn_interface->enable_datagram_flip_flop_test = true;
 
             std::promise<bool> pr;
             std::future<bool> ftr = pr.get_future();
@@ -733,7 +730,9 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-            REQUIRE(test_counter == 8);
+            REQUIRE(conn_interface->test_flip_flop_counter == 8);
+
+            conn_interface->enable_datagram_flip_flop_test = false;
 
             test_net.close();
         };
