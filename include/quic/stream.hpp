@@ -50,6 +50,8 @@ namespace oxen::quic
 
         int64_t stream_id() const override { return _stream_id; }
 
+        bool has_unsent() const override { return not is_empty(); }
+
         bool is_closing() const override { return _is_closing; }
         bool sent_fin() const override { return _sent_fin; }
         void set_fin(bool v) override { _sent_fin = v; }
@@ -86,6 +88,8 @@ namespace oxen::quic
         stream_close_callback close_callback;
 
       private:
+        stream_buffer user_buffers;
+
         std::vector<ngtcp2_vec> pending() override;
 
         size_t unacked_size{0};
@@ -101,7 +105,7 @@ namespace oxen::quic
 
         void wrote(size_t bytes) override;
 
-        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive) override;
+        void append_buffer(bstring_view buffer, std::shared_ptr<void> keep_alive);
 
         void acknowledge(size_t bytes);
 
@@ -218,6 +222,12 @@ namespace oxen::quic
                 str.send(bsv, std::move(next));
             }
         };
+
+        prepared_datagram pending_datagram(bool) override
+        {
+            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+            throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
+        }
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called

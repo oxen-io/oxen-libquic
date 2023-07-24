@@ -12,7 +12,7 @@
 
 namespace oxen::quic
 {
-    extern bool disable_ipv6;
+    extern bool disable_ipv6, disable_rotating_buffer;
 
     inline auto test_cat = oxen::log::Cat("test");
 

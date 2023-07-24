@@ -18,6 +18,7 @@ extern "C"
 
 #include "address.hpp"
 #include "event2/event.h"
+#include "messages.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -28,22 +29,6 @@ namespace oxen::quic
 #else
     using msghdr = ::msghdr;
 #endif
-
-    // Simple struct wrapping a packet and its corresponding information
-    struct Packet
-    {
-        Path path;
-        bstring_view data;
-        ngtcp2_pkt_info pkt_info{};
-
-        /// Constructs a packet from a path and data:
-        Packet(Path p, bstring_view d) : path{std::move(p)}, data{std::move(d)} {}
-
-        /// Constructs a packet from a local address, data, and the IP header; remote addr and ECN
-        /// data are extracted from the header.
-
-        Packet(const Address& local, bstring_view data, msghdr& hdr);
-    };
 
     /// RAII class wrapping a UDP socket; the socket is bound at construction and closed during
     /// destruction.
