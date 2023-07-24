@@ -334,12 +334,12 @@ namespace oxen::quic::test
 
             std::atomic<int> index{0};
             std::atomic<int> data_counter{0};
-            size_t bufsize = 256, n = bufsize / 2 + 1;
+            int bufsize = 16, n = (bufsize / 2) + 1;
 
-            std::vector<std::promise<bool>> data_promises{n};
-            std::vector<std::future<bool>> data_futures{n};
+            std::vector<std::promise<bool>> data_promises{(size_t)n};
+            std::vector<std::future<bool>> data_futures{(size_t)n};
 
-            for (size_t i = 0; i < n; ++i)
+            for (int i = 0; i < n; ++i)
                 data_futures[i] = data_promises[i].get_future();
 
             std::promise<bool> tls_promise;
@@ -368,7 +368,7 @@ namespace oxen::quic::test
                 }
             };
 
-            opt::enable_datagrams split_dgram{Splitting::ACTIVE, (int)bufsize};
+            opt::enable_datagrams split_dgram{Splitting::ACTIVE, bufsize};
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
@@ -402,7 +402,7 @@ namespace oxen::quic::test
             while (good_msg.size() < max_size)
                 good_msg += v++;
 
-            for (size_t i = 0; i < n; ++i)
+            for (int i = 0; i < n; ++i)
                 conn_interface->send_datagram(std::basic_string_view<uint8_t>{good_msg});
 
             for (auto& f : data_futures)
@@ -594,16 +594,16 @@ namespace oxen::quic::test
             bstring dropped_msg(1500, std::byte{'-'});
             bstring successful_msg(1500, std::byte{'+'});
 
-            server_ci->test_drop_counter = 0;
-            server_ci->enable_datagram_drop_test = true;
+            server_ci->test_suite.datagram_drop_counter = 0;
+            server_ci->test_suite.datagram_drop_enabled = true;
 
             for (int i = 0; i < quarter; ++i)
                 conn_interface->send_datagram(bstring_view{dropped_msg});
 
-            while (server_ci->test_drop_counter < quarter)
+            while (server_ci->test_suite.datagram_drop_counter < quarter)
                 std::this_thread::sleep_for(10ms);
 
-            server_ci->enable_datagram_drop_test = false;
+            server_ci->test_suite.datagram_drop_enabled = false;
 
             for (int i = 0; i < bufsize; ++i)
                 conn_interface->send_datagram(bstring_view{successful_msg});
@@ -700,8 +700,8 @@ namespace oxen::quic::test
             while (small.size() < 50)
                 small += v++;
 
-            conn_interface->test_flip_flop_counter = 0;
-            conn_interface->enable_datagram_flip_flop_test = true;
+            conn_interface->test_suite.datagram_flip_flip_counter = 0;
+            conn_interface->test_suite.datagram_flip_flop_enabled = true;
 
             std::promise<bool> pr;
             std::future<bool> ftr = pr.get_future();
@@ -730,9 +730,9 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_flip_flop_counter == 8);
+            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter == 8);
 
-            conn_interface->enable_datagram_flip_flop_test = false;
+            conn_interface->test_suite.datagram_flip_flop_enabled = false;
 
             test_net.close();
         };

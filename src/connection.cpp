@@ -177,7 +177,7 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::datagrams_stored()
+    int Connection::datagrams_stored() const
     {
         std::promise<int> p;
         std::future<int> f = p.get_future();
@@ -187,12 +187,12 @@ namespace oxen::quic
         return f.get();
     }
 
-    int Connection::last_cleared()
+    int Connection::last_cleared() const
     {
         return datagrams->recv_buffer.last_cleared;
     }
 
-    int Connection::datagram_bufsize()
+    int Connection::datagram_bufsize() const
     {
         return datagrams->recv_buffer.bufsize;
     }
@@ -228,7 +228,7 @@ namespace oxen::quic
         {
             log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
 
-            _endpoint.call([&]() {
+            _endpoint.call([this]() {
                 log::debug(
                         log_cat, "Error: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
                 _endpoint.delete_connection(scid());
@@ -241,7 +241,6 @@ namespace oxen::quic
             log::debug(log_cat, "Error: connection is already draining; dropping");
         }
 
-        // TODO: if read packet gives us failure, should we close?
         if (read_packet(pkt).success())
             log::trace(log_cat, "done with incoming packet");
         else
@@ -261,7 +260,7 @@ namespace oxen::quic
                 break;
             case NGTCP2_ERR_DRAINING:
                 log::trace(log_cat, "Note: CID-{} is draining; signaling endpoint to drain connection", scid());
-                _endpoint.call([&]() {
+                _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint draining CID: {}", scid());
                     _endpoint.drain_connection(*this);
                 });
@@ -272,7 +271,7 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([&]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint closing CID: {}", scid());
                     _endpoint.close_connection(*this, rv, "ERR_PROTO"sv);
                 });
@@ -284,7 +283,7 @@ namespace oxen::quic
                         "Note: CID-{} encountered ngtcp2 error {}; signaling endpoint to delete connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([&]() {
+                _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
                     _endpoint.delete_connection(scid());
                 });
@@ -298,7 +297,7 @@ namespace oxen::quic
                         scid(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
-                _endpoint.call([&]() {
+                _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
                     _endpoint.delete_connection(scid());
                 });
@@ -309,7 +308,7 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([&]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint closing CID: {}", scid());
                     _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
                 });
@@ -428,8 +427,11 @@ namespace oxen::quic
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
 #ifndef NDEBUG
-        test_flip_flop_counter += n_packets;
-        log::debug(log_cat, "enable_datagram_flip_flop_test is true; sent packet count: {}", test_flip_flop_counter.load());
+        test_suite.datagram_flip_flip_counter += n_packets;
+        log::debug(
+                log_cat,
+                "enable_datagram_flip_flop_test is true; sent packet count: {}",
+                test_suite.datagram_flip_flip_counter.load());
 #endif
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
@@ -531,7 +533,7 @@ namespace oxen::quic
         pkt_tx_timer_updater pkt_updater{*this, ts};
         size_t stream_packets = 0;
 
-        std::atomic<bool> prefer_big_first{true};
+        bool prefer_big_first{true};
 
         while (!channels.empty())
         {
@@ -583,10 +585,6 @@ namespace oxen::quic
                         ts);
 
                 log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
-
-                // if we just loaded stream frames into the packet, we should not reverse the order of the next split
-                // datagram
-                // prefer_big_first = false;
             }
             else  // datagram block
             {
@@ -611,7 +609,6 @@ namespace oxen::quic
                 {
                     log::trace(log_cat, "ngtcp2 accepted datagram ID: {} for transmission", dgram.id);
                     datagrams->send_buffer.drop_front(prefer_big_first);
-                    // datagrams->send_buffer.erase(dgram.target);
                 }
             }
 
@@ -1171,10 +1168,10 @@ namespace oxen::quic
         }
 
 #ifndef NDEBUG
-        enable_datagram_drop_test = false;
-        enable_datagram_flip_flop_test = false;
-        test_drop_counter = 0;
-        test_flip_flop_counter = 0;
+        test_suite.datagram_drop_enabled = false;
+        test_suite.datagram_flip_flop_enabled = false;
+        test_suite.datagram_drop_counter = 0;
+        test_suite.datagram_flip_flip_counter = 0;
 #endif
         log::info(log_cat, "Successfully created new {} connection object", d_str);
     }

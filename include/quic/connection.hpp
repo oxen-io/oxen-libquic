@@ -45,18 +45,15 @@ namespace oxen::quic
     class debug_interface
     {
       public:
-        std::atomic<bool> enable_datagram_drop_test;
-        std::atomic<int> test_drop_counter;
-        std::atomic<bool> enable_datagram_flip_flop_test;
-        std::atomic<int> test_flip_flop_counter;
+        std::atomic<bool> datagram_drop_enabled;
+        std::atomic<int> datagram_drop_counter;
+        std::atomic<bool> datagram_flip_flop_enabled;
+        std::atomic<int> datagram_flip_flip_counter;
     };
 
 #endif
 
     class connection_interface
-#ifndef NDEBUG
-            : public debug_interface
-#endif
     {
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
@@ -96,12 +93,21 @@ namespace oxen::quic
         virtual bool packet_splitting_enabled() const = 0;
         virtual const ConnectionID& scid() const = 0;
 
-        // public debug functions: remove this with testfixture friend classes
-        virtual int datagrams_stored() = 0;
-        virtual int last_cleared() = 0;
-        virtual int datagram_bufsize() = 0;
+        // WIP functions: these are meant to expose specific aspects of the internal state of connection
+        // and the datagram IO object for debugging and application (user) utilization.
+        //
+        //  datagrams_stored: returns the number of partial datagrams held waiting for their counterpart
+        //  last_cleared: returns the index of the last cleared bucket in the recv_buffer
+        //  datagram_bufsize: returns the total number of datagrams that the recv_buffer can hold
+        virtual int datagrams_stored() const = 0;
+        virtual int last_cleared() const = 0;
+        virtual int datagram_bufsize() const = 0;
 
         virtual ~connection_interface() = default;
+
+#ifndef NDEBUG
+        debug_interface test_suite;
+#endif
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -161,9 +167,9 @@ namespace oxen::quic
         bool packet_splitting_enabled() const override { return _packet_splitting; }
 
         // public debug functions; to be removed with friend test fixture class
-        int datagrams_stored() override;  // TOFIX: this one
-        int last_cleared() override;
-        int datagram_bufsize() override;
+        int datagrams_stored() const override;  // TOFIX: this one
+        int last_cleared() const override;
+        int datagram_bufsize() const override;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
@@ -264,13 +270,6 @@ namespace oxen::quic
 
         // returns number of currently pending streams for use in test cases
         size_t num_pending() const { return pending_streams.size(); }
-
-#ifndef NDEBUG
-        // static std::atomic<bool> enable_datagram_drop_test;
-        // static std::atomic<int> test_drop_counter;
-        // static std::atomic<bool> enable_datagram_flip_flop_test;
-        // static std::atomic<int> test_flip_flop_counter;
-#endif
     };
 
     extern "C"

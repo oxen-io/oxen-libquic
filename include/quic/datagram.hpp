@@ -6,13 +6,6 @@
 
 namespace oxen::quic
 {
-#ifndef NDEBUG
-    // extern std::atomic<bool> enable_datagram_drop_test;
-    // extern std::atomic<int> test_drop_counter;
-    // extern std::atomic<bool> enable_datagram_flip_flop_test;
-    // extern std::atomic<int> test_flip_flop_counter;
-#endif
-
     class Connection;
     class Endpoint;
     class Stream;
@@ -43,7 +36,7 @@ namespace oxen::quic
         virtual std::shared_ptr<Stream> get_stream() = 0;
         virtual void send(bstring_view, std::shared_ptr<void> keep_alive = nullptr) = 0;
         virtual std::vector<ngtcp2_vec> pending() = 0;
-        virtual prepared_datagram pending_datagram(std::atomic<bool>&) = 0;
+        virtual prepared_datagram pending_datagram(bool) = 0;
         virtual int64_t stream_id() const = 0;
         virtual bool is_closing() const = 0;
         virtual bool sent_fin() const = 0;
@@ -99,8 +92,7 @@ namespace oxen::quic
         ///
         uint16_t _last_dgram_id{0};
 
-        // used to track if just sent an unsplit packet and need to increment by an extra 4 to send a split packet
-        bool _skip_next{false};  // TOFIX: do i even use this?!
+        const int rbufsize;
 
         /// Holds received datagrams in a rotating "tetris" ring-buffer arrangement of split, unmatched packets.
         /// When a datagram with ID N is recieved, we store it as:
@@ -136,13 +128,13 @@ namespace oxen::quic
 
         void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-        prepared_datagram pending_datagram(std::atomic<bool>& r) override;
+        prepared_datagram pending_datagram(bool r) override;
 
         bool is_stream() override { return false; }
 
         std::optional<bstring> to_buffer(bstring_view data, uint16_t dgid);
 
-        int datagrams_stored() { return recv_buffer.datagrams_stored(); };
+        int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
 
       private:
         const bool _packet_splitting{false};
@@ -183,19 +175,8 @@ namespace oxen::quic
         std::vector<ngtcp2_vec> pending() override
         {
             log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return std::vector<ngtcp2_vec>{};
+            return {};
         };
     };
 
 }  // namespace oxen::quic
-
-/*
-
-Revolving send buffer:
-    - both datagram halves have the same right shifted index
-
-Receive buffer:
-    - more rows can increase tolerance in misordering
-    - too many short ones leads to pinstriping
-
-*/

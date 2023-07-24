@@ -223,11 +223,11 @@ namespace oxen::quic
             }
         };
 
-        prepared_datagram pending_datagram(std::atomic<bool>&) override
+        prepared_datagram pending_datagram(bool) override
         {
             log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return prepared_datagram{};
-        };
+            throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
+        }
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called

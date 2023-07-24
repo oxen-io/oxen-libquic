@@ -3,13 +3,6 @@
 #include "connection.hpp"
 #include "endpoint.hpp"
 
-#ifndef NDEBUG
-// std::atomic<bool> oxen::quic::enable_datagram_drop_test;
-// std::atomic<bool> oxen::quic::enable_datagram_flip_flop_test;
-// std::atomic<int> oxen::quic::test_drop_counter;
-// std::atomic<int> oxen::quic::test_flip_flop_counter;
-#endif
-
 namespace oxen::quic
 {
 
@@ -21,7 +14,8 @@ namespace oxen::quic
     DatagramIO::DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
-            recv_buffer{endpoint._rbufsize, *this},
+            rbufsize{endpoint._rbufsize},
+            recv_buffer{*this},
             _packet_splitting(conn.packet_splitting_enabled())
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -83,7 +77,7 @@ namespace oxen::quic
         });
     }
 
-    prepared_datagram DatagramIO::pending_datagram(std::atomic<bool>& r)
+    prepared_datagram DatagramIO::pending_datagram(bool r)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -93,21 +87,6 @@ namespace oxen::quic
     std::optional<bstring> DatagramIO::to_buffer(bstring_view data, uint16_t dgid)
     {
         log::trace(log_cat, "DatagramIO handed datagram with endian swapped ID: {}", dgid);
-
-        // #ifndef NDEBUG
-        //         if (conn.enable_datagram_flip_flop_test)
-        //         {
-        //             log::debug(log_cat, "enable_datagram_flip_flop_test is true, bypassing buffer");
-        //             conn.test_flip_flop_counter += 1;
-        //             log::debug(log_cat, "test counter: {}", conn.test_flip_flop_counter.load());
-        //             return std::nullopt;
-        //         }
-        //         else
-        //         {
-        //             log::debug(log_cat, "enable_datagram_flip_flop_test is false, skipping optional logic");
-        //         }
-
-        // #endif
 
         return recv_buffer.receive(data, dgid);
     }

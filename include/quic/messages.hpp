@@ -20,7 +20,6 @@ namespace oxen::quic
 
         /// Constructs a packet from a local address, data, and the IP header; remote addr and ECN
         /// data are extracted from the header.
-
         Packet(const Address& local, bstring_view data, msghdr& hdr);
     };
 
@@ -63,14 +62,14 @@ namespace oxen::quic
         {
             data.reserve(d.size() + MAX_PMTUD_UDP_PAYLOAD);
             data.append(d);
-        };
+        }
 
         void clear_entry()
         {
             id = 0;
             part = 0;
             data.clear();
-        };
+        }
 
         bool empty() const { return data.empty() && part == 0; }
     };
@@ -88,7 +87,7 @@ namespace oxen::quic
 
         bool empty() const { return !(payload || addendum); }
 
-        outbound_dgram fetch(std::atomic<bool>& b);
+        outbound_dgram fetch(bool b);
 
         size_t size() const { return payload->length() + addendum->length(); }
 
@@ -111,30 +110,32 @@ namespace oxen::quic
     struct rotating_buffer
     {
         int row{0}, col{0}, last_cleared{-1};
-        const int bufsize{4096};
-        const int rowsize{bufsize / 4};
         DatagramIO& d;
+        const int bufsize;
+        const int rowsize;
+        // tracks the number of partial datagrams held in each buffer bucket
+        std::array<int, 4> currently_held{0, 0, 0, 0};
 
-        explicit rotating_buffer(int b, DatagramIO& _d) : bufsize{b}, d{_d} {};
+        explicit rotating_buffer() = delete;
+        explicit rotating_buffer(DatagramIO& _d);
 
         std::vector<std::vector<received_datagram>> buf{4, std::vector<received_datagram>(rowsize)};
 
         std::optional<bstring> receive(bstring_view data, uint16_t dgid);
         void clear_row(int index);
-        int datagrams_stored();
+        int datagrams_stored() const;
     };
 
     struct buffer_que
     {
         std::deque<datagram_storage> buf{};
-        size_t quantity{0};
 
         bool empty() const { return buf.empty(); }
-        size_t size() const { return quantity; }
+        size_t size() const { return buf.size(); }
 
-        void drop_front(std::atomic<bool>& b);
+        void drop_front(bool b);
 
-        prepared_datagram prepare(std::atomic<bool>& b, int is_splitting);
+        prepared_datagram prepare(bool b, int is_splitting);
 
         void emplace(bstring_view pload, uint16_t p_id, std::shared_ptr<void> data, dgram type, size_t max_size = 0);
     };

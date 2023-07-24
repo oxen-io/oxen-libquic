@@ -42,11 +42,22 @@ namespace oxen::quic
 #endif
     }
 
+    rotating_buffer::rotating_buffer(DatagramIO& _d) : d{_d}, bufsize{_d.rbufsize}, rowsize{_d.rbufsize / 4} {}
+
     std::optional<bstring> rotating_buffer::receive(bstring_view data, uint16_t dgid)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         auto idx = dgid >> 2;
+        log::trace(
+                log_cat,
+                "dgid: {}, row: {}, col: {}, idx: {}, rowsize: {}, bufsize {}",
+                dgid,
+                row,
+                col,
+                idx,
+                rowsize,
+                bufsize);
 
         row = (idx % bufsize) / rowsize;
         col = idx % rowsize;
@@ -56,11 +67,11 @@ namespace oxen::quic
         if (not b.empty())
         {
 #ifndef NDEBUG
-            if (d.conn.enable_datagram_drop_test)
+            if (d.conn.test_suite.datagram_drop_enabled)
             {
                 log::debug(log_cat, "enable_datagram_drop_test is true, inducing packet loss");
-                d.conn.test_drop_counter += 1;
-                log::debug(log_cat, "test counter: {}", d.conn.test_drop_counter.load());
+                d.conn.test_suite.datagram_drop_counter += 1;
+                log::debug(log_cat, "test counter: {}", d.conn.test_suite.datagram_drop_counter.load());
                 return std::nullopt;
             }
             else
@@ -88,6 +99,7 @@ namespace oxen::quic
             bstring out{std::move(b.data)};
 
             b.clear_entry();
+            currently_held[row] -= 1;
 
             return out;
         }
@@ -95,12 +107,14 @@ namespace oxen::quic
         log::trace(log_cat, "Storing datagram (ID: {}) at buffer pos [{},{}]", dgid, row, col);
 
         b = received_datagram{dgid, data};
+        currently_held[row] += 1;
 
         int to_clear = (row + 2) % 4;
 
         if (to_clear == (last_cleared + 1) % 4)
         {
             clear_row(to_clear);
+            currently_held[to_clear] = 0;
             last_cleared = to_clear;
         }
 
@@ -114,7 +128,7 @@ namespace oxen::quic
         buf.push_back(std::move(d_storage));
     }
 
-    void buffer_que::drop_front(std::atomic<bool>& b)
+    void buffer_que::drop_front(bool b)
     {
         auto& f = buf.front();
 
@@ -147,14 +161,12 @@ namespace oxen::quic
             b.clear_entry();
     }
 
-    int rotating_buffer::datagrams_stored()
+    int rotating_buffer::datagrams_stored() const
     {
-        log::trace(log_cat, "last_cleared: {}, i: {}, j: {}", last_cleared, row, col);
-
-        return (3 - last_cleared + row) * rowsize + col;
+        return std::accumulate(currently_held.begin(), currently_held.end(), 0);
     }
 
-    outbound_dgram datagram_storage::fetch(std::atomic<bool>& b)
+    outbound_dgram datagram_storage::fetch(bool b)
     {
         if (type == dgram::STANDARD)
             return {*payload, pload_id, -1, true};
@@ -167,7 +179,7 @@ namespace oxen::quic
             return {(b ? *payload : *addendum), (b ? pload_id : *add_id), (b ? -1 : 1), false};
     }
 
-    prepared_datagram buffer_que::prepare(std::atomic<bool>& b, int is_splitting)
+    prepared_datagram buffer_que::prepare(bool b, int is_splitting)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
