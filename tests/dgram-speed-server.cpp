@@ -73,15 +73,8 @@ int main(int argc, char* argv[])
 
     struct recv_info
     {
-        explicit recv_info() { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
-        explicit recv_info(uint64_t expected) : n_expected{expected} { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
-
         uint64_t n_expected = 0;
         uint64_t n_received = 0;
-        unsigned char checksum = 0;
-        gnutls_hash_hd_t hasher;
-
-        ~recv_info() { gnutls_hash_deinit(hasher, nullptr); }
     };
 
     recv_info dgram_data;
@@ -147,11 +140,6 @@ int main(int argc, char* argv[])
         {
             log::critical(test_cat, "Received datagram ID:{} of {} datagrams expected", dgid, info.n_expected);
 
-            bstring final_hash;
-            final_hash.resize(33);
-            gnutls_hash_output(info.hasher, final_hash.data());
-            final_hash[32] = *reinterpret_cast<std::byte*>(&info.checksum);
-
             auto reception_rate = ((float)info.n_received / (float)info.n_expected) * 100;
 
             log::critical(
@@ -161,7 +149,7 @@ int main(int argc, char* argv[])
                     info.n_received,
                     info.n_expected);
 
-            di.reply(final_hash);
+            di.reply("DONE!"sv);
             t_prom.set_value();
         }
     };

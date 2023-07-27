@@ -79,10 +79,6 @@ int main(int argc, char* argv[])
         std::future<void> running = run_prom.get_future();
         std::atomic<bool> failed = false;
 
-        std::basic_string<std::byte> hash;
-        uint8_t checksum = 0;
-        gnutls_hash_hd_t sent_hasher, recv_hasher;
-
         send_data() {}
         send_data(uint64_t _total_size, uint64_t _dgram_size) : size{_total_size}, dgram_size{_dgram_size}
         {
@@ -94,15 +90,6 @@ int main(int argc, char* argv[])
 
             while (msg.size() < dgram_size)
                 msg += v++;
-
-            gnutls_hash_init(&sent_hasher, GNUTLS_DIG_SHA3_256);
-            gnutls_hash_init(&recv_hasher, GNUTLS_DIG_SHA3_256);
-        }
-
-        ~send_data()
-        {
-            gnutls_hash_deinit(sent_hasher, nullptr);
-            gnutls_hash_deinit(recv_hasher, nullptr);
         }
     };
 
@@ -122,30 +109,25 @@ int main(int argc, char* argv[])
     dgram_data_callback recv_dgram_cb = [&](dgram_interface, bstring data) {
         log::critical(test_cat, "Calling endpoint receive datagram callback... data received...");
 
-        auto hash = oxenc::to_hex(d_ptr->hash.begin(), d_ptr->hash.end());
-
-        data = data.substr(2);
-
-        if (d_ptr->is_done)
-        {
-            log::error(test_cat, "Already got a hash from the other side of datagram channel, what is this nonsense‽");
-            return;
-        }
-
         if (d_ptr->is_sending)
         {
             log::error(test_cat, "Got a datagram response ({}B) before we were done sending data!", data.size());
             d_ptr->failed = true;
         }
-        else if (data.size() != 31)
+        else if (data.size() != 5)
         {
-            log::error(test_cat, "Got unexpected data from the other side: {}B != 31B", data.size());
+            log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
+            d_ptr->failed = true;
+        }
+        else if (data != "DONE!"_bsv) {
+            log::error(test_cat, "Got unexpected data: expected 'DONE!', got (hex): '{}'",
+                    oxenc::to_hex(data.begin(), data.end()));
             d_ptr->failed = true;
         }
         else
         {
             d_ptr->failed = false;
-            log::critical(test_cat, "All done, hurray!\n", hash, d_ptr->checksum);
+            log::critical(test_cat, "All done, hurray!\n");
         }
 
         d_ptr->is_done = true;
@@ -187,9 +169,6 @@ int main(int argc, char* argv[])
 
     send_data dgram_data{size, max_size};
     d_ptr = &dgram_data;
-
-    d_ptr->hash.resize(32);
-    gnutls_hash_output(d_ptr->sent_hasher, reinterpret_cast<unsigned char*>(d_ptr->hash.data()));
 
     bstring remaining_str;
     remaining_str.resize(8);
