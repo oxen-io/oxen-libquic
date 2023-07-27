@@ -32,6 +32,8 @@ extern "C"
 #include "stream.hpp"
 #include "utils.hpp"
 
+std::atomic<bool> datagram_test_enabled = false;
+
 namespace oxen::quic
 {
     using namespace std::literals;
@@ -427,11 +429,14 @@ namespace oxen::quic
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
 #ifndef NDEBUG
-        test_suite.datagram_flip_flip_counter += n_packets;
-        log::debug(
-                log_cat,
-                "enable_datagram_flip_flop_test is true; sent packet count: {}",
-                test_suite.datagram_flip_flip_counter.load());
+        if (test_suite.datagram_flip_flop_enabled)
+        {
+            test_suite.datagram_flip_flip_counter += n_packets;
+            log::debug(
+                    log_cat,
+                    "enable_datagram_flip_flop_test is true; sent packet count: {}",
+                    test_suite.datagram_flip_flip_counter.load());
+        }
 #endif
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
@@ -891,7 +896,8 @@ namespace oxen::quic
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
             // drop prefix
-            data.remove_prefix(2);
+            if (!datagram_test_enabled)
+                data.remove_prefix(2);
 
             if (dgid % 4 == 0)
                 log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");

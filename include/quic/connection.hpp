@@ -17,8 +17,11 @@
 #include "types.hpp"
 #include "utils.hpp"
 
+extern std::atomic<bool> datagram_test_enabled;
+
 namespace oxen::quic
 {
+
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
     {
@@ -45,13 +48,17 @@ namespace oxen::quic
     class debug_interface
     {
       public:
-        std::atomic<bool> datagram_drop_enabled;
-        std::atomic<int> datagram_drop_counter;
-        std::atomic<bool> datagram_flip_flop_enabled;
-        std::atomic<int> datagram_flip_flip_counter;
+        std::atomic<bool> datagram_drop_enabled{false};
+        std::atomic<int> datagram_drop_counter{0};
+        std::atomic<bool> datagram_flip_flop_enabled{false};
+        std::atomic<int> datagram_flip_flip_counter{0};
     };
-
 #endif
+
+    class perf_testing
+    {
+      public:
+    };
 
     class connection_interface
     {
@@ -108,6 +115,7 @@ namespace oxen::quic
 #ifndef NDEBUG
         debug_interface test_suite;
 #endif
+        perf_testing performance;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
@@ -171,6 +179,8 @@ namespace oxen::quic
         int last_cleared() const override;
         int datagram_bufsize() const override;
 
+        void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -201,8 +211,6 @@ namespace oxen::quic
 
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
-
-        void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;

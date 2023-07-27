@@ -31,6 +31,11 @@ target_link_libraries(alltests PUBLIC quic Catch2::Catch2 CLI11::CLI11)
 #    test_multiclient.cpp)
 #target_link_libraries(test_multiclient PUBLIC quic)
 
+foreach(x dgram-speed-client dgram-speed-server)
+    add_executable(${x} ${x}.cpp)
+    target_link_libraries(${x} PRIVATE quic CLI11::CLI11)
+endforeach()
+
 foreach(x speedtest-client speedtest-server)
     add_executable(${x} ${x}.cpp)
     target_link_libraries(${x} PRIVATE quic CLI11::CLI11)
