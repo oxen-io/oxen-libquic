@@ -119,7 +119,7 @@ int main(int argc, char* argv[])
         log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id(), errcode);
     };
 
-    dgram_data_callback recv_dgram_cb = [&](bstring data) {
+    dgram_data_callback recv_dgram_cb = [&](dgram_interface, bstring data) {
         log::critical(test_cat, "Calling endpoint receive datagram callback... data received...");
 
         auto hash = oxenc::to_hex(d_ptr->hash.begin(), d_ptr->hash.end());
@@ -172,7 +172,8 @@ int main(int argc, char* argv[])
 
     auto [server_a, server_p] = parse_addr(remote_addr);
     opt::remote_addr server_addr{server_a, server_p};
-    opt::enable_datagrams split_dgram{Splitting::ACTIVE};
+    auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
+    // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
     client_tls->set_client_tls_policy(outbound_tls_cb);
 

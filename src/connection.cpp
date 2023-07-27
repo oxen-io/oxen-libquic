@@ -923,7 +923,7 @@ namespace oxen::quic
 
             try
             {
-                datagrams->dgram_data_cb((maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
+                datagrams->dgram_data_cb(di, (maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
                 good = true;
             }
             catch (const std::exception& e)
@@ -1106,7 +1106,8 @@ namespace oxen::quic
             _max_streams{context->config.max_streams ? context->config.max_streams : DEFAULT_MAX_BIDI_STREAMS},
             _datagrams_enabled{context->config.datagram_support},
             _packet_splitting{context->config.split_packet},
-            tls_creds{context->tls_creds}
+            tls_creds{context->tls_creds},
+            di{*this}
     {
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);

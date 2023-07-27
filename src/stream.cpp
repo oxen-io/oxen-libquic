@@ -56,6 +56,11 @@ namespace oxen::quic
         return shared_from_this();
     }
 
+    const ConnectionID& Stream::conn_id() const
+    {
+        return conn.scid();
+    }
+
     void Stream::close(uint64_t error_code)
     {
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived

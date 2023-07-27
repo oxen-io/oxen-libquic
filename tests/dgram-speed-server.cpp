@@ -92,20 +92,20 @@ int main(int argc, char* argv[])
     std::promise<void> t_prom;
     std::future<void> t_fut = t_prom.get_future();
 
-    std::shared_ptr<connection_interface> server_ci;
+    // std::shared_ptr<connection_interface> server_ci;
     std::shared_ptr<Endpoint> server;
 
     gnutls_callback outbound_tls_cb =
             [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
                 log::debug(test_cat, "Calling server TLS callback... handshake completed...");
 
-                server_ci = server->get_all_conns(Direction::INBOUND).front();
+                // server_ci = server->get_all_conns(Direction::INBOUND).front();
                 return 0;
             };
 
     server_tls->set_server_tls_policy(outbound_tls_cb);
 
-    dgram_data_callback recv_dgram_cb = [&](bstring data) {
+    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring data) {
         if (dgram_data.n_expected == 0)
         {
             data = data.substr(2);
@@ -161,13 +161,14 @@ int main(int argc, char* argv[])
                     info.n_received,
                     info.n_expected);
 
-            server_ci->send_datagram(final_hash);
+            di.reply(final_hash);
             t_prom.set_value();
         }
     };
 
     log::critical(test_cat, "Calling 'server_listen'...");
-    opt::enable_datagrams split_dgram{Splitting::ACTIVE};
+    auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
+    // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
     server = server_net.endpoint(server_local, recv_dgram_cb, split_dgram);
     server->listen(server_tls, stream_opened);
 

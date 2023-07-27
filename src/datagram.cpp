@@ -21,6 +21,23 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
+    dgram_interface::dgram_interface(Connection& c) : ci{c} {}
+
+    const ConnectionID& dgram_interface::conn_id() const
+    {
+        return ci.scid();
+    }
+
+    std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
+    {
+        return ci.shared_from_this();
+    }
+
+    void dgram_interface::reply(bstring_view data, std::shared_ptr<void> keep_alive)
+    {
+        ci.send_datagram(data, std::move(keep_alive));
+    }
+
     void DatagramIO::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         // check this first and once; already considers policy when returning

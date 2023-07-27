@@ -179,6 +179,7 @@ namespace oxen::quic
 
         // this is public so the connection constructor can delegate initialize its own local copy to call later
         dgram_data_callback dgram_recv_cb;
+
         // public so connections can call when handling conn packets
         void delete_connection(const ConnectionID& cid);
         void drain_connection(Connection& conn);
@@ -250,6 +251,9 @@ namespace oxen::quic
         void check_timeouts();
 
         Connection* accept_initial_connection(const Packet& pkt);
+
+      public:
+        // _dgram_data_callback _dgram_recv_cb;
     };
 
 }  // namespace oxen::quic

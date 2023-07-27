@@ -21,6 +21,7 @@ extern std::atomic<bool> datagram_test_enabled;
 
 namespace oxen::quic
 {
+    struct dgram_interface;
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
@@ -60,7 +61,7 @@ namespace oxen::quic
       public:
     };
 
-    class connection_interface
+    class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
@@ -250,6 +251,8 @@ namespace oxen::quic
         int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
         io_result read_packet(const Packet& pkt);
+
+        dgram_interface di;
 
       public:
         // public to be called by endpoint handing this connection a packet
