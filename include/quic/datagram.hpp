@@ -89,9 +89,11 @@ namespace oxen::quic
         dgram_data_callback dgram_data_cb;
 
         /// Datagram Numbering:
-        /// Each datagram ID is incremented by four from the previous one, regardless of whether we are
-        /// splitting packets. The first 12 MSBs are the counter, and the 2 LSBs indicate if the packet
-        /// is split or not and which it is in the split (respectively). For example,
+        /// Each datagram ID is comprised of a 16 bit quantity consisting of a 14 bit counter, and
+        /// two bits indicating whether the packet is split or not, and, if split, which portion the
+        /// associated split packet datagram represents.
+        ///
+        /// For example,
         ///
         ///     ID: 0bxxxx'xxxx'xxxx'xxzz
         ///                            ^^
@@ -126,7 +128,7 @@ namespace oxen::quic
         ///         7                   22          sent intermixed with unsplit packets.
         ///         8                   23
         ///
-        uint16_t _last_dgram_id{0};
+        uint16_t _next_dgram_counter{0}; // The id *before* shifting the split/side bits
 
         const int rbufsize;
 

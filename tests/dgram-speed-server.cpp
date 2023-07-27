@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
 
         log::debug(test_cat, "Received {} of {} datagrams expected", info.n_received, info.n_expected);
 
-        if (dgid >= info.n_expected)
+        if (dgid >= info.n_expected - 1)
         {
             log::critical(test_cat, "Received datagram ID:{} of {} datagrams expected", dgid, info.n_expected);
 

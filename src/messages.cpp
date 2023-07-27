@@ -175,8 +175,10 @@ namespace oxen::quic
             return {*payload, pload_id, -1, true};
         else if (addendum && not payload)
             return {*addendum, *add_id, 1, true};
+        else if (b)
+            return {*payload, pload_id, -1, false};
         else
-            return {(b ? *payload : *addendum), (b ? pload_id : *add_id), (b ? -1 : 1), false};
+            return {*addendum, *add_id, 1, false};
     }
 
     prepared_datagram buffer_que::prepare(bool b, int is_splitting)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdexcept>
+
 #include "address.hpp"
 #include "crypto.hpp"
 #include "types.hpp"
@@ -58,6 +60,10 @@ namespace oxen::quic::opt
         explicit enable_datagrams(Splitting m) : split_packets{true}, mode{m} {}
         explicit enable_datagrams(Splitting m, int b) : split_packets{true}, mode{m}, bufsize{b}
         {
+            if (b <= 0)
+                throw std::out_of_range{"Bufsize must be positive"};
+            if (b > 1 << 14)
+                throw std::out_of_range{"Bufsize too large"};
             if (b % 4 != 0)
                 throw std::invalid_argument{"Bufsize must be evenly divisible between 4 rows"};
         }
