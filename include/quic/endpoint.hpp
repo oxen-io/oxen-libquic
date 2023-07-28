@@ -184,7 +184,7 @@ namespace oxen::quic
         void delete_connection(const ConnectionID& cid);
         void drain_connection(Connection& conn);
 
-        int _rbufsize{1024};
+        int _rbufsize{4096};
 
       private:
         Network& net;
