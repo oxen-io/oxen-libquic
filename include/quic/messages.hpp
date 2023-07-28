@@ -36,7 +36,7 @@ namespace oxen::quic
         bstring_view data;
         uint16_t id;
         // -1: payload, 1: addendum
-        int type{0};
+        int8_t type{0};
         // is the datagram_storage container empty after sending this payload?
         bool is_empty{false};
 
@@ -60,24 +60,16 @@ namespace oxen::quic
     {
         uint16_t id{0};
         // -1 = payload, 1 = addendum
-        int part{0};
-        bstring data{};
+        int8_t part{0};
+        uint16_t data_size{0};
+        std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD> data;
 
         received_datagram() = default;
-        explicit received_datagram(uint16_t dgid, bstring_view d) : id{dgid}, part{(dgid % 4 == 2) ? -1 : 1}
+        explicit received_datagram(uint16_t dgid, bstring_view d) :
+                id{dgid}, part{(dgid % 4 == 2) ? int8_t{-1} : int8_t{1}}, data_size{static_cast<uint16_t>(d.size())}
         {
-            data.reserve(d.size() + MAX_PMTUD_UDP_PAYLOAD);
-            data.append(d);
+            std::memcpy(data.data(), d.data(), data_size);
         }
-
-        void clear_entry()
-        {
-            id = 0;
-            part = 0;
-            data.clear();
-        }
-
-        bool empty() const { return data.empty() && part == 0; }
     };
 
     struct datagram_storage
@@ -125,7 +117,7 @@ namespace oxen::quic
         explicit rotating_buffer() = delete;
         explicit rotating_buffer(DatagramIO& _d);
 
-        std::vector<std::vector<received_datagram>> buf{4, std::vector<received_datagram>(rowsize)};
+        std::array<std::vector<std::unique_ptr<received_datagram>>, 4> buf;
 
         std::optional<bstring> receive(bstring_view data, uint16_t dgid);
         void clear_row(int index);
