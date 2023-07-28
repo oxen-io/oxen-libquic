@@ -96,7 +96,7 @@ namespace oxen::quic
 
         socket_t sock_;
         Address bound_;
-        uint8_t ecn_{0};
+        unsigned int ecn_{0};
         void set_ecn();
 
         event_base* ev_ = nullptr;
