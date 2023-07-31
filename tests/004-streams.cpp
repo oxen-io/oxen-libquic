@@ -153,8 +153,11 @@ namespace oxen::quic::test
 
         std::atomic<int> index{0};
         std::atomic<int> data_check{0};
-        opt::max_streams max_streams{8};
-        std::vector<std::shared_ptr<Stream>> streams{12};
+        int n_threads = 12;
+        int n_sends = n_threads + 2, n_recvs = n_threads + 1;
+
+        opt::max_streams max_streams{n_threads - 4};  // 8
+        std::vector<std::shared_ptr<Stream>> streams{size_t(n_threads)};
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};
@@ -162,15 +165,15 @@ namespace oxen::quic::test
         std::promise<bool> tls;
         std::future<bool> tls_future = tls.get_future();
 
-        std::vector<std::promise<bool>> send_promises{14}, receive_promises{13};
-        std::vector<std::future<bool>> send_futures{14}, receive_futures{13};
+        std::vector<std::promise<bool>> send_promises{size_t(n_sends)}, receive_promises{size_t(n_recvs)};
+        std::vector<std::future<bool>> send_futures{size_t(n_sends)}, receive_futures{size_t(n_recvs)};
 
-        for (int i = 0; i < 13; ++i)
+        for (int i = 0; i < n_recvs; ++i)
         {
             send_futures[i] = send_promises[i].get_future();
             receive_futures[i] = receive_promises[i].get_future();
         }
-        send_futures[13] = send_promises[13].get_future();
+        send_futures[n_sends - 1] = send_promises[n_sends - 1].get_future();
 
         gnutls_callback outbound_tls_cb =
                 [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
@@ -209,20 +212,33 @@ namespace oxen::quic::test
 
         REQUIRE(tls_future.get());
 
-        // 1) open 12 streams and send
-        for (int i = 0; i < 12; ++i)
+        std::vector<std::promise<void>> proms{size_t(n_threads)};
+        std::vector<std::future<void>> futs{size_t(n_threads)};
+
+        for (int i = 0; i < n_threads; ++i)
+            futs[i] = proms[i].get_future();
+
+        auto open_sesame =
+                [&](std::shared_ptr<connection_interface>& ci, std::shared_ptr<Stream>& s, std::promise<void>& p) {
+                    client_endpoint->call([&]() {
+                        s = ci->get_new_stream();
+                        s->send(msg);
+                        p.set_value();
+                    });
+                };
+
+        for (int i = 0; i < n_threads; ++i)
         {
-            std::thread stream_thread([&]() {
-                streams[i] = conn_interface->get_new_stream();
-                streams[i]->send(msg);
-                // set send promises
-                send_promises[i].set_value(true);
-            });
-            stream_thread.join();
+            auto s = std::thread{open_sesame, std::ref(conn_interface), std::ref(streams[i]), std::ref(proms[i])};
+            s.detach();
+            send_promises[i].set_value(true);
         }
 
+        for (auto& f : futs)
+            f.get();
+
         // 2) check the first 8
-        for (int i = 0; i < 8; ++i)
+        for (int i = 0; i < n_threads - 4; ++i)
             REQUIRE(receive_futures[i].get());
 
         // 3) close 4 streams
@@ -233,7 +249,7 @@ namespace oxen::quic::test
         }
 
         // 4) check the last 4
-        for (int i = 8; i < 12; ++i)
+        for (int i = n_threads - 4; i < n_threads; ++i)
             REQUIRE(receive_futures[i].get());
 
         // 5) open 2 more streams and send
@@ -243,13 +259,13 @@ namespace oxen::quic::test
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 // set send promise
-                send_promises[i + 12].set_value(true);
+                send_promises[i + n_threads].set_value(true);
             });
             open_thread.join();
         }
 
         // 6) check final stream received data
-        REQUIRE(receive_futures[12].get());
+        REQUIRE(receive_futures[n_threads].get());
 
         // 7) verify
         for (auto& f : send_futures)
@@ -269,7 +285,7 @@ namespace oxen::quic::test
 
         REQUIRE(f.get());
 
-        REQUIRE(data_check == 13);
+        REQUIRE(data_check == n_recvs);
 
         test_net.close();
     };
