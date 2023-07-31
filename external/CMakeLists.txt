@@ -57,7 +57,9 @@ set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 add_subdirectory(oxen-logging)
 
 # oxenc
-system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
+if (NOT TARGET oxenc)
+    system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
+endif()
 
 # libevent
 if(NOT TARGET libevent::core)
