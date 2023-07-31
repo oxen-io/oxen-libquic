@@ -820,8 +820,18 @@ namespace oxen::quic
 
     int Connection::stream_receive(int64_t id, bstring_view data, bool fin)
     {
-        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
         auto str = get_stream(id);
+
+        if (data.size() == 0)
+        {
+            log::debug(
+                    log_cat,
+                    "Stream (ID: {}) received empty fin frame, bypassing user-supplied data callback",
+                    str->_stream_id);
+            return 0;
+        }
+
+        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
         if (!str->data_callback)
             log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->_stream_id);

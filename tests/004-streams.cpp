@@ -153,11 +153,11 @@ namespace oxen::quic::test
 
         std::atomic<int> index{0};
         std::atomic<int> data_check{0};
-        int n_threads = 12;
-        int n_sends = n_threads + 2, n_recvs = n_threads + 1;
+        int n_streams = 12;
+        int n_sends = n_streams + 2, n_recvs = n_streams + 1;
 
-        opt::max_streams max_streams{n_threads - 4};  // 8
-        std::vector<std::shared_ptr<Stream>> streams{size_t(n_threads)};
+        opt::max_streams max_streams{n_streams - 4};  // 8
+        std::vector<std::shared_ptr<Stream>> streams{size_t(n_streams)};
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};
@@ -212,60 +212,40 @@ namespace oxen::quic::test
 
         REQUIRE(tls_future.get());
 
-        std::vector<std::promise<void>> proms{size_t(n_threads)};
-        std::vector<std::future<void>> futs{size_t(n_threads)};
-
-        for (int i = 0; i < n_threads; ++i)
-            futs[i] = proms[i].get_future();
-
-        auto open_sesame =
-                [&](std::shared_ptr<connection_interface>& ci, std::shared_ptr<Stream>& s, std::promise<void>& p) {
-                    client_endpoint->call([&]() {
-                        s = ci->get_new_stream();
-                        s->send(msg);
-                        p.set_value();
-                    });
-                };
-
-        for (int i = 0; i < n_threads; ++i)
+        for (int i = 0; i < n_streams; ++i)
         {
-            auto s = std::thread{open_sesame, std::ref(conn_interface), std::ref(streams[i]), std::ref(proms[i])};
-            s.detach();
-            send_promises[i].set_value(true);
+            client_endpoint->call([&]() {
+                streams[i] = conn_interface->get_new_stream();
+                streams[i]->send(msg);
+                send_promises[i].set_value(true);
+            });
         }
-
-        for (auto& f : futs)
-            f.get();
 
         // 2) check the first 8
-        for (int i = 0; i < n_threads - 4; ++i)
+        for (int i = 0; i < n_streams - 4; ++i)
             REQUIRE(receive_futures[i].get());
 
-        // 3) close 4 streams
+        // 3) close 5 streams
         for (int i = 0; i < 5; ++i)
-        {
-            std::thread close_thread([&]() { streams[i]->close(); });
-            close_thread.join();
-        }
+            streams[i]->close();
 
         // 4) check the last 4
-        for (int i = n_threads - 4; i < n_threads; ++i)
+        for (int i = n_streams - 4; i < n_streams; ++i)
             REQUIRE(receive_futures[i].get());
 
         // 5) open 2 more streams and send
         for (int i = 0; i < 2; ++i)
         {
-            std::thread open_thread([&]() {
+            client_endpoint->call([&]() {
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 // set send promise
-                send_promises[i + n_threads].set_value(true);
+                send_promises[i + n_streams].set_value(true);
             });
-            open_thread.join();
         }
 
         // 6) check final stream received data
-        REQUIRE(receive_futures[n_threads].get());
+        REQUIRE(receive_futures[n_streams].get());
 
         // 7) verify
         for (auto& f : send_futures)
