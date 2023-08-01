@@ -96,13 +96,13 @@ namespace oxen::quic
             out.reserve(b->data_size + data.size());
             if (b->part < 0)
             {  // We have the first part already
-                out.append(b->data.data(), b->data.size());
+                out.append(b->data.data(), b->data_size);
                 out.append(data);
             }
             else
             {
                 out.append(data);
-                out.append(b->data.data(), b->data.size());
+                out.append(b->data.data(), b->data_size);
             }
             b.reset();
 
