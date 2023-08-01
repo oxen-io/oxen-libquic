@@ -42,7 +42,11 @@ namespace oxen::quic
 #endif
     }
 
-    rotating_buffer::rotating_buffer(DatagramIO& _d) : d{_d}, bufsize{_d.rbufsize}, rowsize{_d.rbufsize / 4} {}
+    rotating_buffer::rotating_buffer(DatagramIO& _d) : d{_d}, bufsize{_d.rbufsize}, rowsize{_d.rbufsize / 4}
+    {
+        for (auto& v : buf)
+            v.resize(rowsize);
+    }
 
     std::optional<bstring> rotating_buffer::receive(bstring_view data, uint16_t dgid)
     {
@@ -64,7 +68,7 @@ namespace oxen::quic
 
         auto& b = buf[row][col];
 
-        if (not b.empty())
+        if (b)
         {
 #ifndef NDEBUG
             if (d.conn.test_suite.datagram_drop_enabled)
@@ -84,29 +88,33 @@ namespace oxen::quic
                     log_cat,
                     "Pairing datagram (ID: {}) with {} half at buffer pos [{},{}]",
                     dgid,
-                    (b.part < 0 ? "first"s : "second"s),
+                    (b->part < 0 ? "first"s : "second"s),
                     row,
                     col);
 
-            if (b.part < 0)  // if true, we have the first part already stored
-                b.data.append(data);
+            bstring out;
+            out.reserve(b->data_size + data.size());
+            if (b->part < 0)
+            {  // We have the first part already
+                out.append(b->data.data(), b->data.size());
+                out.append(data);
+            }
             else
             {
-                b.data.reserve(b.data.size() + data.size());
-                b.data.insert(0, data.data());
+                out.append(data);
+                out.append(b->data.data(), b->data.size());
             }
+            b.reset();
 
-            bstring out{std::move(b.data)};
-
-            b.clear_entry();
             currently_held[row] -= 1;
 
             return out;
         }
 
+        // Otherwise: new piece
         log::trace(log_cat, "Storing datagram (ID: {}) at buffer pos [{},{}]", dgid, row, col);
 
-        b = received_datagram{dgid, data};
+        b = std::make_unique<received_datagram>(dgid, data);
         currently_held[row] += 1;
 
         int to_clear = (row + 2) % 4;
@@ -158,7 +166,8 @@ namespace oxen::quic
         log::trace(log_cat, "Clearing buffer row {} (i = {}, j = {})", index, row, col);
 
         for (auto& b : buf[index])
-            b.clear_entry();
+            if (b)
+                b.reset();
     }
 
     int rotating_buffer::datagrams_stored() const
@@ -175,8 +184,10 @@ namespace oxen::quic
             return {*payload, pload_id, -1, true};
         else if (addendum && not payload)
             return {*addendum, *add_id, 1, true};
+        else if (b)
+            return {*payload, pload_id, -1, false};
         else
-            return {(b ? *payload : *addendum), (b ? pload_id : *add_id), (b ? -1 : 1), false};
+            return {*addendum, *add_id, 1, false};
     }
 
     prepared_datagram buffer_que::prepare(bool b, int is_splitting)

@@ -309,6 +309,7 @@ local mac_builder(name,
 
   // ARM builds (ARM64 and armhf)
   debian_pipeline('Debian sid (ARM64)', docker_base + 'debian-sid', arch='arm64', jobs=4),
+  debian_pipeline('Debian stable/Debug (ARM64)', docker_base + 'debian-stable', arch='arm64', jobs=4, build_type='Debug'),
   debian_pipeline('Debian stable (armhf)', docker_base + 'debian-stable/arm32v7', arch='arm64', jobs=4),
 
   // Windows builds (x64)

@@ -427,11 +427,14 @@ namespace oxen::quic
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
 #ifndef NDEBUG
-        test_suite.datagram_flip_flip_counter += n_packets;
-        log::debug(
-                log_cat,
-                "enable_datagram_flip_flop_test is true; sent packet count: {}",
-                test_suite.datagram_flip_flip_counter.load());
+        if (test_suite.datagram_flip_flop_enabled)
+        {
+            test_suite.datagram_flip_flip_counter += n_packets;
+            log::debug(
+                    log_cat,
+                    "enable_datagram_flip_flop_test is true; sent packet count: {}",
+                    test_suite.datagram_flip_flip_counter.load());
+        }
 #endif
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
@@ -890,8 +893,9 @@ namespace oxen::quic
         {
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
-            // drop prefix
+#ifndef ENABLE_PERF_TESTING
             data.remove_prefix(2);
+#endif
 
             if (dgid % 4 == 0)
                 log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
@@ -917,7 +921,7 @@ namespace oxen::quic
 
             try
             {
-                datagrams->dgram_data_cb((maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
+                datagrams->dgram_data_cb(di, (maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
                 good = true;
             }
             catch (const std::exception& e)
@@ -1100,7 +1104,8 @@ namespace oxen::quic
             _max_streams{context->config.max_streams ? context->config.max_streams : DEFAULT_MAX_BIDI_STREAMS},
             _datagrams_enabled{context->config.datagram_support},
             _packet_splitting{context->config.split_packet},
-            tls_creds{context->tls_creds}
+            tls_creds{context->tls_creds},
+            di{*this}
     {
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);

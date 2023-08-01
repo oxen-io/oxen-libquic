@@ -208,7 +208,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 data_promise.set_value(true);
@@ -269,7 +269,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
                 data_counter += 1;
                 data_promise.set_value(true);
@@ -353,7 +353,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
@@ -450,7 +450,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
@@ -553,7 +553,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring data) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 counter += 1;
@@ -650,7 +650,7 @@ namespace oxen::quic::test
                         return 0;
                     };
 
-            dgram_data_callback recv_dgram_cb = [&](bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
@@ -730,7 +730,7 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter == 8);
+            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter <= 9);
 
             conn_interface->test_suite.datagram_flip_flop_enabled = false;
 

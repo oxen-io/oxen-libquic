@@ -9,9 +9,45 @@ namespace oxen::quic
     class Connection;
     class Endpoint;
     class Stream;
+    class connection_interface;
+    struct ConnectionID;
+
+    struct dgram_interface
+    {
+        dgram_interface(Connection& c);
+        connection_interface& ci;
+
+        const ConnectionID& conn_id() const;
+
+        std::shared_ptr<connection_interface> get_conn_interface();
+
+        template <
+                typename CharType,
+                std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
+        void reply(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        {
+            reply(convert_sv<std::byte>(data), std::move(keep_alive));
+        }
+
+        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
+        void send_datagram(std::vector<Char>&& buf)
+        {
+            reply(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
+        }
+
+        template <typename CharType>
+        void reply(std::basic_string<CharType>&& data)
+        {
+            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
+            std::basic_string_view<CharType> view{*keep_alive};
+            reply(view, std::move(keep_alive));
+        }
+
+        void reply(bstring_view data, std::shared_ptr<void> keep_alive = nullptr);
+    };
 
     // IO callbacks
-    using dgram_data_callback = std::function<void(bstring)>;
+    using dgram_data_callback = std::function<void(dgram_interface&, bstring)>;
 
     using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
 
@@ -53,9 +89,11 @@ namespace oxen::quic
         dgram_data_callback dgram_data_cb;
 
         /// Datagram Numbering:
-        /// Each datagram ID is incremented by four from the previous one, regardless of whether we are
-        /// splitting packets. The first 12 MSBs are the counter, and the 2 LSBs indicate if the packet
-        /// is split or not and which it is in the split (respectively). For example,
+        /// Each datagram ID is comprised of a 16 bit quantity consisting of a 14 bit counter, and
+        /// two bits indicating whether the packet is split or not, and, if split, which portion the
+        /// associated split packet datagram represents.
+        ///
+        /// For example,
         ///
         ///     ID: 0bxxxx'xxxx'xxxx'xxzz
         ///                            ^^
@@ -90,7 +128,7 @@ namespace oxen::quic
         ///         7                   22          sent intermixed with unsplit packets.
         ///         8                   23
         ///
-        uint16_t _last_dgram_id{0};
+        uint16_t _next_dgram_counter{0};  // The id *before* shifting the split/side bits
 
         const int rbufsize;
 

@@ -1,4 +1,3 @@
-
 add_library(quic
     address.cpp
     connection.cpp
@@ -43,7 +42,6 @@ set(libquic_send_allowed "gso, sendmmsg, sendmsg")
 
 set(LIBQUIC_SEND "${libquic_send_default}" CACHE STRING "Packet send implementation to use; one of: ${libquic_send_allowed}")
 
-
 if(LIBQUIC_SEND STREQUAL "gso")
     message(STATUS "Building with sendmmsg+GSO packet sender")
     target_compile_definitions(quic PUBLIC OXEN_LIBQUIC_UDP_GSO)
@@ -54,6 +52,7 @@ else()
     message(STATUS "Building without sendmmsg/GSO packet sending")
 endif()
 
+target_compile_definitions(quic PUBLIC ENABLE_PERF_TESTING)
 
 option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" ${libquic_recvmmsg_default})
 if(LIBQUIC_RECVMMSG)

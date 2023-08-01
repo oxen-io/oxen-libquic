@@ -19,6 +19,8 @@
 
 namespace oxen::quic
 {
+    struct dgram_interface;
+
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
     {
@@ -45,15 +47,14 @@ namespace oxen::quic
     class debug_interface
     {
       public:
-        std::atomic<bool> datagram_drop_enabled;
-        std::atomic<int> datagram_drop_counter;
-        std::atomic<bool> datagram_flip_flop_enabled;
-        std::atomic<int> datagram_flip_flip_counter;
+        std::atomic<bool> datagram_drop_enabled{false};
+        std::atomic<int> datagram_drop_counter{0};
+        std::atomic<bool> datagram_flip_flop_enabled{false};
+        std::atomic<int> datagram_flip_flip_counter{0};
     };
-
 #endif
 
-    class connection_interface
+    class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       public:
         virtual std::shared_ptr<Stream> get_new_stream(
@@ -171,6 +172,8 @@ namespace oxen::quic
         int last_cleared() const override;
         int datagram_bufsize() const override;
 
+        void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -201,8 +204,6 @@ namespace oxen::quic
 
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
-
-        void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
@@ -242,6 +243,8 @@ namespace oxen::quic
         int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
 
         io_result read_packet(const Packet& pkt);
+
+        dgram_interface di;
 
       public:
         // public to be called by endpoint handing this connection a packet

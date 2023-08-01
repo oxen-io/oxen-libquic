@@ -21,6 +21,23 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
+    dgram_interface::dgram_interface(Connection& c) : ci{c} {}
+
+    const ConnectionID& dgram_interface::conn_id() const
+    {
+        return ci.scid();
+    }
+
+    std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
+    {
+        return ci.shared_from_this();
+    }
+
+    void dgram_interface::reply(bstring_view data, std::shared_ptr<void> keep_alive)
+    {
+        ci.send_datagram(data, std::move(keep_alive));
+    }
+
     void DatagramIO::send(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         // check this first and once; already considers policy when returning
@@ -48,30 +65,14 @@ namespace oxen::quic
                     buffer_printer{data});
 
             auto half_size = max_size / 2;
-            bool oversize = (data.size() > half_size);  // if true, split this packet
+            bool split = _packet_splitting && data.size() > half_size;
 
-            // incrementing the second half of a split datagram is done internally, so this should never be true
-            assert(_last_dgram_id % 4 != 3);
+            auto dgram_id = _next_dgram_counter << 2;
+            if (split)
+                dgram_id |= 0b10;
+            (++_next_dgram_counter) %= 1 << 14;
 
-            if (_packet_splitting && oversize)
-            {
-                // jump to the next size 4 block
-                if (_last_dgram_id != 0)
-                    _last_dgram_id += 4;
-
-                // if the last dgram was unsplit, the previous increment needs an extra two
-                if (_last_dgram_id % 4 == 0)
-                    _last_dgram_id += 2;
-
-                send_buffer.emplace(data, _last_dgram_id, std::move(keep_alive), dgram::OVERSIZED, max_size);
-            }
-            else
-            {
-                // if last dgram was split, increment by 2, else by 4
-                _last_dgram_id += (_last_dgram_id % 4 == 2) ? 2 : 4;
-
-                send_buffer.emplace(data, _last_dgram_id, std::move(keep_alive), dgram::STANDARD);
-            }
+            send_buffer.emplace(data, dgram_id, std::move(keep_alive), split ? dgram::OVERSIZED : dgram::STANDARD, max_size);
 
             conn.packet_io_ready();
         });
