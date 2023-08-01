@@ -95,6 +95,7 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
+#ifdef ENABLE_PERF_TESTING
     Network client_net{};
 
     auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
@@ -119,8 +120,11 @@ int main(int argc, char* argv[])
             log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
             d_ptr->failed = true;
         }
-        else if (data != "DONE!"_bsv) {
-            log::error(test_cat, "Got unexpected data: expected 'DONE!', got (hex): '{}'",
+        else if (data != "DONE!"_bsv)
+        {
+            log::error(
+                    test_cat,
+                    "Got unexpected data: expected 'DONE!', got (hex): '{}'",
                     oxenc::to_hex(data.begin(), data.end()));
             d_ptr->failed = true;
         }
@@ -206,4 +210,7 @@ int main(int argc, char* argv[])
     client_net.close();
 
     return 0;
+#else
+    log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
+#endif
 }

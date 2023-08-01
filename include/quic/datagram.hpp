@@ -128,7 +128,7 @@ namespace oxen::quic
         ///         7                   22          sent intermixed with unsplit packets.
         ///         8                   23
         ///
-        uint16_t _next_dgram_counter{0}; // The id *before* shifting the split/side bits
+        uint16_t _next_dgram_counter{0};  // The id *before* shifting the split/side bits
 
         const int rbufsize;
 

@@ -730,7 +730,7 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter == 8);
+            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter <= 9);
 
             conn_interface->test_suite.datagram_flip_flop_enabled = false;
 

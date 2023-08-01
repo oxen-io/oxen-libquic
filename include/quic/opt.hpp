@@ -53,7 +53,6 @@ namespace oxen::quic::opt
         Splitting mode = Splitting::NONE;
         // Note: this is the size of the entire buffer, divided amongst 4 rows
         int bufsize = 4096;
-        // If setr to
 
         enable_datagrams() = default;
         explicit enable_datagrams(bool e) = delete;

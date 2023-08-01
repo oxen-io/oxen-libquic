@@ -57,8 +57,7 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-    datagram_test_enabled = true;
-
+#ifdef ENABLE_PERF_TESTING
     Network server_net{};
 
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
@@ -164,4 +163,7 @@ int main(int argc, char* argv[])
 
     log::warning(test_cat, "Shutting down test server");
     server_net.close();
+#else
+    log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
+#endif
 }

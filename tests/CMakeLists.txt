@@ -16,27 +16,7 @@ add_executable(alltests
 )
 target_link_libraries(alltests PUBLIC quic Catch2::Catch2 CLI11::CLI11)
 
-#add_executable(
-#    test_client
-#    test_client.cpp)
-#target_link_libraries(test_client PRIVATE quic)
-
-#add_executable(
-#    test_server
-#    test_server.cpp)
-#target_link_libraries(test_server PRIVATE quic)
-
-#add_executable(
-#    test_multiclient
-#    test_multiclient.cpp)
-#target_link_libraries(test_multiclient PUBLIC quic)
-
-foreach(x dgram-speed-client dgram-speed-server)
-    add_executable(${x} ${x}.cpp)
-    target_link_libraries(${x} PRIVATE quic CLI11::CLI11)
-endforeach()
-
-foreach(x speedtest-client speedtest-server)
+foreach(x speedtest-client speedtest-server dgram-speed-client dgram-speed-server)
     add_executable(${x} ${x}.cpp)
     target_link_libraries(${x} PRIVATE quic CLI11::CLI11)
 endforeach()

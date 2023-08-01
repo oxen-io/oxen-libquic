@@ -17,8 +17,6 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-extern std::atomic<bool> datagram_test_enabled;
-
 namespace oxen::quic
 {
     struct dgram_interface;
@@ -55,11 +53,6 @@ namespace oxen::quic
         std::atomic<int> datagram_flip_flip_counter{0};
     };
 #endif
-
-    class perf_testing
-    {
-      public:
-    };
 
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
@@ -116,7 +109,6 @@ namespace oxen::quic
 #ifndef NDEBUG
         debug_interface test_suite;
 #endif
-        perf_testing performance;
     };
 
     class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
