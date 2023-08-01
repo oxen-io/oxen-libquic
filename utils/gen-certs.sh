@@ -17,6 +17,6 @@ if ! type -p $bin && [ -x ./static-deps/bin/certtool ]; then
 fi
 
 for f in server client; do
-    $bin -p --key-type ed448 --outfile ${f}key.pem --no-text
+    $bin -p --key-type ${KEY_TYPE:-ed448} --outfile ${f}key.pem --no-text
     $bin -s --load-privkey ${f}key.pem --no-text --template <(echo 'expiration_days=-1') --outfile=${f}cert.pem
 done
