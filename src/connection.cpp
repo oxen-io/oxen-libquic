@@ -750,9 +750,9 @@ namespace oxen::quic
         event_add(packet_retransmit_timer.get(), tv_ptr);
     }
 
-    const std::shared_ptr<Stream>& Connection::get_stream(int64_t ID) const
+    std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
     {
-        return streams.at(ID);
+        return _endpoint.call_get([this, ID] { return streams.at(ID); });
     }
 
     int Connection::stream_opened(int64_t id)

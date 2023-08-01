@@ -126,7 +126,13 @@ namespace oxen::quic
         template <typename... Args>
         void call(Args&&... args)
         {
-            return net.call(std::forward<Args>(args)...);
+            net.call(std::forward<Args>(args)...);
+        }
+
+        template <typename... Args>
+        auto call_get(Args&&... args)
+        {
+            return net.call_get(std::forward<Args>(args)...);
         }
 
         const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
