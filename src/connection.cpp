@@ -32,6 +32,10 @@ extern "C"
 #include "stream.hpp"
 #include "utils.hpp"
 
+#ifdef ENABLE_PERF_TESTING
+std::atomic<bool> datagram_test_enabled = false;
+#endif
+
 namespace oxen::quic
 {
     using namespace std::literals;
@@ -904,6 +908,9 @@ namespace oxen::quic
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
 #ifndef ENABLE_PERF_TESTING
+            if (!datagram_test_enabled)
+                data.remove_prefix(2);
+#else
             data.remove_prefix(2);
 #endif
 

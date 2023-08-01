@@ -22,7 +22,7 @@ def crash_handler (event):
     if isinstance(event, gdb.SignalEvent):
         log_file_name = "crash.out.txt"
         # poop out log file for stack trace of all threads
-        gdb_execmany(f"set logging file {log_file_name}", "set logging on", "set logging redirect on", "thread apply all bt full")
+        gdb_execmany(f"set logging file {log_file_name}", "set logging enabled on", "set logging redirect on", "thread apply all bt full")
         # quit gdb
         gdb.execute("q")
 

@@ -214,7 +214,7 @@ namespace oxen::quic::test
 
         for (int i = 0; i < n_streams; ++i)
         {
-            client_endpoint->call([&]() {
+            client_endpoint->call([&, i]() {
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 send_promises[i].set_value(true);
@@ -236,7 +236,7 @@ namespace oxen::quic::test
         // 5) open 2 more streams and send
         for (int i = 0; i < 2; ++i)
         {
-            client_endpoint->call([&]() {
+            client_endpoint->call([&, i]() {
                 streams[i] = conn_interface->get_new_stream();
                 streams[i]->send(msg);
                 // set send promise
