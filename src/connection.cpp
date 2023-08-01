@@ -32,6 +32,10 @@ extern "C"
 #include "stream.hpp"
 #include "utils.hpp"
 
+#ifdef ENABLE_PERF_TESTING
+std::atomic<bool> datagram_test_enabled = false;
+#endif
+
 namespace oxen::quic
 {
     using namespace std::literals;
@@ -347,26 +351,28 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback data_cb, stream_close_callback close_cb)
     {
-        if (!data_cb)
-            data_cb = context->stream_data_cb;
+        return _endpoint.call_get([this, &data_cb, &close_cb]() {
+            if (!data_cb)
+                data_cb = context->stream_data_cb;
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
+            auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
 
-        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
-        {
-            log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
-            stream->set_not_ready();
-            pending_streams.push_back(std::move(stream));
-            return pending_streams.back();
-        }
-        else
-        {
-            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
-            stream->set_ready();
-            auto& strm = streams[stream->_stream_id];
-            strm = std::move(stream);
-            return strm;
-        }
+            if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
+            {
+                log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
+                stream->set_not_ready();
+                pending_streams.push_back(std::move(stream));
+                return pending_streams.back();
+            }
+            else
+            {
+                log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
+                stream->set_ready();
+                auto& strm = streams[stream->_stream_id];
+                strm = std::move(stream);
+                return strm;
+            }
+        });
     }
 
     void Connection::call_closing()
@@ -750,9 +756,9 @@ namespace oxen::quic
         event_add(packet_retransmit_timer.get(), tv_ptr);
     }
 
-    const std::shared_ptr<Stream>& Connection::get_stream(int64_t ID) const
+    std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
     {
-        return streams.at(ID);
+        return _endpoint.call_get([this, ID] { return streams.at(ID); });
     }
 
     int Connection::stream_opened(int64_t id)
@@ -820,8 +826,18 @@ namespace oxen::quic
 
     int Connection::stream_receive(int64_t id, bstring_view data, bool fin)
     {
-        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
         auto str = get_stream(id);
+
+        if (data.size() == 0)
+        {
+            log::debug(
+                    log_cat,
+                    "Stream (ID: {}) received empty fin frame, bypassing user-supplied data callback",
+                    str->_stream_id);
+            return 0;
+        }
+
+        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
         if (!str->data_callback)
             log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->_stream_id);
@@ -894,6 +910,9 @@ namespace oxen::quic
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
 #ifndef ENABLE_PERF_TESTING
+            if (!datagram_test_enabled)
+                data.remove_prefix(2);
+#else
             data.remove_prefix(2);
 #endif
 

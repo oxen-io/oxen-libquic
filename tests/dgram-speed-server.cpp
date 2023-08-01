@@ -58,6 +58,8 @@ int main(int argc, char* argv[])
     setup_logging(log_file, log_level);
 
 #ifdef ENABLE_PERF_TESTING
+    datagram_test_enabled = true;
+
     Network server_net{};
 
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
@@ -84,14 +86,11 @@ int main(int argc, char* argv[])
     std::promise<void> t_prom;
     std::future<void> t_fut = t_prom.get_future();
 
-    // std::shared_ptr<connection_interface> server_ci;
     std::shared_ptr<Endpoint> server;
 
     gnutls_callback outbound_tls_cb =
             [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
                 log::debug(test_cat, "Calling server TLS callback... handshake completed...");
-
-                // server_ci = server->get_all_conns(Direction::INBOUND).front();
                 return 0;
             };
 

@@ -87,8 +87,11 @@ namespace oxen::quic
 
         bool in_event_loop() const;
 
-        void call_soon(std::function<void(void)> f, source_location src = source_location::current());
+        /// Posts a function to the event loop, to be called when the event loop is next free.
+        void call_soon(std::function<void()> f, source_location src = source_location::current());
 
+        /// Calls a function: if this is called from within the event loop thread, the function is
+        /// called immediately; otherwise it is forwarded to `call_soon`.
         template <typename Callable>
         void call(Callable&& f, source_location src = source_location::current())
         {
@@ -101,6 +104,25 @@ namespace oxen::quic
             {
                 call_soon(std::forward<Callable>(f), std::move(src));
             }
+        }
+
+        /// Calls a function and synchronously obtains its return value.  If called from within the
+        /// event loop, the function is called and returned immediately, otherwise a promise/future
+        /// is used with `call_soon` to block until the event loop comes around and calls the
+        /// function.
+        template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
+        Ret call_get(Callable&& f, source_location src = source_location::current())
+        {
+            if (in_event_loop())
+            {
+                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+                return f();
+            }
+
+            std::promise<Ret> prom;
+            auto fut = prom.get_future();
+            call_soon([&f, &prom] { prom.set_value(f()); });
+            return fut.get();
         }
 
         void process_job_queue();

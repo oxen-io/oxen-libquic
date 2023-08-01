@@ -50,14 +50,20 @@ add_library(ngtcp2::crypto
     ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
 
 # oxen-logging
-if(BUILD_STATIC_DEPS)
-    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+if (NOT TARGET oxen::logging)
+    if(BUILD_STATIC_DEPS)
+        set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+    endif()
+    set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
+    add_subdirectory(oxen-logging)
+else()
+    set(OXEN_LOGGING_SOURCE_ROOT "${OXEN_LOGGING_SOURCE_ROOT};${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 endif()
-set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
-add_subdirectory(oxen-logging)
 
 # oxenc
-system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
+if (NOT TARGET oxenc)
+    system_or_submodule(OXENC oxenc liboxenc>=1.0.4 oxen-encoding)
+endif()
 
 # libevent
 if(NOT TARGET libevent::core)
