@@ -229,7 +229,7 @@ namespace oxen::quic
 
         void schedule_packet_retransmit(std::chrono::steady_clock::time_point ts);
 
-        const std::shared_ptr<Stream>& get_stream(int64_t ID) const;
+        std::shared_ptr<Stream> get_stream(int64_t ID) const;
 
         bool draining = false;
         bool closing = false;
