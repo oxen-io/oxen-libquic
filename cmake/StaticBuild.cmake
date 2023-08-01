@@ -239,6 +239,7 @@ build_external(libidn2
 add_static_target(libidn2 libidn2_external libidn2.a libunistring)
 
 build_external(gmp
+    CONFIGURE_EXTRA CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp
     DEPENDS libidn2_external libtasn1_external)
 add_static_target(gmp gmp_external libgmp.a libidn2 libtasn1)
 
@@ -256,10 +257,12 @@ add_static_target(nettle nettle_external libnettle.a gmp)
 add_static_target(hogweed nettle_external libhogweed.a nettle)
 
 build_external(gnutls
-    CONFIGURE_EXTRA --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
-        --without-zlib --without-brotli --without-zstd
-        "PKG_CONFIG_PATH=${DEPS_DESTDIR}/lib/pkgconfig"
+    CONFIGURE_EXTRA ${cross_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
+        --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
+        --without-zlib --without-brotli --without-zstd --without-libintl-prefix
+        "PKG_CONFIG_PATH=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
         "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib"
+        "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}" "CXXFLAGS=${deps_CXXFLAGS}" ${cross_rc}
     DEPENDS nettle_external
     BUILD_BYPRODUCTS
     ${DEPS_DESTDIR}/lib/libgnutls.a

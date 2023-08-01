@@ -69,8 +69,8 @@ namespace oxen::quic
             if (auto rv = WSAIoctl(
                         tmpsock,
                         SIO_GET_EXTENSION_FUNCTION_POINTER,
-                        &recvmsg_guid,
-                        sizeof(recvmsg_guid),
+                        &sendmsg_guid,
+                        sizeof(sendmsg_guid),
                         &WSASendMsg,
                         sizeof(WSASendMsg),
                         &nothing,
@@ -111,17 +111,15 @@ namespace oxen::quic
 #endif
 
         // Enable ECN notification on packets we receive:
-#ifdef _WIN32
-        const char on = 1;
-#else
+#ifndef _WIN32
         const unsigned int on = 1;
-#endif
         if (addr.is_ipv6())
             check_rv(setsockopt(sock_, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on)));
         else
             check_rv(setsockopt(sock_, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on)));
 
         set_ecn();
+#endif
 
         rev_.reset(event_new(
                 ev_,
@@ -157,27 +155,15 @@ namespace oxen::quic
     // Updates the socket's ECN value to `ecn_`.
     void UDPSocket::set_ecn()
     {
+#ifndef _WIN32
         int rv;
-        auto& ecn =
-#ifdef _WIN32
-                reinterpret_cast<char&>(ecn_);
-#else
-                ecn_;
-#endif
         if (bound_.is_ipv6())
-            rv = setsockopt(sock_, IPPROTO_IPV6, IPV6_TCLASS, &ecn, sizeof(ecn_));
+            rv = setsockopt(sock_, IPPROTO_IPV6, IPV6_TCLASS, &ecn_, sizeof(ecn_));
         else
-            rv = setsockopt(sock_, IPPROTO_IP, IP_TOS, &ecn, sizeof(ecn_));
+            rv = setsockopt(sock_, IPPROTO_IP, IP_TOS, &ecn_, sizeof(ecn_));
         if (rv == -1)  // Just warn; this isn't fatal
-            log::warning(
-                    log_cat,
-                    "Failed to update ECN on socket: {}",
-#ifdef _WIN32
-                    WSAGetLastError()
-#else
-                    strerror(errno)
+            log::warning(log_cat, "Failed to update ECN on socket: {}", strerror(errno));
 #endif
-            );
     }
 
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)

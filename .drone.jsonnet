@@ -171,6 +171,7 @@ local windows_cross_pipeline(name,
         '-DWITH_LTO=' + (if lto then 'ON ' else 'OFF ') +
         '-DBUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
         ci_dep_mirror(local_mirror),
+        'make -j' + jobs + ' VERBOSE=1',
         //'wine-stable tests/alltests.exe --colour-mode ansi', // doesn't work yet :(
       ] + extra_cmds,
     },
