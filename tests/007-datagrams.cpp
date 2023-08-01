@@ -309,7 +309,7 @@ namespace oxen::quic::test
             while (good_msg.size() < max_size)
                 good_msg += v++;
             v = 0;
-            while (oversize_msg.size() < max_size + 100)
+            while (oversize_msg.size() < max_size * 2)
                 oversize_msg += v++;
 
             REQUIRE_NOTHROW(conn_interface->send_datagram(std::move(good_msg)));
@@ -619,6 +619,15 @@ namespace oxen::quic::test
 #endif
     };
 
+    /*
+        Test Note:
+            Flip flop packet ordering is hard to exactly quantify the magnitude of its optimization. On premise, it takes
+            big split datagrams queued next and sends their small portion first.
+
+            For example, with 13 calls to send_datagram, we caan accurately predict that the number of packets sent is
+            less than 13. The extent to which this is optimized depends on the datagram sizes being sent, whether ngtcp2
+            sends acks or other frames, and other protocol level things.
+    */
     TEST_CASE("007 - Datagram support: Rotating Buffer, Flip-Flop Ordering", "[007][datagrams][execute][split][flipflop]")
     {
 #ifdef NDEBUG
@@ -730,7 +739,7 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter <= 9);
+            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter < (int)n);
 
             conn_interface->test_suite.datagram_flip_flop_enabled = false;
 

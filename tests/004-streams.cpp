@@ -214,11 +214,9 @@ namespace oxen::quic::test
 
         for (int i = 0; i < n_streams; ++i)
         {
-            client_endpoint->call([&, i]() {
-                streams[i] = conn_interface->get_new_stream();
-                streams[i]->send(msg);
-                send_promises[i].set_value(true);
-            });
+            streams[i] = conn_interface->get_new_stream();
+            streams[i]->send(msg);
+            send_promises[i].set_value(true);
         }
 
         // 2) check the first 8
@@ -236,12 +234,10 @@ namespace oxen::quic::test
         // 5) open 2 more streams and send
         for (int i = 0; i < 2; ++i)
         {
-            client_endpoint->call([&, i]() {
-                streams[i] = conn_interface->get_new_stream();
-                streams[i]->send(msg);
-                // set send promise
-                send_promises[i + n_streams].set_value(true);
-            });
+            streams[i] = conn_interface->get_new_stream();
+            streams[i]->send(msg);
+            // set send promise
+            send_promises[i + n_streams].set_value(true);
         }
 
         // 6) check final stream received data

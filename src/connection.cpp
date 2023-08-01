@@ -351,26 +351,28 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback data_cb, stream_close_callback close_cb)
     {
-        if (!data_cb)
-            data_cb = context->stream_data_cb;
+        return _endpoint.call_get([this, &data_cb, &close_cb]() {
+            if (!data_cb)
+                data_cb = context->stream_data_cb;
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
+            auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
 
-        if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
-        {
-            log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
-            stream->set_not_ready();
-            pending_streams.push_back(std::move(stream));
-            return pending_streams.back();
-        }
-        else
-        {
-            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
-            stream->set_ready();
-            auto& strm = streams[stream->_stream_id];
-            strm = std::move(stream);
-            return strm;
-        }
+            if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
+            {
+                log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
+                stream->set_not_ready();
+                pending_streams.push_back(std::move(stream));
+                return pending_streams.back();
+            }
+            else
+            {
+                log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
+                stream->set_ready();
+                auto& strm = streams[stream->_stream_id];
+                strm = std::move(stream);
+                return strm;
+            }
+        });
     }
 
     void Connection::call_closing()

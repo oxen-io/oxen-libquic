@@ -59,7 +59,7 @@ int main(int argc, char* argv[])
 
 #ifdef ENABLE_PERF_TESTING
     datagram_test_enabled = true;
-    
+
     Network server_net{};
 
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
