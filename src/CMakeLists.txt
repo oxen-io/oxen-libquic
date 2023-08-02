@@ -1,3 +1,22 @@
+option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" ${libquic_recvmmsg_default})
+option(ENABLE_PERF_TESTING "Enable optional performance testing binary logic" OFF)
+option(ENABLE_ZMQ_BRIDGE "Enable optional header-only zmq messaging bridge" OFF)
+
+# do this here as it's technically an external dependency outside of external/, but only in specific cases
+if (ENABLE_ZMQ_BRIDGE)
+    if (NOT TARGET cppzmq)
+        include(FetchContent)
+
+        set(CPPZMQ_BUILD_TESTS OFF CACHE INTERNAL "")
+        FetchContent_Declare(
+            cppzmq
+            GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+            GIT_TAG c94c20743ed7d4aa37835a5c46567ab0790d4acc    # release 4.10.0
+        )
+        FetchContent_MakeAvailable(cppzmq)
+    endif()
+endif()
+
 add_library(quic
     address.cpp
     connection.cpp
@@ -12,22 +31,6 @@ add_library(quic
     udp.cpp
     utils.cpp
 )
-
-target_link_libraries(quic
-    PUBLIC
-    ngtcp2::crypto
-    libevent::core libevent::threads
-    gnutls::gnutls
-    oxen::logging
-    common
-    oxenc
-    PRIVATE
-    internal
-)
-
-if(WIN32)
-    target_link_libraries(quic PUBLIC ws2_32)
-endif()
 
 set(libquic_send_default "sendmsg")
 set(libquic_recvmmsg_default OFF)
@@ -52,12 +55,40 @@ else()
     message(STATUS "Building without sendmmsg/GSO packet sending")
 endif()
 
-target_compile_definitions(quic PUBLIC ENABLE_PERF_TESTING)
-
-option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" ${libquic_recvmmsg_default})
 if(LIBQUIC_RECVMMSG)
     target_compile_definitions(quic PUBLIC OXEN_LIBQUIC_RECVMMSG)
     message(STATUS "Building with recvmmsg support")
 else()
     message(STATUS "Building without recvmmsg support")
 endif()
+
+if (ENABLE_ZMQ_BRIDGE)
+    message(STATUS "Building with optional header-only ZMQ bridge")
+    target_compile_definitions(quic PUBLIC LIBQUIC_ZMQ_BRIDGE)
+endif()
+
+if (ENABLE_PERF_TESTING)
+    target_compile_definitions(quic PUBLIC LIBQUIC_PERF_TESTING)
+    message(STATUS "Building with optional performance testing binary logic")
+endif()
+
+target_link_libraries(quic
+    PUBLIC
+    ngtcp2::crypto
+    libevent::core libevent::threads
+    gnutls::gnutls
+    oxen::logging
+    common
+    oxenc
+    PRIVATE
+    internal
+)
+
+if(WIN32)
+    target_link_libraries(quic PUBLIC ws2_32)
+endif()
+
+if (ENABLE_ZMQ_BRIDGE)
+    target_link_libraries(quic PUBLIC cppzmq)
+endif()
+

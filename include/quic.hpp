@@ -15,3 +15,7 @@
 #include "quic/types.hpp"
 #include "quic/udp.hpp"
 #include "quic/utils.hpp"
+
+#ifdef LIBQUIC_ZMQ_BRIDGE
+#include "quic/zmq_bridge.hpp"
+#endif

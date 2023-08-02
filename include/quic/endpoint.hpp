@@ -32,6 +32,10 @@ extern "C"
 #include "udp.hpp"
 #include "utils.hpp"
 
+#ifdef LIBQUIC_ZMQ_BRIDGE
+#include "zmq_bridge.hpp"
+#endif
+
 namespace oxen::quic
 {
     class Endpoint : std::enable_shared_from_this<Endpoint>
@@ -52,6 +56,9 @@ namespace oxen::quic
         template <typename... Opt>
         Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
         {
+#ifdef LIBQUIC_ZMQ_BRIDGE
+            zmq_bridge = ZMQBridge::make(*this);
+#endif
             _init_internals();
             ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
         }
@@ -204,6 +211,11 @@ namespace oxen::quic
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
+
+#ifdef LIBQUIC_ZMQ_BRIDGE
+        friend class Connection;
+        std::unique_ptr<ZMQBridge> zmq_bridge;
+#endif
 
         void _init_internals();
 

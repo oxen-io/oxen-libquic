@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-#ifdef ENABLE_PERF_TESTING
+#ifdef LIBQUIC_PERF_TESTING
     Network client_net{};
 
     auto client_tls = GNUTLSCreds::make(key, cert, server_cert);

@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-#ifdef ENABLE_PERF_TESTING
+#ifdef LIBQUIC_PERF_TESTING
     datagram_test_enabled = true;
 
     Network server_net{};

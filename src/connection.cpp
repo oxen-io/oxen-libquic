@@ -1,7 +1,5 @@
 #include "connection.hpp"
 
-#include "format.hpp"
-
 extern "C"
 {
 #ifdef _WIN32
@@ -12,7 +10,6 @@ extern "C"
 #endif
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
-#include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
@@ -30,10 +27,13 @@ extern "C"
 #include "endpoint.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
-#include "utils.hpp"
 
-#ifdef ENABLE_PERF_TESTING
+#ifdef LIBQUIC_PERF_TESTING
 std::atomic<bool> datagram_test_enabled = false;
+#endif
+
+#ifdef LIBQUIC_ZMQ_BRIDGE
+#include "zmq_bridge.hpp"
 #endif
 
 namespace oxen::quic
@@ -916,7 +916,7 @@ namespace oxen::quic
         {
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
-#ifndef ENABLE_PERF_TESTING
+#ifdef LIBQUIC_PERF_TESTING
             if (!datagram_test_enabled)
                 data.remove_prefix(2);
 #else
@@ -1135,6 +1135,10 @@ namespace oxen::quic
     {
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);
+
+#ifdef LIBQUIC_ZMQ_BRIDGE
+        zmq = _endpoint.zmq_bridge->deploy_worker(*this);
+#endif
 
         const auto is_outbound = (dir == Direction::OUTBOUND);
         const auto d_str = is_outbound ? "outbound"s : "inbound"s;

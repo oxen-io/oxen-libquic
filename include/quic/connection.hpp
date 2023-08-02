@@ -1,6 +1,9 @@
 #pragma once
 
+extern "C"
+{
 #include <ngtcp2/ngtcp2.h>
+}
 
 #include <cstddef>
 #include <cstdint>
@@ -17,13 +20,17 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-#ifdef ENABLE_PERF_TESTING
+#ifdef LIBQUIC_PERF_TESTING
 extern std::atomic<bool> datagram_test_enabled;
 #endif
 
 namespace oxen::quic
 {
     struct dgram_interface;
+
+#ifdef LIBQUIC_ZMQ_BRIDGE
+    class ZMQWorker;
+#endif
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
@@ -211,6 +218,10 @@ namespace oxen::quic
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
 
+#ifdef LIBQUIC_ZMQ_BRIDGE
+        std::shared_ptr<ZMQWorker> zmq;
+#endif
+
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
 
@@ -240,6 +251,7 @@ namespace oxen::quic
         std::map<int64_t, std::shared_ptr<Stream>> streams;
         // datagram "pseudo-stream"
         std::unique_ptr<DatagramIO> datagrams;
+
         // "pseudo-stream" to represent ngtcp2 stream ID -1
         std::shared_ptr<Stream> pseudo_stream;
         // holds queue of pending streams not yet ready to broadcast

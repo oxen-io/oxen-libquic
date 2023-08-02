@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.13...3.25)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(LANGS C CXX)
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-option(BUILD_SHARED_LIBS "Build as shared library" OFF)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-set(LANGS C CXX)
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
 	foreach(lang ${LANGS})
@@ -22,17 +24,24 @@ project(libquicinet
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set(libquic_IS_TOPLEVEL_PROJECT TRUE)
+else()
+    set(libquic_IS_TOPLEVEL_PROJECT FALSE)
+endif()
 
+option(BUILD_SHARED_LIBS "Build as shared library" OFF)
 option(BUILD_STATIC_DEPS "Download, build, and statically link against core dependencies" OFF)
+option(BUILD_TESTS "Build libquic test suite and programs" ${libquic_IS_TOPLEVEL_PROJECT})
+option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
 
 set(default_lto ON)
 if(WIN32 OR BUILD_STATIC_DEPS)
     set(default_lto OFF)
 endif()
+
 option(WITH_LTO "Compile with Link-time Optimization" ${default_lto})
+
 if(WITH_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT IPO_ENABLED OUTPUT ipo_error)
@@ -68,8 +77,6 @@ target_link_libraries(common INTERFACE filesystem)
 
 target_include_directories(common INTERFACE include)
 target_include_directories(internal INTERFACE include/quic)
-
-option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
 
 set(warning_flags -Wall -Wextra -Wno-unknown-pragmas -Wno-unused-function -Werror=vla -Wdeprecated-declarations)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
