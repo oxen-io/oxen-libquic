@@ -67,7 +67,7 @@ namespace oxen::quic
         IOChannel(IOChannel&&) = delete;
         IOChannel& operator=(IOChannel&&) = delete;
 
-        virtual bool is_stream() = 0;
+        virtual bool is_stream() const = 0;
         virtual bool is_empty() const = 0;
         virtual std::shared_ptr<Stream> get_stream() = 0;
         virtual void send(bstring_view, std::shared_ptr<void> keep_alive = nullptr) = 0;
@@ -168,7 +168,7 @@ namespace oxen::quic
 
         prepared_datagram pending_datagram(bool r) override;
 
-        bool is_stream() override { return false; }
+        bool is_stream() const override { return false; }
 
         std::optional<bstring> to_buffer(bstring_view data, uint16_t dgid);
 

@@ -7,143 +7,140 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("004 - Multiple pending streams: Config", "[004][streams][pending][config]")
+    TEST_CASE("004 - Multiple pending streams: max stream count", "[004][streams][pending][config]")
     {
-        SECTION("Setting and getting max stream count")
-        {
-            Network test_net{};
+        Network test_net{};
 
-            std::promise<bool> tls;
-            std::future<bool> tls_future = tls.get_future();
-            opt::max_streams max_streams{8};
+        std::promise<bool> tls;
+        std::future<bool> tls_future = tls.get_future();
+        opt::max_streams max_streams{8};
 
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
 
-            gnutls_callback outbound_tls_cb =
-                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+        gnutls_callback outbound_tls_cb =
+                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-                        tls.set_value(true);
-                        return 0;
-                    };
+                    tls.set_value(true);
+                    return 0;
+                };
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-            client_tls->set_client_tls_policy(outbound_tls_cb);
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            auto server_endpoint = test_net.endpoint(server_local);
-            REQUIRE(server_endpoint->listen(server_tls, max_streams));
+        auto server_endpoint = test_net.endpoint(server_local);
+        REQUIRE(server_endpoint->listen(server_tls, max_streams));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local);
-            auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-            REQUIRE(tls_future.get());
-            REQUIRE(conn_interface->get_max_streams() == max_streams.stream_count);
+        REQUIRE(tls_future.get());
+        REQUIRE(conn_interface->get_max_streams() == max_streams.stream_count);
 
-            test_net.close();
+        test_net.shutdown();
+    };
+
+    TEST_CASE("004 - Multiple pending streams: streams available", "[004][streams][pending][config]")
+    {
+        Network test_net{};
+        auto msg = "hello from the other siiiii-iiiiide"_bsv;
+
+        std::promise<bool> data_promise;
+        std::future<bool> data_future = data_promise.get_future();
+        opt::max_streams max_streams{8};
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
+            log::debug(log_cat, "Calling server stream data callback... data received...");
+            data_promise.set_value(true);
         };
 
-        SECTION("Getting streams available count")
-        {
-            Network test_net{};
-            auto msg = "hello from the other siiiii-iiiiide"_bsv;
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
-            std::promise<bool> data_promise;
-            std::future<bool> data_future = data_promise.get_future();
-            opt::max_streams max_streams{8};
+        auto server_endpoint = test_net.endpoint(server_local);
+        REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
 
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
-                log::debug(log_cat, "Calling server stream data callback... data received...");
-                data_promise.set_value(true);
-            };
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto client_stream = conn_interface->get_new_stream();
+        client_stream->send(msg);
 
-            auto server_endpoint = test_net.endpoint(server_local);
-            REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
+        REQUIRE(data_future.get());
+        REQUIRE(conn_interface->get_streams_available() == max_streams.stream_count - 1);
+        test_net.shutdown();
+    };
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+    TEST_CASE("004 - Multiple pending streams: different remote settings", "[004][streams][pending][config]")
+    {
+        Network test_net{};
+        auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-            auto client_endpoint = test_net.endpoint(client_local);
-            auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
+        std::promise<bool> data_promise, tls;
+        std::future<bool> data_future = data_promise.get_future(), tls_future = tls.get_future();
+        opt::max_streams server_config{10}, client_config{8};
 
-            auto client_stream = conn_interface->get_new_stream();
-            client_stream->send(msg);
+        std::shared_ptr<connection_interface> server_ci;
 
-            REQUIRE(data_future.get());
-            REQUIRE(conn_interface->get_streams_available() == max_streams.stream_count - 1);
-            test_net.close();
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
+            log::debug(log_cat, "Calling server stream data callback... data received...");
+            data_promise.set_value(true);
         };
 
-        SECTION("Different remote endpoint settings")
-        {
-            Network test_net{};
-            auto msg = "hello from the other siiiii-iiiiide"_bsv;
+        gnutls_callback outbound_tls_cb =
+                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
+                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
 
-            std::promise<bool> data_promise, tls;
-            std::future<bool> data_future = data_promise.get_future(), tls_future = tls.get_future();
-            opt::max_streams server_config{10}, client_config{8};
+                    tls.set_value(true);
+                    return 0;
+                };
 
-            std::shared_ptr<connection_interface> server_ci;
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        client_tls->set_client_tls_policy(outbound_tls_cb);
 
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
+        auto server_endpoint = test_net.endpoint(server_local);
+        REQUIRE(server_endpoint->listen(server_tls, server_config, server_data_cb));
 
-            stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
-                log::debug(log_cat, "Calling server stream data callback... data received...");
-                data_promise.set_value(true);
-            };
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            gnutls_callback outbound_tls_cb =
-                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
 
-                        tls.set_value(true);
-                        return 0;
-                    };
+        REQUIRE(tls_future.get());
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-            client_tls->set_client_tls_policy(outbound_tls_cb);
+        server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+        // some transport parameters are set after handshake is completed; querying the client connection too
+        // quickly will return a streams_available of 0
+        std::this_thread::sleep_for(5ms);
 
-            auto server_endpoint = test_net.endpoint(server_local);
-            REQUIRE(server_endpoint->listen(server_tls, server_config, server_data_cb));
+        REQUIRE(client_ci->get_max_streams() == client_config.stream_count);
+        REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
+        REQUIRE(client_ci->get_streams_available() == server_config.stream_count);
+        REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        auto client_stream = client_ci->get_new_stream();
+        client_stream->send(msg);
 
-            auto client_endpoint = test_net.endpoint(client_local);
-            auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
+        REQUIRE(data_future.get());
 
-            REQUIRE(tls_future.get());
-
-            server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
-            // some transport parameters are set after handshake is completed; querying the client connection too
-            // quickly will return a streams_available of 0
-            std::this_thread::sleep_for(5ms);
-
-            REQUIRE(client_ci->get_max_streams() == client_config.stream_count);
-            REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
-            REQUIRE(client_ci->get_streams_available() == server_config.stream_count);
-            REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
-
-            auto client_stream = client_ci->get_new_stream();
-            client_stream->send(msg);
-
-            REQUIRE(data_future.get());
-
-            REQUIRE(client_ci->get_max_streams() == client_config.stream_count);
-            REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
-            REQUIRE(client_ci->get_streams_available() == server_config.stream_count - 1);
-            REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
-            test_net.close();
-        };
+        REQUIRE(client_ci->get_max_streams() == client_config.stream_count);
+        REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
+        REQUIRE(client_ci->get_streams_available() == server_config.stream_count - 1);
+        REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
+        test_net.shutdown();
     };
 
     TEST_CASE("004 - Multiple pending streams: Execution", "[004][streams][pending][execute]")
@@ -263,6 +260,6 @@ namespace oxen::quic::test
 
         REQUIRE(data_check == n_recvs);
 
-        test_net.close();
+        test_net.shutdown();
     };
 }  // namespace oxen::quic::test

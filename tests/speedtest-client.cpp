@@ -368,7 +368,7 @@ int main(int argc, char* argv[])
     fmt::print("Elapsed time: {:.3f}s\n", elapsed);
     fmt::print("Speed: {:.3f}MB/s\n", size / 1'000'000.0 / elapsed);
 
-    client_net.close();
+    client_net.shutdown();
 
     return 0;
 }

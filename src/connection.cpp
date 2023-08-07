@@ -233,8 +233,7 @@ namespace oxen::quic
             log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
 
             _endpoint.call([this]() {
-                log::debug(
-                        log_cat, "Error: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
+                log::debug(log_cat, "Note: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
                 _endpoint.delete_connection(scid());
             });
             return;
@@ -242,7 +241,7 @@ namespace oxen::quic
 
         if (is_draining())
         {
-            log::debug(log_cat, "Error: connection is already draining; dropping");
+            log::debug(log_cat, "Note: connection is already draining; dropping");
         }
 
         if (read_packet(pkt).success())

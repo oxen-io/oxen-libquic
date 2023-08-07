@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
     t_fut.get();
 
     log::warning(test_cat, "Shutting down test server");
-    server_net.close();
+    server_net.shutdown();
 #else
     log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
 #endif

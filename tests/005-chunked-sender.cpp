@@ -111,6 +111,6 @@ namespace oxen::quic::test
                     "Goodbye.");
         }
 
-        test_net.close();
+        test_net.shutdown();
     };
 }  // namespace oxen::quic::test

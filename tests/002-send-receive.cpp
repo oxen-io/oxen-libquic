@@ -43,6 +43,6 @@ namespace oxen::quic::test
         REQUIRE_THROWS(client_stream->send(bad_msg));
 
         REQUIRE(d_future.get());
-        test_net.close();
+        test_net.shutdown();
     };
 }  // namespace oxen::quic::test

@@ -37,7 +37,7 @@ namespace oxen::quic::test
             auto ep = test_net.endpoint(default_addr);
             // Note: kernel chooses a random port after being passed default addr
             REQUIRE_FALSE(ep->local().to_string() == default_addr.to_string());
-            test_net.close();
+            test_net.shutdown();
         };
 
         SECTION("Endpoint::listen() - TLS credentials")
@@ -51,7 +51,7 @@ namespace oxen::quic::test
 
             REQUIRE_THROWS(ep_notls->listen());
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
-            test_net.close();
+            test_net.shutdown();
         };
 
         SECTION("Endpoint::listen() - Default addressing")
@@ -63,7 +63,7 @@ namespace oxen::quic::test
             auto ep = test_net.endpoint(default_addr);
 
             REQUIRE_NOTHROW(ep->listen(local_tls));
-            test_net.close();
+            test_net.shutdown();
         };
 
         SECTION("Endpoint::connect() - Default addressing")
@@ -82,7 +82,7 @@ namespace oxen::quic::test
 
             auto client_endpoint = test_net.endpoint(client_local);
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
-            test_net.close();
+            test_net.shutdown();
         };
 
         SECTION("Endpoint::connect() - Specific Addressing")
@@ -103,7 +103,7 @@ namespace oxen::quic::test
             // no client TLS passed
             REQUIRE_THROWS(client_endpoint->connect(client_remote));
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
-            test_net.close();
+            test_net.shutdown();
         };
     };
 
@@ -145,7 +145,7 @@ namespace oxen::quic::test
 
             REQUIRE(tls_future.get());
 
-            test_net.close();
+            test_net.shutdown();
         };
     };
 
@@ -182,7 +182,7 @@ namespace oxen::quic::test
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(tls_future.valid());
-            test_net.close();
+            test_net.shutdown();
         };
 
         SECTION("Successful TLS handshake")
@@ -216,7 +216,7 @@ namespace oxen::quic::test
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(tls_future.get());
-            test_net.close();
+            test_net.shutdown();
         };
     };
 }  // namespace oxen::quic::test
