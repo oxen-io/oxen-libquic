@@ -98,12 +98,18 @@ namespace oxen::quic
 
         setup_job_waker();
 
+        std::promise<void> p;
+
         loop_thread.emplace([this]() mutable {
             log::debug(log_cat, "Starting event loop run");
             event_base_loop(ev_loop.get(), EVLOOP_NO_EXIT_ON_EMPTY);
             log::debug(log_cat, "Event loop run returned, thread finished");
         });
+
+        call([&p]() { p.set_value(); });
+
         loop_thread_id = loop_thread->get_id();
+        p.get_future().get();
 
         running.store(true);
         log::info(log_cat, "Network is started");
