@@ -150,10 +150,12 @@ namespace oxen::quic
         bool is_inbound() const { return dir == Direction::INBOUND; }
         bool is_outbound() const { return dir == Direction::OUTBOUND; }
 
+        void halt_events();
         bool is_closing() const { return closing; }
-        void call_closing();
+        void set_closing() { closing = true; }
         bool is_draining() const { return draining; }
-        void drain() { draining = true; }
+        void set_draining() { draining = true; }
+        void call_close_cb();
 
         const ConnectionID& scid() const override { return _source_cid; }
         const ConnectionID& dcid() const { return _dest_cid; }

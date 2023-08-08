@@ -100,13 +100,12 @@ namespace oxen::quic
 
         std::promise<void> p;
 
-        loop_thread.emplace([this]() mutable {
+        loop_thread.emplace([this, &p]() mutable {
             log::debug(log_cat, "Starting event loop run");
+            p.set_value();
             event_base_loop(ev_loop.get(), EVLOOP_NO_EXIT_ON_EMPTY);
             log::debug(log_cat, "Event loop run returned, thread finished");
         });
-
-        call([&p]() { p.set_value(); });
 
         loop_thread_id = loop_thread->get_id();
         p.get_future().get();
@@ -119,11 +118,15 @@ namespace oxen::quic
     {
         log::info(log_cat, "Shutting down network...");
 
-        if (running.exchange(false))
-            shutdown(true);
+        if (shutdown_immediate)
+            close_immediate();
+        else
+            close_gracefully();
 
         if (loop_thread)
             loop_thread->join();
+
+        endpoint_map.clear();
 
         log::info(log_cat, "Network shutdown complete");
 
@@ -147,34 +150,9 @@ namespace oxen::quic
         assert(job_waker);
     }
 
-    void Network::shutdown(bool immediate)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        bool was_off = !running.exchange(false);
-
-        if (was_off)
-            log::warning(log_cat, "Network was not running prior to shutdown");
-
-        immediate = immediate or was_off;
-
-        if (!immediate)
-        {
-            log::info(log_cat, "Shutting network down gracefully");
-            close_gracefully();
-        }
-        else
-        {
-            log::warning(log_cat, "Shutting network down immediately");
-            close_immediate();
-        }
-    }
-
     void Network::close_immediate()
     {
         log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        endpoint_map.clear();
 
         if (loop_thread)
             event_base_loopbreak(ev_loop.get());
@@ -205,7 +183,6 @@ namespace oxen::quic
         return std::this_thread::get_id() == loop_thread_id;
     }
 
-    // NOTE (Tom): when closing, when to stop accepting new jobs and stop/close async handle?
     void Network::call_soon(std::function<void(void)> f, source_location src)
     {
         loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());

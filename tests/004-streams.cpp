@@ -40,8 +40,6 @@ namespace oxen::quic::test
 
         REQUIRE(tls_future.get());
         REQUIRE(conn_interface->get_max_streams() == max_streams.stream_count);
-
-        test_net.shutdown();
     };
 
     TEST_CASE("004 - Multiple pending streams: streams available", "[004][streams][pending][config]")
@@ -77,7 +75,6 @@ namespace oxen::quic::test
 
         REQUIRE(data_future.get());
         REQUIRE(conn_interface->get_streams_available() == max_streams.stream_count - 1);
-        test_net.shutdown();
     };
 
     TEST_CASE("004 - Multiple pending streams: different remote settings", "[004][streams][pending][config]")
@@ -140,7 +137,6 @@ namespace oxen::quic::test
         REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
         REQUIRE(client_ci->get_streams_available() == server_config.stream_count - 1);
         REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
-        test_net.shutdown();
     };
 
     TEST_CASE("004 - Multiple pending streams: Execution", "[004][streams][pending][execute]")
@@ -259,7 +255,5 @@ namespace oxen::quic::test
         REQUIRE(f.get());
 
         REQUIRE(data_check == n_recvs);
-
-        test_net.shutdown();
     };
 }  // namespace oxen::quic::test

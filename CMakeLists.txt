@@ -80,7 +80,6 @@ if (WARNINGS_AS_ERRORS)
 endif()
 target_compile_options(common INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")
 
-
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(libquic_IS_TOPLEVEL_PROJECT TRUE)
 else()

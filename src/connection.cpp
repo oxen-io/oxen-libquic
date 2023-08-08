@@ -221,6 +221,14 @@ namespace oxen::quic
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
     }
 
+    void Connection::halt_events()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        packet_io_trigger.reset();
+        packet_retransmit_timer.reset();
+        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted");
+    }
+
     void Connection::packet_io_ready()
     {
         event_active(packet_io_trigger.get(), 0, 0);
@@ -374,7 +382,7 @@ namespace oxen::quic
         });
     }
 
-    void Connection::call_closing()
+    void Connection::call_close_cb()
     {
         if (!on_closing)
             return;

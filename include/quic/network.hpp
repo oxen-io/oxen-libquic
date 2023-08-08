@@ -57,13 +57,11 @@ namespace oxen::quic
             return *it;
         }
 
-        /// Initiates shutdown the network, closing all endpoint connections and stopping the event
-        /// loop (if Network-managed).If immediate is false (the default) this call initiates a
-        /// graceful shutdown (sending connection close packets, etc.)
-        void shutdown(bool immediate = false);
+        void set_shutdown_immediate(bool b = true) { shutdown_immediate = b; }
 
       private:
         std::atomic<bool> running{false};
+        std::atomic<bool> shutdown_immediate{false};
         std::shared_ptr<::event_base> ev_loop;
         std::optional<std::thread> loop_thread;
         std::thread::id loop_thread_id;
@@ -127,13 +125,5 @@ namespace oxen::quic
         void close_gracefully();
 
         void close_immediate();
-
-        // Asynchronously begins closing (e.g. sending close packets) for all endpoints.  Triggers a
-        // call to `close_ungraceful` when all connections have had their close packet written.  If
-        // the promise is given, it will be passed on to `close_final()` to be fulfilled once
-        // closing is complete.
-        void close_all(std::shared_ptr<std::promise<void>> done = nullptr);
-
-        void close_final(std::shared_ptr<std::promise<void>> done = nullptr);
     };
 }  // namespace oxen::quic

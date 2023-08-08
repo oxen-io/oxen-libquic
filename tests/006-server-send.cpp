@@ -63,7 +63,6 @@ namespace oxen::quic::test
         REQUIRE(client_future.get());
         REQUIRE(server_future.get());
         REQUIRE(data_check == 2);
-        test_net.shutdown();
     };
 
     TEST_CASE("006 - Server streams: Remote initiation, server send", "[006][server][streams][send][execute]")
@@ -177,6 +176,5 @@ namespace oxen::quic::test
 
         REQUIRE(server_futures[2].get());
         REQUIRE(data_check == 4);
-        test_net.shutdown();
     };
 }  // namespace oxen::quic::test

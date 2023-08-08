@@ -60,8 +60,6 @@ namespace oxen::quic::test
         REQUIRE(bufsize_ep->packet_splitting_enabled());
         REQUIRE(bufsize_ep->splitting_policy() == Splitting::ACTIVE);
         REQUIRE(bufsize_ep->datagram_bufsize() == bsize);
-
-        test_net.shutdown();
     };
 
     TEST_CASE("007 - Datagram support: Query param info from datagram-disabled endpoint", "[007][datagrams][types]")
@@ -99,8 +97,6 @@ namespace oxen::quic::test
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
         REQUIRE(conn_interface->get_max_datagram_size() == 0);
-
-        test_net.shutdown();
     };
 
     TEST_CASE("007 - Datagram support: Query param info from default datagram-enabled endpoint", "[007][datagrams][types]")
@@ -142,8 +138,6 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(5ms);
         REQUIRE(conn_interface->get_max_datagram_size() < MAX_PMTUD_UDP_PAYLOAD);
-
-        test_net.shutdown();
     };
 
     TEST_CASE("007 - Datagram support: Query params from split-datagram enabled endpoint", "[007][datagrams][types]")
@@ -183,8 +177,6 @@ namespace oxen::quic::test
 
         std::this_thread::sleep_for(5ms);
         REQUIRE(conn_interface->get_max_datagram_size() < MAX_GREEDY_PMTUD_UDP_PAYLOAD);
-
-        test_net.shutdown();
     };
 
     TEST_CASE("007 - Datagram support: Execute, No Splitting Policy", "[007][datagrams][execute][nosplit]")
@@ -242,8 +234,6 @@ namespace oxen::quic::test
             conn_interface->send_datagram(msg);
 
             REQUIRE(data_future.get());
-
-            test_net.shutdown();
         };
     };
 
@@ -314,7 +304,6 @@ namespace oxen::quic::test
 
             REQUIRE(data_future.get());
             REQUIRE(data_counter == 1);
-            test_net.shutdown();
         };
     };
 
@@ -410,8 +399,6 @@ namespace oxen::quic::test
             auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
             REQUIRE(server_ci->last_cleared() == 0);
-
-            test_net.shutdown();
         };
     };
 
@@ -509,8 +496,6 @@ namespace oxen::quic::test
                 REQUIRE(f.get());
 
             REQUIRE(data_counter == int(n));
-
-            test_net.shutdown();
         };
     };
 
@@ -610,8 +595,6 @@ namespace oxen::quic::test
 
             REQUIRE(counter == bufsize);
             REQUIRE(received == successful_msg);
-
-            test_net.shutdown();
         };
 #endif
     };
@@ -739,8 +722,6 @@ namespace oxen::quic::test
             REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter < (int)n);
 
             conn_interface->test_suite.datagram_flip_flop_enabled = false;
-
-            test_net.shutdown();
         };
 #endif
     };

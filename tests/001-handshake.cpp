@@ -37,12 +37,13 @@ namespace oxen::quic::test
             auto ep = test_net.endpoint(default_addr);
             // Note: kernel chooses a random port after being passed default addr
             REQUIRE_FALSE(ep->local().to_string() == default_addr.to_string());
-            test_net.shutdown();
         };
 
         SECTION("Endpoint::listen() - TLS credentials")
         {
             Network test_net{};
+            test_net.set_shutdown_immediate();
+
             opt::local_addr default_addr{}, local_addr{};
             auto local_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
 
@@ -51,7 +52,6 @@ namespace oxen::quic::test
 
             REQUIRE_THROWS(ep_notls->listen());
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
-            test_net.shutdown();
         };
 
         SECTION("Endpoint::listen() - Default addressing")
@@ -63,12 +63,12 @@ namespace oxen::quic::test
             auto ep = test_net.endpoint(default_addr);
 
             REQUIRE_NOTHROW(ep->listen(local_tls));
-            test_net.shutdown();
         };
 
-        SECTION("Endpoint::connect() - Default addressing")
+        SECTION("Endpoint::connect() - Immediate network shutdown")
         {
             Network test_net{};
+            test_net.set_shutdown_immediate();
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
 
@@ -82,10 +82,9 @@ namespace oxen::quic::test
 
             auto client_endpoint = test_net.endpoint(client_local);
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
-            test_net.shutdown();
         };
 
-        SECTION("Endpoint::connect() - Specific Addressing")
+        SECTION("Endpoint::connect() - Graceful network shutdown")
         {
             Network test_net{};
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
@@ -103,7 +102,6 @@ namespace oxen::quic::test
             // no client TLS passed
             REQUIRE_THROWS(client_endpoint->connect(client_remote));
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
-            test_net.shutdown();
         };
     };
 
@@ -144,8 +142,6 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
             REQUIRE(tls_future.get());
-
-            test_net.shutdown();
         };
     };
 
@@ -182,7 +178,6 @@ namespace oxen::quic::test
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(tls_future.valid());
-            test_net.shutdown();
         };
 
         SECTION("Successful TLS handshake")
@@ -216,7 +211,6 @@ namespace oxen::quic::test
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(tls_future.get());
-            test_net.shutdown();
         };
     };
 }  // namespace oxen::quic::test

@@ -207,8 +207,6 @@ int main(int argc, char* argv[])
     fmt::print("Elapsed time: {:.5f}s\n", elapsed);
     fmt::print("Speed: {:.5f}MB/s\n", size / 1'000'000.0 / elapsed);
 
-    client_net.shutdown();
-
     return 0;
 #else
     log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
