@@ -47,7 +47,7 @@ namespace oxen::quic
         ~Stream();
 
         bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
-        bool is_stream() override { return true; }
+        bool is_stream() const override { return true; }
 
         int64_t stream_id() const override { return _stream_id; }
         const ConnectionID& conn_id() const;

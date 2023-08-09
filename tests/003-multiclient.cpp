@@ -109,6 +109,5 @@ namespace oxen::quic::test
         async_thread_b.join();
         async_thread_a.join();
         REQUIRE(data_check == 4);
-        test_net.close();
     };
 }  // namespace oxen::quic::test

@@ -98,12 +98,17 @@ namespace oxen::quic
 
         setup_job_waker();
 
-        loop_thread.emplace([this]() mutable {
+        std::promise<void> p;
+
+        loop_thread.emplace([this, &p]() mutable {
             log::debug(log_cat, "Starting event loop run");
+            p.set_value();
             event_base_loop(ev_loop.get(), EVLOOP_NO_EXIT_ON_EMPTY);
             log::debug(log_cat, "Event loop run returned, thread finished");
         });
+
         loop_thread_id = loop_thread->get_id();
+        p.get_future().get();
 
         running.store(true);
         log::info(log_cat, "Network is started");
@@ -112,9 +117,17 @@ namespace oxen::quic
     Network::~Network()
     {
         log::info(log_cat, "Shutting down network...");
-        close().get();
+
+        if (shutdown_immediate)
+            close_immediate();
+        else
+            close_gracefully();
+
         if (loop_thread)
             loop_thread->join();
+
+        endpoint_map.clear();
+
         log::info(log_cat, "Network shutdown complete");
 
 #ifdef _WIN32
@@ -137,40 +150,32 @@ namespace oxen::quic
         assert(job_waker);
     }
 
-    std::future<void> Network::close(bool graceful)
+    void Network::close_immediate()
     {
-        auto prom = std::make_shared<std::promise<void>>();
-        auto fut = prom->get_future();
-        if (not running.exchange(false))
-        {
-            prom->set_value();
-            return fut;
-        }
+        log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        log::info(log_cat, "Shutting down Network...");
-
-        call([this, prom, &graceful]() mutable {
-            // If we have no endpoints we can just shut down immediately
-            if (endpoint_map.empty() || !graceful)
-                return close_final(std::move(prom));
-
-            // Otherwise we need to initiate closing
-            close_all(std::move(prom));
-        });
-
-        return fut;
+        if (loop_thread)
+            event_base_loopbreak(ev_loop.get());
     }
 
-    void Network::close_final(std::shared_ptr<std::promise<void>> done)
+    void Network::close_gracefully()
     {
+        log::info(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        endpoint_map.clear();
+        std::promise<void> pr;
+        auto ft = pr.get_future();
+
+        call([&]() mutable {
+            for (const auto& ep : endpoint_map)
+                ep->close_conns();
+
+            pr.set_value();
+        });
+
+        ft.get();
 
         if (loop_thread)
             event_base_loopexit(ev_loop.get(), nullptr);
-
-        if (done)
-            done->set_value();
     }
 
     bool Network::in_event_loop() const
@@ -178,7 +183,6 @@ namespace oxen::quic
         return std::this_thread::get_id() == loop_thread_id;
     }
 
-    // NOTE (Tom): when closing, when to stop accepting new jobs and stop/close async handle?
     void Network::call_soon(std::function<void(void)> f, source_location src)
     {
         loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
@@ -210,20 +214,6 @@ namespace oxen::quic
             loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
             job.first();
         }
-    }
-
-    // TODO (Tom): for graceful shutdown, how best to wait until clients and servers have properly disconnected
-    void Network::close_all(std::shared_ptr<std::promise<void>> done)
-    {
-        call([this, done = std::move(done)]() mutable {
-            for (const auto& ep : endpoint_map)
-                ep->close_conns();
-            // FIXME TODO
-            log::critical(
-                    log_cat,
-                    "FIXME: need to properly get a call to close_final() to happen here *after* shutdown is complete");
-            close_final(done);
-        });
     }
 
 }  // namespace oxen::quic

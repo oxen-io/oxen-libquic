@@ -221,6 +221,14 @@ namespace oxen::quic
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
     }
 
+    void Connection::halt_events()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        packet_io_trigger.reset();
+        packet_retransmit_timer.reset();
+        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted");
+    }
+
     void Connection::packet_io_ready()
     {
         event_active(packet_io_trigger.get(), 0, 0);
@@ -233,8 +241,7 @@ namespace oxen::quic
             log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
 
             _endpoint.call([this]() {
-                log::debug(
-                        log_cat, "Error: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
+                log::debug(log_cat, "Note: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
                 _endpoint.delete_connection(scid());
             });
             return;
@@ -242,7 +249,7 @@ namespace oxen::quic
 
         if (is_draining())
         {
-            log::debug(log_cat, "Error: connection is already draining; dropping");
+            log::debug(log_cat, "Note: connection is already draining; dropping");
         }
 
         if (read_packet(pkt).success())
@@ -375,7 +382,7 @@ namespace oxen::quic
         });
     }
 
-    void Connection::call_closing()
+    void Connection::call_close_cb()
     {
         if (!on_closing)
             return;

@@ -104,11 +104,14 @@ namespace oxen::quic
     {
         if (conn.is_draining())
             return;
-        conn.call_closing();
 
-        log::debug(log_cat, "Putting CID: {} into draining state", conn.scid());
-        conn.drain();
+        conn.call_close_cb();
+        conn.halt_events();
+
+        conn.set_draining();
         draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.scid());
+
+        log::debug(log_cat, "Connection CID: {} marked as draining", conn.scid());
     }
 
     void Endpoint::handle_packet(const Packet& pkt)
@@ -180,6 +183,10 @@ namespace oxen::quic
                     *conn.scid().data);
         }
 
+        // mark connection as closing
+        conn.halt_events();
+        conn.set_closing();
+
         ngtcp2_ccerr err;
         ngtcp2_ccerr_set_liberr(&err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
 
@@ -220,7 +227,7 @@ namespace oxen::quic
     {
         if (auto itr = conns.find(cid); itr != conns.end())
         {
-            itr->second->call_closing();
+            itr->second->call_close_cb();
 
             conns.erase(itr);
             log::debug(log_cat, "Successfully deleted connection [ID: {}]", *cid.data);

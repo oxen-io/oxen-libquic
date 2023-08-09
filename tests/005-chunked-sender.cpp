@@ -110,7 +110,5 @@ namespace oxen::quic::test
                     "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]"
                     "Goodbye.");
         }
-
-        test_net.close();
     };
 }  // namespace oxen::quic::test
