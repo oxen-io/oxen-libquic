@@ -1136,10 +1136,6 @@ namespace oxen::quic
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);
 
-#ifdef LIBQUIC_ZMQ_BRIDGE
-        zmq = _endpoint.zmq_bridge->deploy_worker(*this);
-#endif
-
         const auto is_outbound = (dir == Direction::OUTBOUND);
         const auto d_str = is_outbound ? "outbound"s : "inbound"s;
         log::trace(log_cat, "Creating new {} connection object", d_str);

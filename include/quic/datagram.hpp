@@ -82,6 +82,31 @@ namespace oxen::quic
         virtual bool has_unsent() const = 0;
     };
 
+    class CustomChannelBase
+    {
+        virtual void handle_opt();
+
+        virtual void initialize();
+        
+    };
+    
+    class UserChannelBase : public CustomChannelBase, public IOChannel
+    {
+      public:
+        UserChannelBase(Connection& c, Endpoint& e) : IOChannel{c, e} {}
+    };
+
+    template <
+            typename T, 
+            typename... Opt,
+            std::enable_if_t<std::is_base_of_v<UserChannelBase, T>, int> = 0>
+    static std::shared_ptr<T> make_bridge(Endpoint& e, Connection& c, Opt&&... opts)
+    {
+        auto sp = std::shared_ptr<T>(new T{e, c});
+        ((void)sp->handle_opt(std::forward<Opt>(opts)), ...);
+        sp->initialize();
+    }
+
     class DatagramIO : public IOChannel
     {
       public:

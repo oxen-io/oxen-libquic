@@ -1,5 +1,3 @@
-include(ExternalProject)
-
 function(enable_lto)
   if(IPO_ENABLED)
     set_target_properties(${ARGN} PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
@@ -22,10 +20,6 @@ if(GIT_FOUND)
     check_submodule(ngtcp2)
     check_submodule(oxen-logging fmt spdlog)
     check_submodule(oxen-encoding)
-endif()
-
-if(NOT BUILD_STATIC_DEPS)
-    find_package(PkgConfig REQUIRED)
 endif()
 
 # ngtcp2

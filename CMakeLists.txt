@@ -95,6 +95,8 @@ endif()
 
 option(BUILD_TESTS "Build libquic test suite and programs" ${libquic_IS_TOPLEVEL_PROJECT})
 
+find_package(PkgConfig REQUIRED)
+
 add_subdirectory(external)
 add_subdirectory(src)
 

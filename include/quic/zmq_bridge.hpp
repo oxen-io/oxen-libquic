@@ -39,13 +39,12 @@ namespace oxen::quic
         inline void pop() { data.pop_front(); }
     };
 
-    class ZMQWorker : public IOChannel
+    class ZMQChannel : public UserChannelBase
     {
         friend class ZMQBridge;
 
       public:
         std::unique_ptr<zmq::socket_t> wsock;
-        zmq::socket_ref csock;
 
         std::thread worker_thread;
 
@@ -58,13 +57,14 @@ namespace oxen::quic
         std::chrono::steady_clock::time_point start_time;
         std::chrono::steady_clock::time_point next_heartbeat;
 
-        ZMQWorker(Endpoint& e, Connection& c, zmq::context_t& _ctx, zmq::socket_t& s) :
-                IOChannel{c, e}, csock{s}, scid{conn.scid()}
+        static std::shared_ptr<ZMQChannel> make(Endpoint& e, Connection& c, zmq::context_t& _ctx, zmq::socket_t&)
         {
-            wsock = std::make_unique<zmq::socket_t>(_ctx, zmq::socket_type::router);
+            auto zw = std::shared_ptr<ZMQChannel>(new ZMQChannel{e, c});
+            zw->initialize();
+            return zw;
         }
 
-        ~ZMQWorker() { close(); }
+        ~ZMQChannel() { close(); }
 
         void close()
         {
@@ -82,16 +82,22 @@ namespace oxen::quic
         }
 
       private:
+        ZMQChannel(Endpoint& e, Connection& c) :
+                UserChannelBase{c, e}, scid{conn.scid()}
+        {
+            // wsock = std::make_unique<zmq::socket_t>(_ctx, zmq::socket_type::router);
+        }
+
         bool active;
 
-        void initialize()
+        void initialize() override
         {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             std::promise<void> p;
             auto f = p.get_future();
 
-            worker_thread = std::thread{&ZMQWorker::worker_loop, this, std::move(p)};
+            worker_thread = std::thread{&ZMQChannel::worker_loop, this, std::move(p)};
 
             log::trace(log_cat, "Waiting on worker thread...");
             f.get();
@@ -215,7 +221,7 @@ namespace oxen::quic
         // Internal mapping of active workers, 1:1 with quic::Connections
         //  key: scid of housing connection
         //  value: ZMQWorker paired with connection
-        std::unordered_map<ConnectionID, std::shared_ptr<ZMQWorker>> workers;
+        std::unordered_map<ConnectionID, std::shared_ptr<ZMQChannel>> workers;
 
         // Mapping of worker dealer sockets, keyed to the ConnectionID of the quic::Connection
         // they are emplaced into. ZMQWorkers hold a socket_ref to this socket
@@ -234,7 +240,7 @@ namespace oxen::quic
             return z;
         }
 
-        std::shared_ptr<ZMQWorker> deploy_worker(Connection& c)
+        std::shared_ptr<ZMQChannel> deploy_worker(Connection& c)
         {
             auto scid = c.scid();
 
@@ -249,7 +255,7 @@ namespace oxen::quic
 
             auto [w_itr, r] = workers.emplace(scid, nullptr);
 
-            w_itr->second = std::make_shared<ZMQWorker>(endpoint, c, ctx, ws);
+            w_itr->second = ZMQChannel::make(endpoint, c, ctx, ws);
             w_itr->second->initialize();
 
             num_workers += 1;
@@ -262,10 +268,7 @@ namespace oxen::quic
             if (workers[target].get())
             {
                 log::trace(log_cat, "Worker paired to CID: {} closing...", target);
-                // workers[target]->close();
                 workers.erase(target);
-
-                // ws.disconnect(ws.get(zmq::sockopt::last_endpoint));
 
                 auto& ws = worker_sockets.at(target);
                 ws.close();
@@ -290,8 +293,6 @@ namespace oxen::quic
                     log::trace(log_cat, "Worker paired to CID: {} closing...", k);
                     v->close();
 
-                    // auto& ws = worker_sockets.at(k);
-                    // ws.close();
                     worker_sockets.erase(k);
                     log::debug(log_cat, "Worker paired to CID: {} closed!", k);
                 }
@@ -319,10 +320,8 @@ namespace oxen::quic
 
             command.close();
             broker.close();
-            log::trace(log_cat, "sockets closed");
 
             ctx.shutdown();
-            log::trace(log_cat, "context shutdown");
             ctx.close();
             log::trace(log_cat, "ZMQBridge closed!");
         }

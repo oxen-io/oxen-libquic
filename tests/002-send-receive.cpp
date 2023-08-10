@@ -81,7 +81,6 @@ namespace oxen::quic::test
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
         REQUIRE(tls_future.get());
-        test_net.shutdown();
 #else
         SKIP("ZMQ unit tests require `-DENABLE_ZMQ_BRIDGE` compilation flag");
 #endif

@@ -5,15 +5,22 @@ option(ENABLE_ZMQ_BRIDGE "Enable optional header-only zmq messaging bridge" OFF)
 # do this here as it's technically an external dependency outside of external/, but only in specific cases
 if (ENABLE_ZMQ_BRIDGE)
     if (NOT TARGET cppzmq)
-        include(FetchContent)
+        pkg_check_modules(CPPZMQ cppzmq>=4.9.0 IMPORTED_TARGET)
 
-        set(CPPZMQ_BUILD_TESTS OFF CACHE INTERNAL "")
-        FetchContent_Declare(
-            cppzmq
-            GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
-            GIT_TAG c94c20743ed7d4aa37835a5c46567ab0790d4acc    # release 4.10.0
-        )
-        FetchContent_MakeAvailable(cppzmq)
+        if (CPPZMQ_FOUND)
+            add_library(cppzmq ALIAS PkgConfig::CPPZMQ)
+
+        else()
+            include(FetchContent)
+
+            set(CPPZMQ_BUILD_TESTS OFF CACHE INTERNAL "")
+            FetchContent_Declare(
+                cppzmq
+                GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+                GIT_TAG c94c20743ed7d4aa37835a5c46567ab0790d4acc    # release 4.10.0
+            )
+            FetchContent_MakeAvailable(cppzmq)
+        endif()
     endif()
 endif()
 

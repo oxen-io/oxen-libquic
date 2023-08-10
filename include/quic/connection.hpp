@@ -29,7 +29,7 @@ namespace oxen::quic
     struct dgram_interface;
 
 #ifdef LIBQUIC_ZMQ_BRIDGE
-    class ZMQWorker;
+    class ZMQChannel;
 #endif
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
@@ -218,9 +218,7 @@ namespace oxen::quic
         // underlying ngtcp2 connection object
         std::unique_ptr<ngtcp2_conn, connection_deleter> conn;
 
-#ifdef LIBQUIC_ZMQ_BRIDGE
-        std::shared_ptr<ZMQWorker> zmq;
-#endif
+        // put zmq here
 
         std::shared_ptr<TLSCreds> tls_creds;
         std::unique_ptr<TLSSession> tls_session;
