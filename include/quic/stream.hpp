@@ -86,6 +86,10 @@ namespace oxen::quic
             send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
         }
 
+        void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
+
+        void set_stream_close_cb(stream_close_callback cb) { close_callback = std::move(cb); }
+
         stream_data_callback data_callback;
         stream_close_callback close_callback;
 
