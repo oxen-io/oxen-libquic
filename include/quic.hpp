@@ -11,6 +11,7 @@
 #include "quic/messages.hpp"
 #include "quic/network.hpp"
 #include "quic/opt.hpp"
+#include "quic/parser.hpp"
 #include "quic/stream.hpp"
 #include "quic/types.hpp"
 #include "quic/udp.hpp"

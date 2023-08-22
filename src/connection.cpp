@@ -226,7 +226,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
-        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted");
+        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted", scid());
     }
 
     void Connection::packet_io_ready()
