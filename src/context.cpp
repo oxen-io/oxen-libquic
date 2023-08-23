@@ -32,4 +32,10 @@ namespace oxen::quic
         log::trace(log_cat, "IO context stored stream open callback");
         stream_close_cb = std::move(func);
     }
+
+    void IOContext::handle_ioctx_opt(stream_constructor_callback func)
+    {
+        log::trace(log_cat, "IO context stored stream constructor callback");
+        stream_construct_cb = std::move(func);
+    }
 }  // namespace oxen::quic

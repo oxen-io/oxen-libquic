@@ -773,7 +773,10 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb, id);
+        auto stream =
+                (context->stream_construct_cb)
+                        ? context->stream_construct_cb(id)
+                        : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb, id);
         stream->set_ready();
 
         log::debug(log_cat, "Local endpoint creating stream to match remote");
