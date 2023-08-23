@@ -226,7 +226,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
-        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted");
+        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted", scid());
     }
 
     void Connection::packet_io_ready()
@@ -360,7 +360,8 @@ namespace oxen::quic
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = make_stream(*this, _endpoint);
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint)
+                                                         : make_stream(*this, _endpoint);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
@@ -776,7 +777,9 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+        auto stream = (context->stream_construct_cb)
+                            ? context->stream_construct_cb(*this, _endpoint)
+                            : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
         stream->_stream_id = id;
         stream->set_ready();
 

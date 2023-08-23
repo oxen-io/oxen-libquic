@@ -97,7 +97,6 @@ namespace oxen::quic
             send_datagram(view, std::move(keep_alive));
         }
 
-        // note: We can't template virtual functions; do this a better way if it ends up working
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
 
         virtual int get_max_streams() const = 0;
