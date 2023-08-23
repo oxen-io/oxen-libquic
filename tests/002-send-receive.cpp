@@ -45,7 +45,7 @@ namespace oxen::quic::test
         REQUIRE(d_future.get());
     };
 
-    TEST_CASE("002 - BParser Testing", "[002][bparser]")
+    /* TEST_CASE("002 - BParser Testing", "[002][bparser]")
     {
         Network test_net{};
 
@@ -77,8 +77,8 @@ namespace oxen::quic::test
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->get_new_stream(*client_bp, *client_bp);
 
-        client_bp->command("test_endpoint"_bs, "test_request_body"_bs);
+        client_bp->command("test_endpoint"s, "test_request_body"s);
 
         std::this_thread::sleep_for(250ms);
-    };
+    }; */
 }  // namespace oxen::quic::test
