@@ -60,9 +60,18 @@ namespace oxen::quic
 
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
+      protected:
+        virtual std::shared_ptr<Stream> get_new_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
+
       public:
-        virtual std::shared_ptr<Stream> get_new_stream(
-                stream_data_callback data_cb = nullptr, stream_close_callback close_cb = nullptr) = 0;
+        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<Stream> get_new_stream(Args&&... args)
+        {
+            return get_new_stream_impl([&](Connection& c, Endpoint& e) {
+                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            });
+        }
 
         template <
                 typename CharType,
@@ -143,8 +152,8 @@ namespace oxen::quic
 
         const TLSSession* get_session() const { return tls_session.get(); };
 
-        std::shared_ptr<Stream> get_new_stream(
-                stream_data_callback data_cb = nullptr, stream_close_callback close_cb = nullptr) override;
+        std::shared_ptr<Stream> get_new_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
         Direction direction() const { return dir; }
         bool is_inbound() const { return dir == Direction::INBOUND; }
@@ -156,6 +165,7 @@ namespace oxen::quic
         bool is_draining() const { return draining; }
         void set_draining() { draining = true; }
         void call_close_cb();
+        stream_data_callback get_default_data_callback() const;
 
         const ConnectionID& scid() const override { return _source_cid; }
         const ConnectionID& dcid() const { return _dest_cid; }

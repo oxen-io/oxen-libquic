@@ -17,15 +17,13 @@ extern "C"
 
 namespace oxen::quic
 {
-    Stream::Stream(
-            Connection& conn,
-            Endpoint& _ep,
-            stream_data_callback data_cb,
-            stream_close_callback close_cb,
-            int64_t stream_id) :
-            IOChannel{conn, _ep}, data_callback{data_cb}, close_callback{std::move(close_cb)}, _stream_id{stream_id}
+    Stream::Stream(Connection& conn, Endpoint& _ep, stream_data_callback data_cb, stream_close_callback close_cb) :
+            IOChannel{conn, _ep}, data_callback{data_cb}, close_callback{std::move(close_cb)}
     {
         log::trace(log_cat, "Creating Stream object...");
+
+        if (!data_callback)
+            data_callback = conn.get_default_data_callback();
 
         if (!close_callback)
             close_callback = [](Stream&, uint64_t error_code) {
