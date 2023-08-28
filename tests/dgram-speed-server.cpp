@@ -115,7 +115,7 @@ int main(int argc, char* argv[])
         uint16_t _dgid = (raw >> 2);
         uint64_t dgid = _dgid + (overflow * carry) + carry;
 
-        log::debug(test_cat, "Received datagram number: raw: {}, dgid: {}, carry: {}", raw, dgid, carry);
+        log::debug(test_cat, "Received datagram number: raw: {}, dgid: {}, carry: {}", raw, dgid, carry.load());
 
         if (raw % _overflow == 0)
             carry += 1;

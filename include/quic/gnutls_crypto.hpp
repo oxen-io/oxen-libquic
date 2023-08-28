@@ -11,10 +11,11 @@ extern "C"
 
 #include "crypto.hpp"
 
-namespace fs = std::filesystem;
-
 namespace oxen::quic
 {
+
+    namespace fs = std::filesystem;
+
     using gnutls_callback = std::function<int(
             gnutls_session_t session,
             unsigned int htype,
