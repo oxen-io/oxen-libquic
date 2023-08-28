@@ -645,7 +645,7 @@ namespace oxen::quic::test
                 try
                 {
                     data_counter += 1;
-                    log::trace(log_cat, "Data counter: {}", data_counter);
+                    log::trace(log_cat, "Data counter: {}", data_counter.load());
                     data_promises.at(index).set_value(true);
                     index += 1;
                 }
