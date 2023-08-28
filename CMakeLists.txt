@@ -54,7 +54,7 @@ endif()
 include(GNUInstallDirs)
 
 if(BUILD_STATIC_DEPS)
-  include(StaticBuild)
+  include(cmake/StaticBuild.cmake)
 endif()
 
 # Interface target for any general includes, flags, etc. that is meant to be inherited publicly.
