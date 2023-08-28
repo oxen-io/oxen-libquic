@@ -226,7 +226,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
-        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted");
+        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted", scid());
     }
 
     void Connection::packet_io_ready()
@@ -356,13 +356,12 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<Stream> Connection::get_new_stream(stream_data_callback data_cb, stream_close_callback close_cb)
+    std::shared_ptr<Stream> Connection::get_new_stream_impl(
+            std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
-        return _endpoint.call_get([this, &data_cb, &close_cb]() {
-            if (!data_cb)
-                data_cb = context->stream_data_cb;
-
-            auto stream = std::make_shared<Stream>(*this, _endpoint, std::move(data_cb), std::move(close_cb));
+        return _endpoint.call_get([this, &make_stream]() {
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint)
+                                                         : make_stream(*this, _endpoint);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
@@ -390,6 +389,11 @@ namespace oxen::quic
         log::trace(log_cat, "Calling Connection::on_closing for CID: {}", _source_cid);
         on_closing(*this);
         on_closing = nullptr;
+    }
+
+    stream_data_callback Connection::get_default_data_callback() const
+    {
+        return context->stream_data_cb;
     }
 
     void Connection::on_packet_io_ready()
@@ -773,7 +777,10 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        auto stream = std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb, id);
+        auto stream = (context->stream_construct_cb)
+                            ? context->stream_construct_cb(*this, _endpoint)
+                            : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+        stream->_stream_id = id;
         stream->set_ready();
 
         log::debug(log_cat, "Local endpoint creating stream to match remote");
@@ -806,10 +813,10 @@ namespace oxen::quic
         const bool was_closing = stream._is_closing;
         stream._is_closing = stream.is_shutdown = true;
 
-        if (!was_closing && stream.close_callback)
+        if (!was_closing)
         {
             log::trace(log_cat, "Invoking stream close callback");
-            stream.close_callback(stream, app_code);
+            stream.closed(app_code);
         }
 
         log::info(log_cat, "Erasing stream {}", id);
@@ -846,43 +853,37 @@ namespace oxen::quic
 
         log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
-        if (!str->data_callback)
-            log::debug(log_cat, "Stream (ID: {}) has no user-supplied data callback", str->_stream_id);
-        else
+        bool good = false;
+        try
         {
-            bool good = false;
-
-            try
-            {
-                str->data_callback(*str, data);
-                good = true;
-            }
-            catch (const std::exception& e)
-            {
-                log::warning(
-                        log_cat,
-                        "Stream {} data callback raised exception ({}); closing stream with app "
-                        "code "
-                        "{}",
-                        str->_stream_id,
-                        e.what(),
-                        STREAM_ERROR_EXCEPTION);
-            }
-            catch (...)
-            {
-                log::warning(
-                        log_cat,
-                        "Stream {} data callback raised an unknown exception; closing stream with "
-                        "app "
-                        "code {}",
-                        str->_stream_id,
-                        STREAM_ERROR_EXCEPTION);
-            }
-            if (!good)
-            {
-                str->close(STREAM_ERROR_EXCEPTION);
-                return NGTCP2_ERR_CALLBACK_FAILURE;
-            }
+            str->receive(data);
+            good = true;
+        }
+        // FIXME: we should add a special exception type that carries a specific stream application
+        // error to send instead of just the generic STREAM_ERROR_EXCEPTION.
+        catch (const std::exception& e)
+        {
+            log::warning(
+                    log_cat,
+                    "Stream {} data callback raised exception ({}); closing stream with app "
+                    "code {}",
+                    str->_stream_id,
+                    e.what(),
+                    STREAM_ERROR_EXCEPTION);
+        }
+        catch (...)
+        {
+            log::warning(
+                    log_cat,
+                    "Stream {} data callback raised an unknown exception; closing stream with "
+                    "app code {}",
+                    str->_stream_id,
+                    STREAM_ERROR_EXCEPTION);
+        }
+        if (!good)
+        {
+            str->close(STREAM_ERROR_EXCEPTION);
+            return NGTCP2_ERR_CALLBACK_FAILURE;
         }
 
         if (fin)
@@ -1134,7 +1135,8 @@ namespace oxen::quic
             di{*this}
     {
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
-        pseudo_stream = std::make_shared<Stream>(*this, _endpoint, -1);
+        pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
+        pseudo_stream->_stream_id = -1;
 
         const auto is_outbound = (dir == Direction::OUTBOUND);
         const auto d_str = is_outbound ? "outbound"s : "inbound"s;
