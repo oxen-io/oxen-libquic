@@ -7,7 +7,7 @@
 [submodule "external/oxen-logging"]
 	path = external/oxen-logging
 	url = https://github.com/oxen-io/oxen-logging.git
-[submodule "external/CLI11"]
+[submodule "tests/CLI11"]
 	path = tests/CLI11
 	url = https://github.com/CLIUtils/CLI11
 [submodule "external/oxen-encoding"]
