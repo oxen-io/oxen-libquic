@@ -9,11 +9,12 @@ extern "C"
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
+#include <optional>
+
 #include "crypto.hpp"
 
 namespace oxen::quic
 {
-
     namespace fs = std::filesystem;
 
     using gnutls_callback = std::function<int(
@@ -22,6 +23,12 @@ namespace oxen::quic
             unsigned int when,
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
+
+    constexpr auto GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
+    using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
+
+    // arguments: remote pubkey, is_relay
+    using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, bool)>;
 
     struct gnutls_callback_wrapper
     {
@@ -69,7 +76,10 @@ namespace oxen::quic
             else
             {
                 path = NULL;
-                mem = {(uint8_t*)input.data(), (uint8_t)input.size()};
+
+                // uint32_t cast to appease narrowing conversion gods,
+                // if cert size won't fit in 32 bits we have bigger problems
+                mem = {(uint8_t*)input.c_str(), (uint32_t)input.size()};
                 format = !("-----"s.compare(input.substr(0, 5))) ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
                 from_mem = true;
             }
@@ -101,21 +111,35 @@ namespace oxen::quic
       private:
         GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg);
 
+        // Construct from raw Ed25519 keys
+        GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode = false);
+
       public:
         ~GNUTLSCreds();
+
+        const bool using_raw_pk{false};
+        const bool is_snode{false};
 
         gnutls_certificate_credentials_t cred;
 
         gnutls_callback_wrapper client_tls_policy{};
         gnutls_callback_wrapper server_tls_policy{};
 
+        gnutls_key_verify_callback key_verify{};
+
+        gnutls_priority_t priority_cache;
+
         void set_client_tls_policy(
                 gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
         void set_server_tls_policy(
                 gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
+        void set_key_verify_callback(gnutls_key_verify_callback cb) { key_verify = std::move(cb); }
+
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
+
+        static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey, bool is_relay = false);
 
         std::unique_ptr<TLSSession> make_session(bool is_client = false) override;
     };
@@ -127,10 +151,15 @@ namespace oxen::quic
 
         const GNUTLSCreds& creds;
         bool is_client;
+        bool remote_is_relay{false};
+
+        std::optional<gnutls_key> expected_remote_key;
+
+        gnutls_key remote_key;
 
         void set_tls_hook_functions();  // TODO: which and when?
       public:
-        GNUTLSSession(GNUTLSCreds& creds, bool is_client);
+        GNUTLSSession(GNUTLSCreds& creds, bool is_client, std::optional<gnutls_key> expected_key = std::nullopt);
         ~GNUTLSSession();
 
         void* get_session() override { return session; };
@@ -141,6 +170,8 @@ namespace oxen::quic
                 unsigned int when,
                 unsigned int incoming,
                 const gnutls_datum_t* msg) const;
+
+        bool validate_remote_key();
     };
 
 }  // namespace oxen::quic
