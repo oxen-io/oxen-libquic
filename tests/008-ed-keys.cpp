@@ -66,9 +66,11 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local);
 
         std::promise<bool> key_was_allowed;
+        bool remote_was_relay{false};
         auto f = key_was_allowed.get_future();
 
         auto client_key_allowed_cb = [&](const oxen::quic::gnutls_key& key, bool is_relay) {
+            remote_was_relay = is_relay;
             if (not is_relay)
             {
                 key_was_allowed.set_value(true);
@@ -91,12 +93,14 @@ namespace oxen::quic::test
             return false;
         };
 
-        auto always_allow_cb = [&](auto&&...) {
+        auto always_allow_cb = [&](auto, bool is_relay) {
+            remote_was_relay = is_relay;
             key_was_allowed.set_value(true);
             return true;
         };
 
-        auto always_deny_cb = [&](auto&&...) {
+        auto always_deny_cb = [&](auto, bool is_relay) {
+            remote_was_relay = is_relay;
             key_was_allowed.set_value(false);
             return false;
         };
@@ -111,6 +115,7 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
             require_future(f);
+            REQUIRE(not remote_was_relay);
             REQUIRE(f.get() == true);
         };
 
@@ -121,6 +126,7 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
             require_future(f);
+            REQUIRE(not remote_was_relay);
             REQUIRE(f.get() == false);
         };
 
@@ -131,6 +137,7 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls2));
 
             require_future(f);
+            REQUIRE(remote_was_relay);
             REQUIRE(f.get() == true);
         };
 
@@ -141,6 +148,7 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls));
 
             require_future(f);
+            REQUIRE(remote_was_relay);
             REQUIRE(f.get() == false);
         };
     };
