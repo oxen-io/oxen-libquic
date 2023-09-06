@@ -24,7 +24,7 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
 
-    constexpr auto GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
+    constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
     using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
 
     // arguments: remote pubkey, is_relay
@@ -79,7 +79,7 @@ namespace oxen::quic
 
                 // uint32_t cast to appease narrowing conversion gods,
                 // if cert size won't fit in 32 bits we have bigger problems
-                mem = {(uint8_t*)input.c_str(), (uint32_t)input.size()};
+                mem = {reinterpret_cast<uint8_t*>(input.data()), static_cast<uint32_t>(input.size())};
                 format = !("-----"s.compare(input.substr(0, 5))) ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
                 from_mem = true;
             }

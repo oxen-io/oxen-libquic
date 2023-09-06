@@ -132,8 +132,9 @@ namespace oxen::quic
         pubkey_pem += "\n-----END PUBLIC KEY-----\n";
 
         // uint32_t cast to appease narrowing conversion gods
-        const gnutls_datum_t seed_datum{(uint8_t*)seed_pem.c_str(), (uint32_t)seed_pem.size()};
-        const gnutls_datum_t pubkey_datum{(uint8_t*)pubkey_pem.c_str(), (uint32_t)pubkey_pem.size()};
+        const gnutls_datum_t seed_datum{reinterpret_cast<uint8_t*>(seed_pem.data()), static_cast<uint32_t>(seed_pem.size())};
+        const gnutls_datum_t pubkey_datum{
+                reinterpret_cast<uint8_t*>(pubkey_pem.data()), static_cast<uint32_t>(pubkey_pem.size())};
 
         if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
         {
@@ -156,9 +157,11 @@ namespace oxen::quic
             throw std::runtime_error("gnutls import of raw Ed keys failed");
         }
 
-        constexpr auto* priority =
-                "NORMAL:+ECDHE-PSK:+PSK:+ECDHE-ECDSA:+AES-128-CCM-8:+CTYPE-CLI-ALL:+CTYPE-SRV-ALL:+"
-                "SHA256";
+        // clang format keeps changing this arbitrarily, so disable for this line
+        // clang-format off
+        constexpr auto* priority = "NORMAL:+ECDHE-PSK:+PSK:+ECDHE-ECDSA:+AES-128-CCM-8:+CTYPE-CLI-ALL:+CTYPE-SRV-ALL:+SHA256";
+        // clang-format on
+
         const char* err{nullptr};
         if (auto rv = gnutls_priority_init(&priority_cache, priority, &err); rv < 0)
         {

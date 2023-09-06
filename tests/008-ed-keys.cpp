@@ -11,7 +11,7 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("008 - Ed Keys: Types", "[001][keys][tls][types]")
+    TEST_CASE("008 - Ed Keys: Types", "[008][edkeys][types]")
     {
         auto client_seed = oxenc::from_hex("468e7ed2cd914ca44568e7189245c7b8e5488404fc88a4019c73b51d9dbc48a5");
         auto client_pubkey = oxenc::from_hex("626136fe40c8860ee5bdc57fd9f15a03ef6777bb9237c18fc4d7ef2aacfe4f88");
@@ -36,7 +36,7 @@ namespace oxen::quic::test
         };
     };
 
-    TEST_CASE("008 - Ed Keys: Connections", "[001][keys][tls][connection]")
+    TEST_CASE("008 - Ed Keys: Handshakes", "[008][edkeys][execute]")
     {
 
         auto client_seed = oxenc::from_hex("468e7ed2cd914ca44568e7189245c7b8e5488404fc88a4019c73b51d9dbc48a5");
