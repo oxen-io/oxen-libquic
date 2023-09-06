@@ -78,7 +78,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         + (if tests then [
              'cd build',
              '../utils/gen-certs.sh',
-             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --no-ipv6 --colour-mode ansi',
+             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --log-level debug --no-ipv6 --colour-mode ansi',
              'cd ..',
            ] else []);
 
@@ -172,7 +172,7 @@ local windows_cross_pipeline(name,
         '-DBUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
         ci_dep_mirror(local_mirror),
         'make -j' + jobs + ' VERBOSE=1',
-        //'wine-stable tests/alltests.exe --colour-mode ansi', // doesn't work yet :(
+        //'wine-stable tests/alltests.exe --log-level debug --colour-mode ansi', // doesn't work yet :(
       ] + extra_cmds,
     },
   ],

@@ -145,6 +145,36 @@ namespace oxen::quic
         return 0;
     }
 
+    int on_handshake_completed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    {
+        auto* conn_ptr = static_cast<Connection*>(user_data);
+        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+
+        log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
+
+        // server considers handshake complete and confirmed, and connection established at this point
+        if (conn_ptr->is_inbound())
+            conn_ptr->endpoint().connection_established(*conn_ptr);
+
+        return 0;
+    }
+
+    int on_handshake_confirmed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    {
+        auto* conn_ptr = static_cast<Connection*>(user_data);
+        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+
+        log::trace(log_cat, "HANDSHAKE CONFIRMED on {} connection", dir_str);
+
+        // server should never call this, as it "confirms" on handshake completed
+        assert(conn_ptr->is_outbound());
+
+        // client considers handshake complete and confirmed, and connection established at this point
+        conn_ptr->endpoint().connection_established(*conn_ptr);
+
+        return 0;
+    }
+
     void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx)
     {
         (void)rand_ctx;
@@ -399,6 +429,13 @@ namespace oxen::quic
     stream_data_callback Connection::get_default_data_callback() const
     {
         return context->stream_data_cb;
+    }
+
+    bool Connection::close_cb_called()
+    {
+        bool b = close_cb_was_called;
+        close_cb_was_called = true;
+        return b;
     }
 
     void Connection::on_packet_io_ready()
@@ -1066,6 +1103,8 @@ namespace oxen::quic
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
         callbacks.stream_open = on_stream_open;
+        callbacks.handshake_completed = on_handshake_completed;
+        callbacks.handshake_confirmed = on_handshake_confirmed;
 
         ngtcp2_settings_default(&settings);
 
@@ -1078,6 +1117,7 @@ namespace oxen::quic
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
+        settings.handshake_timeout = std::chrono::nanoseconds(5s).count();
 
         ngtcp2_transport_params_default(&params);
 

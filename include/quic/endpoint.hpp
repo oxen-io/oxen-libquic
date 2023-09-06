@@ -34,13 +34,27 @@ extern "C"
 
 namespace oxen::quic
 {
+    struct connection_established_callback : public std::function<void(connection_interface& conn)>
+    {
+        using std::function<void(connection_interface& conn)>::function;
+    };
+    struct connection_closed_callback : public std::function<void(connection_interface& conn)>  // do we care about reason?
+    {
+        using std::function<void(connection_interface& conn)>::function;
+    };
+
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(dgram_data_callback dgram_cb);
+        void handle_ep_opt(connection_established_callback conn_established_cb);
+        void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
       public:
+        connection_established_callback on_connection_established;
+        connection_closed_callback on_connection_closed;
+
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
         Endpoint(const Endpoint&) = delete;
         Endpoint& operator=(const Endpoint&) = delete;
@@ -191,6 +205,9 @@ namespace oxen::quic
         // public so connections can call when handling conn packets
         void delete_connection(const ConnectionID& cid);
         void drain_connection(Connection& conn);
+
+        void connection_established(connection_interface& conn);
+        void connection_closed(connection_interface& conn);
 
         int _rbufsize{4096};
 

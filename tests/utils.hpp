@@ -111,4 +111,31 @@ namespace oxen::quic
         REQUIRE(f.wait_for(timeout) == std::future_status::ready);
     }
 
+    template <typename F>
+    void require_future_ready(F& f)
+    {
+        REQUIRE(f.wait_for(0s) == std::future_status::ready);
+    }
+
+    template <typename F>
+    struct bool_waiter
+    {
+        std::promise<bool> prom;
+        std::future<bool> fut{prom.get_future()};
+
+        F func()
+        {
+            return [this](auto&&...) { prom.set_value(true); };
+        }
+
+        bool wait_ready(std::chrono::milliseconds timeout = 1s)
+        {
+            return fut.wait_for(timeout) == std::future_status::ready;
+        }
+
+        bool is_ready() { return fut.wait_for(0s) == std::future_status::ready; }
+
+        bool get() { return fut.get(); }
+    };
+
 }  // namespace oxen::quic

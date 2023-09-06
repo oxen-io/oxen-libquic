@@ -41,6 +41,18 @@ namespace oxen::quic
         dgram_recv_cb = std::move(func);
     }
 
+    void Endpoint::handle_ep_opt(connection_established_callback conn_established_cb)
+    {
+        log::trace(log_cat, "Endpoint given connection established callback");
+        on_connection_established = std::move(conn_established_cb);
+    }
+
+    void Endpoint::handle_ep_opt(connection_closed_callback conn_closed_cb)
+    {
+        log::trace(log_cat, "Endpoint given connection closed callback");
+        on_connection_closed = std::move(conn_closed_cb);
+    }
+
     void Endpoint::_init_internals()
     {
         log::debug(log_cat, "Starting new UDP socket on {}", _local);
@@ -102,6 +114,8 @@ namespace oxen::quic
 
     void Endpoint::drain_connection(Connection& conn)
     {
+        connection_closed(conn);
+
         if (conn.is_draining())
             return;
 
@@ -168,6 +182,8 @@ namespace oxen::quic
     void Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
+
+        connection_closed(conn);
 
         if (conn.is_closing() || conn.is_draining())
             return;
@@ -238,6 +254,7 @@ namespace oxen::quic
     {
         if (auto itr = conns.find(cid); itr != conns.end())
         {
+            connection_closed(*(itr->second));
             itr->second->call_close_cb();
 
             conns.erase(itr);
@@ -245,6 +262,30 @@ namespace oxen::quic
         }
         else
             log::warning(log_cat, "Error: could not delete connection [ID: {}]; could not find", *cid.data);
+    }
+
+    void Endpoint::connection_established(connection_interface& conn)
+    {
+        log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
+        if (on_connection_established)
+            on_connection_established(conn);
+    }
+
+    // closing, "is closed", "is draining", etc are a little messy and calling
+    // the user callback for a close more than once feels bad, so this first
+    // checks if it has been called on that connection
+    void Endpoint::connection_closed(connection_interface& conn)
+    {
+        if (conn.close_cb_called())
+            return;
+
+        if (on_connection_closed)
+        {
+            log::trace(log_cat, "Connection closed, calling user callback [ID: {}]", conn.scid());
+            on_connection_closed(conn);
+        }
+        else
+            log::trace(log_cat, "Connection closed, but not calling user callback (not set) [ID: {}]", conn.scid());
     }
 
     std::optional<ConnectionID> Endpoint::handle_packet_connid(const Packet& pkt)
