@@ -104,13 +104,13 @@ namespace oxen::quic::test
         client_tls->set_key_verify_callback(client_key_allowed_cb);
         server_tls2->set_key_verify_callback(always_allow_cb);
 
-        SECTION("Successful Connection")
+        SECTION("All Connections Allowed")
         {
             server_tls->set_key_verify_callback(always_allow_cb);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            REQUIRE(f.wait_for(1s) == std::future_status::ready);
+            require_future(f);
             REQUIRE(f.get() == true);
         };
 
@@ -120,7 +120,7 @@ namespace oxen::quic::test
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            REQUIRE(f.wait_for(1s) == std::future_status::ready);
+            require_future(f);
             REQUIRE(f.get() == false);
         };
 
@@ -130,7 +130,7 @@ namespace oxen::quic::test
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls2));
 
-            REQUIRE(f.wait_for(1s) == std::future_status::ready);
+            require_future(f);
             REQUIRE(f.get() == true);
         };
 
@@ -140,7 +140,7 @@ namespace oxen::quic::test
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls));
 
-            REQUIRE(f.wait_for(1s) == std::future_status::ready);
+            require_future(f);
             REQUIRE(f.get() == false);
         };
     };
