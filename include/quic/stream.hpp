@@ -16,6 +16,7 @@ extern "C"
 #include <vector>
 
 #include "datagram.hpp"
+#include "error.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -59,7 +60,7 @@ namespace oxen::quic
 
         std::shared_ptr<Stream> get_stream() override;
 
-        void close(uint64_t error_code = 0);
+        void close(io_error ec = io_error{});
 
         void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 

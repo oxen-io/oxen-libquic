@@ -112,8 +112,12 @@ namespace oxen::quic::test
 
         SECTION("Endpoint::connect() - IPv6 Addressing")
         {
-            bool_waiter<connection_established_callback> server_established;
-            bool_waiter<connection_established_callback> client_established;
+            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto server_established = bool_waiter{[](connection_interface&) {}};
+
+            // connection_open_callback server_established{server_waiter};
+            // connection_open_callback client_established{client_waiter};
+
             Network test_net{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
@@ -122,73 +126,63 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_endpoint = test_net.endpoint(server_local, server_established.func());
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
             opt::remote_addr client_remote{"::1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established.func());
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
             REQUIRE(client_established.wait_ready());
-            REQUIRE(server_established.is_ready());
-            REQUIRE(server_established.get() == true);
-            REQUIRE(client_established.get() == true);
+            REQUIRE(client_established.get());
+            REQUIRE(server_established.get());
         };
     };
 
     TEST_CASE("001 - Handshaking: Execution", "[001][handshake][tls][execute]")
     {
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto server_established = bool_waiter{[](connection_interface&) {}};
+
+        Network test_net{};
+
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
         SECTION("Unsuccessful TLS handshake - No server TLS credentials")
         {
-            std::atomic<bool> success = false;
-            connection_established_callback established_cb = [&success](auto&&...) { success = true; };
-            bool_waiter<connection_closed_callback> server_closed;
-            Network test_net{};
-
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
-
-            auto server_endpoint = test_net.endpoint(server_local, established_cb);
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE_THROWS(server_endpoint->listen());
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, server_closed.func(), established_cb);
+            auto conn_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
+            auto client_endpoint = test_net.endpoint(client_local, client_established, conn_closed);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(server_closed.wait_ready(10s));  // handshake timeout is 5s, give it some leeway
-            REQUIRE(success == false);
+            REQUIRE(conn_closed.wait_ready(10s));
+            REQUIRE(client_established.is_ready() == false);
         };
 
         SECTION("Successful TLS handshake")
         {
-            bool_waiter<connection_established_callback> server_established;
-            bool_waiter<connection_established_callback> client_established;
-            Network test_net{};
-
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
-
-            auto server_endpoint = test_net.endpoint(server_local, server_established.func());
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established.func());
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(client_established.wait_ready());
-            REQUIRE(server_established.is_ready());
-            REQUIRE(server_established.get() == true);
-            REQUIRE(client_established.get() == true);
+            REQUIRE(server_established.wait_ready());
+            REQUIRE(client_established.get());
+            REQUIRE(server_established.get());
         };
     };
 }  // namespace oxen::quic::test

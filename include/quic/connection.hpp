@@ -105,7 +105,6 @@ namespace oxen::quic
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
         virtual const ConnectionID& scid() const = 0;
-        virtual bool close_cb_called() = 0;  // return old value and set true
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -166,12 +165,10 @@ namespace oxen::quic
         void set_closing() { closing = true; }
         bool is_draining() const { return draining; }
         void set_draining() { draining = true; }
-        void call_close_cb();
         stream_data_callback get_default_data_callback() const;
 
         const ConnectionID& scid() const override { return _source_cid; }
         const ConnectionID& dcid() const { return _dest_cid; }
-        bool close_cb_called() override;  // return old value and set true
 
         const Path& path() const { return _path; }
         const Address& local() const { return _path.local; }
@@ -212,12 +209,10 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        std::function<void(Connection&)> on_closing;  // clear immediately after use
         const int _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         std::atomic<bool> _congested{false};
-        bool close_cb_was_called{false};
 
         struct connection_deleter
         {

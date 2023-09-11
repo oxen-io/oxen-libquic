@@ -41,16 +41,16 @@ namespace oxen::quic
         dgram_recv_cb = std::move(func);
     }
 
-    void Endpoint::handle_ep_opt(connection_established_callback conn_established_cb)
+    void Endpoint::handle_ep_opt(connection_open_callback conn_established_cb)
     {
         log::trace(log_cat, "Endpoint given connection established callback");
-        on_connection_established = std::move(conn_established_cb);
+        connection_open_cb = std::move(conn_established_cb);
     }
 
     void Endpoint::handle_ep_opt(connection_closed_callback conn_closed_cb)
     {
         log::trace(log_cat, "Endpoint given connection closed callback");
-        on_connection_closed = std::move(conn_closed_cb);
+        connection_close_cb = std::move(conn_closed_cb);
     }
 
     void Endpoint::_init_internals()
@@ -114,15 +114,16 @@ namespace oxen::quic
 
     void Endpoint::drain_connection(Connection& conn)
     {
-        connection_closed(conn);
-
         if (conn.is_draining())
             return;
 
-        conn.call_close_cb();
         conn.halt_events();
-
         conn.set_draining();
+
+        // call close callback
+        if (connection_close_cb)
+            connection_close_cb(conn, 0);
+
         draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.scid());
 
         log::debug(log_cat, "Connection CID: {} marked as draining", conn.scid());
@@ -168,27 +169,25 @@ namespace oxen::quic
         return;
     }
 
-    void Endpoint::close_connection(ConnectionID cid, int code, std::string_view msg)
+    void Endpoint::close_connection(ConnectionID cid, io_error ec, std::string_view msg)
     {
         for (auto& [scid, conn] : conns)
         {
             if (scid == cid)
-                return close_connection(*conn, code, msg);
+                return close_connection(*conn, std::move(ec), std::move(msg));
         }
 
         log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
     }
 
-    void Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
+    void Endpoint::close_connection(Connection& conn, io_error ec, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
-
-        connection_closed(conn);
 
         if (conn.is_closing() || conn.is_draining())
             return;
 
-        if (code == NGTCP2_ERR_IDLE_CLOSE)
+        if (ec.ngtcp2_code() == NGTCP2_ERR_IDLE_CLOSE)
         {
             log::info(
                     log_cat,
@@ -202,7 +201,7 @@ namespace oxen::quic
         //  "The error not specifically mentioned, including NGTCP2_ERR_HANDSHAKE_TIMEOUT,
         //  should be dealt with by calling ngtcp2_conn_write_connection_close."
         //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
-        if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
+        if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
             log::info(
                     log_cat,
@@ -214,8 +213,12 @@ namespace oxen::quic
         conn.halt_events();
         conn.set_closing();
 
+        if (connection_close_cb)
+            connection_close_cb(conn, ec.code());
+
         ngtcp2_ccerr err;
-        ngtcp2_ccerr_set_liberr(&err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+        ngtcp2_ccerr_set_liberr(
+                &err, ec.ngtcp2_code(), reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
 
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
@@ -254,9 +257,6 @@ namespace oxen::quic
     {
         if (auto itr = conns.find(cid); itr != conns.end())
         {
-            connection_closed(*(itr->second));
-            itr->second->call_close_cb();
-
             conns.erase(itr);
             log::debug(log_cat, "Successfully deleted connection [ID: {}]", *cid.data);
         }
@@ -267,25 +267,8 @@ namespace oxen::quic
     void Endpoint::connection_established(connection_interface& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
-        if (on_connection_established)
-            on_connection_established(conn);
-    }
-
-    // closing, "is closed", "is draining", etc are a little messy and calling
-    // the user callback for a close more than once feels bad, so this first
-    // checks if it has been called on that connection
-    void Endpoint::connection_closed(connection_interface& conn)
-    {
-        if (conn.close_cb_called())
-            return;
-
-        if (on_connection_closed)
-        {
-            log::trace(log_cat, "Connection closed, calling user callback [ID: {}]", conn.scid());
-            on_connection_closed(conn);
-        }
-        else
-            log::trace(log_cat, "Connection closed, but not calling user callback (not set) [ID: {}]", conn.scid());
+        if (connection_open_cb)
+            connection_open_cb(conn);
     }
 
     std::optional<ConnectionID> Endpoint::handle_packet_connid(const Packet& pkt)

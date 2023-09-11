@@ -11,7 +11,8 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: max stream count", "[004][streams][pending][config]")
     {
-        bool_waiter<connection_established_callback> client_established;
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
 
         opt::max_streams max_streams{8};
@@ -27,7 +28,7 @@ namespace oxen::quic::test
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local, client_established.func());
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
         REQUIRE(client_established.wait_ready());
@@ -71,7 +72,8 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: different remote settings", "[004][streams][pending][config]")
     {
-        bool_waiter<connection_established_callback> client_established;
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
@@ -97,7 +99,7 @@ namespace oxen::quic::test
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local, client_established.func());
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
 
         REQUIRE(client_established.wait_ready());
@@ -125,7 +127,8 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: Execution", "[004][streams][pending][execute]")
     {
-        bool_waiter<connection_established_callback> client_established;
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
@@ -173,7 +176,7 @@ namespace oxen::quic::test
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local, client_established.func());
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
         REQUIRE(client_established.wait_ready());

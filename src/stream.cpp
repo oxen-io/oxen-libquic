@@ -59,11 +59,11 @@ namespace oxen::quic
         return conn.scid();
     }
 
-    void Stream::close(uint64_t error_code)
+    void Stream::close(io_error ec)
     {
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
-        endpoint.call([this, error_code]() {
+        endpoint.call([this, ec]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
@@ -73,8 +73,8 @@ namespace oxen::quic
             else
             {
                 _is_closing = is_shutdown = true;
-                log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ngtcp2_strerror(error_code));
-                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, error_code);
+                log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ec.strerror());
+                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, ec.ngtcp2());
             }
             if (is_shutdown)
                 data_callback = nullptr;
