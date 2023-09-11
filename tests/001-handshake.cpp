@@ -115,9 +115,6 @@ namespace oxen::quic::test
             auto client_established = bool_waiter{[](connection_interface&) {}};
             auto server_established = bool_waiter{[](connection_interface&) {}};
 
-            // connection_open_callback server_established{server_waiter};
-            // connection_open_callback client_established{client_waiter};
-
             Network test_net{};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);

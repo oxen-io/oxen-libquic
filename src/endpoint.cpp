@@ -180,6 +180,16 @@ namespace oxen::quic
         log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
     }
 
+    void Endpoint::drop_connection(Connection& conn, io_error ec)
+    {
+        log::debug(log_cat, "Dropping connection (CID: {})", *conn.scid().data);
+
+        if (connection_close_cb)
+            connection_close_cb(conn, ec.code());
+
+        delete_connection(conn.scid());
+    }
+
     void Endpoint::close_connection(Connection& conn, io_error ec, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
@@ -194,7 +204,7 @@ namespace oxen::quic
                     "Connection (CID: {}) passed idle expiry timer; closing now without close "
                     "packet",
                     *conn.scid().data);
-            delete_connection(conn.scid());
+            drop_connection(conn, io_error{NGTCP2_ERR_IDLE_CLOSE});
             return;
         }
 

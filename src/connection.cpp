@@ -277,7 +277,7 @@ namespace oxen::quic
 
             _endpoint.call([this]() {
                 log::debug(log_cat, "Note: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
-                _endpoint.delete_connection(scid());
+                _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_CLOSING});
             });
             return;
         }
@@ -331,7 +331,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.delete_connection(scid());
+                    _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_DROP_CONN});
                 });
                 break;
             case NGTCP2_ERR_CRYPTO:
@@ -345,7 +345,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.delete_connection(scid());
+                    _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_CRYPTO});
                 });
                 break;
             default:

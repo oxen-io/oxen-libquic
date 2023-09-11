@@ -16,7 +16,8 @@ namespace oxen::quic
         STREAM_EXCEPTION = (1ULL << 62) - 32,
         STREAM_CONNECTION_EXPIRED = (1ULL << 62) - 31,
 
-        CONN_WRITE_CLOSE_FAIL = (1ULL << 62)
+        CONN_WRITE_CLOSE_FAIL = (1ULL << 62),
+        CONN_SEND_CLOSE_FAIL = (1ULL << 62) + 1
     };
 
     inline const char* quic_strerror(uint64_t e)
@@ -39,6 +40,8 @@ namespace oxen::quic
                 return "No error - draining connection";
             case error::CONN_WRITE_CLOSE_FAIL:
                 return "Error - Failed to write connection close";
+            case error::CONN_SEND_CLOSE_FAIL:
+                return "Error = Failed to send connection close";
             default:
                 return "Unknown error";
         }
