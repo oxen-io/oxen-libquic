@@ -11,6 +11,7 @@ add_executable(alltests
     005-chunked-sender.cpp
     006-server-send.cpp
     007-datagrams.cpp
+    008-ed-keys.cpp
     
     main.cpp
 )

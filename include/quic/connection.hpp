@@ -149,7 +149,7 @@ namespace oxen::quic
 
         void packet_io_ready();
 
-        const TLSSession* get_session() const { return tls_session.get(); };
+        TLSSession* get_session() { return tls_session.get(); };
 
         std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
