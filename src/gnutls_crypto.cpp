@@ -17,12 +17,6 @@ extern "C"
 
 namespace oxen::quic
 {
-    const auto client_alpn = "lokinet_client"s;
-    const auto relay_alpn = "lokinet_relay"s;
-
-    const gnutls_datum_t alpns[] = {
-            {.data = (uint8_t*)client_alpn.c_str(), .size = 14}, {.data = (uint8_t*)relay_alpn.c_str(), .size = 13}};
-
     GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session)
     {
         auto* conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(g_session));
@@ -220,6 +214,21 @@ namespace oxen::quic
         server_tls_policy.incoming = incoming;
     }
 
+    void GNUTLSCreds::set_outbound_alpn(const std::string& alpn)
+    {
+        outbound_alpn_string = alpn;
+        outbound_alpn.data = reinterpret_cast<uint8_t*>(outbound_alpn_string.data());
+        outbound_alpn.size = static_cast<uint32_t>(outbound_alpn_string.size());
+    }
+
+    void GNUTLSCreds::set_allowed_alpns(const std::vector<std::string>& alpns)
+    {
+        allowed_alpn_strings = alpns;
+        for (auto& s : allowed_alpn_strings)
+            allowed_alpns.emplace_back(
+                    gnutls_datum_t{reinterpret_cast<uint8_t*>(s.data()), static_cast<uint32_t>(s.size())});
+    }
+
     GNUTLSSession::~GNUTLSSession()
     {
         log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
@@ -269,29 +278,34 @@ namespace oxen::quic
 
         if (creds.using_raw_pk)
         {
-            // server needs to accept either alpn, "client (ngtcp2)" can be lokinet client or relay
-            // and must send only that alpn
-            const auto* proto = &alpns[0];
-            bool both = false;
-            if (creds.is_snode)
+            // server accepts all ALPNs configured as "allowed", client sends singular
+            // ALPN configured as "outbound".
+            const gnutls_datum_t* proto{nullptr};
+            unsigned int alpn_count{0};
+            if (is_client)
             {
-                both = is_client ? false : true;  // allow both alpns, if snode "relay"
-                if (not both)
-                    proto = &alpns[1];  // only send relay alpn, if snode "client"
+                proto = &creds.outbound_alpn;
+                alpn_count = 1;
             }
-            else if (not is_client)
+            else
             {
-                log::error(log_cat, "inbound connection on non-snode, this is invalid");
-                throw std::runtime_error("inbound connection on non-snode, this is invalid");
+                proto = &(creds.allowed_alpns[0]);
+                alpn_count = creds.allowed_alpns.size();
             }
 
-            if (auto rv = gnutls_alpn_set_protocols(session, proto, both ? 2 : 1, 0); rv < 0)
+            if (proto == nullptr or alpn_count == 0)
+            {
+                log::error(log_cat, "raw public key mode session init, but no ALPNs have been specified.");
+                throw std::runtime_error("raw public key mode session init, but no ALPN specified.");
+            }
+
+            if (auto rv = gnutls_alpn_set_protocols(session, proto, alpn_count, 0); rv < 0)
             {
                 log::error(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
                 throw std::runtime_error("gnutls_alpn_set_protocols failed");
             }
 
-            // server always requests cert from client; in future can try to parse client alpn offering here
+            // server always requests cert from client in raw public key mode
             if (not is_client)
             {
                 gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUIRE);
@@ -405,24 +419,7 @@ namespace oxen::quic
             return false;
         }
 
-        if (is_client)
-        {
-            remote_is_relay = true;
-        }
-        else
-        {
-            std::string_view proto_sv{(const char*)proto.data, proto.size};
-            if (proto_sv == client_alpn)
-                remote_is_relay = false;
-            else if (proto_sv == relay_alpn)
-                remote_is_relay = true;
-            else
-            {
-                log::error(log_cat, "Remote ALPN is invalid, how did we get here??", __PRETTY_FUNCTION__);
-                throw std::logic_error{
-                        "GNUTLSSession::validate_remote_key session validating keys but ALPN negotiation broke."};
-            }
-        }
+        std::string_view proto_sv{(const char*)proto.data, proto.size};
 
         if (is_client and expected_remote_key)
         {
@@ -436,7 +433,7 @@ namespace oxen::quic
         else if ((not is_client) and creds.key_verify)
         {
             log::trace(log_cat, "{}: Calling key verify callback", __PRETTY_FUNCTION__);
-            return creds.key_verify(remote_key, remote_is_relay);
+            return creds.key_verify(remote_key, proto_sv);
         }
 
         log::trace(log_cat, "{} reached end, defaulting to return true", __PRETTY_FUNCTION__);

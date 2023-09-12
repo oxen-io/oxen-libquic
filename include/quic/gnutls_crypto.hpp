@@ -27,8 +27,8 @@ namespace oxen::quic
     constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
     using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
 
-    // arguments: remote pubkey, is_relay
-    using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, bool)>;
+    // arguments: remote pubkey, ALPN
+    using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, const std::string_view& alpn)>;
 
     struct gnutls_callback_wrapper
     {
@@ -108,11 +108,19 @@ namespace oxen::quic
 
     class GNUTLSCreds : public TLSCreds
     {
+        friend class GNUTLSSession;
+
       private:
         GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg);
 
         // Construct from raw Ed25519 keys
         GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode = false);
+
+        std::vector<std::string> allowed_alpn_strings;
+        std::vector<gnutls_datum_t> allowed_alpns;
+
+        std::string outbound_alpn_string;
+        gnutls_datum_t outbound_alpn;
 
       public:
         ~GNUTLSCreds();
@@ -136,6 +144,9 @@ namespace oxen::quic
 
         void set_key_verify_callback(gnutls_key_verify_callback cb) { key_verify = std::move(cb); }
 
+        void set_outbound_alpn(const std::string& alpn);
+        void set_allowed_alpns(const std::vector<std::string>& alpns);
+
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
@@ -151,7 +162,6 @@ namespace oxen::quic
 
         const GNUTLSCreds& creds;
         bool is_client;
-        bool remote_is_relay{false};
 
         std::optional<gnutls_key> expected_remote_key;
 

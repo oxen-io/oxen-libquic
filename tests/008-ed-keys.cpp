@@ -69,9 +69,9 @@ namespace oxen::quic::test
         bool remote_was_relay{false};
         auto f = key_was_allowed.get_future();
 
-        auto client_key_allowed_cb = [&](const oxen::quic::gnutls_key& key, bool is_relay) {
-            remote_was_relay = is_relay;
-            if (not is_relay)
+        auto client_key_allowed_cb = [&](const oxen::quic::gnutls_key& key, const std::string_view& alpn) {
+            remote_was_relay = (alpn == "relay");
+            if (not remote_was_relay)
             {
                 key_was_allowed.set_value(true);
                 return true;
@@ -93,24 +93,31 @@ namespace oxen::quic::test
             return false;
         };
 
-        auto always_allow_cb = [&](auto, bool is_relay) {
-            remote_was_relay = is_relay;
+        auto always_allow_cb = [&](auto, const std::string_view& alpn) {
+            remote_was_relay = (alpn == "relay");
             key_was_allowed.set_value(true);
             return true;
         };
 
-        auto always_deny_cb = [&](auto, bool is_relay) {
-            remote_was_relay = is_relay;
+        auto always_deny_cb = [&](auto, const std::string_view& alpn) {
+            remote_was_relay = (alpn == "relay");
             key_was_allowed.set_value(false);
             return false;
         };
 
+        const std::vector<std::string> alpns{"client", "relay"};
+
         client_tls->set_key_verify_callback(client_key_allowed_cb);
+        client_tls->set_outbound_alpn(alpns[0]);
         server_tls2->set_key_verify_callback(always_allow_cb);
+        server_tls2->set_outbound_alpn(alpns[1]);
+        server_tls2->set_allowed_alpns(alpns);
 
         SECTION("All Connections Allowed")
         {
             server_tls->set_key_verify_callback(always_allow_cb);
+            server_tls->set_outbound_alpn(alpns[1]);
+            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
@@ -122,6 +129,8 @@ namespace oxen::quic::test
         SECTION("Connection Not Allowed")
         {
             server_tls->set_key_verify_callback(always_deny_cb);
+            server_tls->set_outbound_alpn(alpns[1]);
+            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
@@ -133,6 +142,8 @@ namespace oxen::quic::test
         SECTION("Connection Allowed By Pubkey")
         {
             server_tls->set_key_verify_callback(client_key_allowed_cb);
+            server_tls->set_outbound_alpn(alpns[1]);
+            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls2));
 
@@ -144,6 +155,8 @@ namespace oxen::quic::test
         SECTION("Connection Not Allowed By Pubkey")
         {
             server_tls->set_key_verify_callback(client_key_allowed_cb);
+            server_tls->set_outbound_alpn(alpns[1]);
+            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls));
 
