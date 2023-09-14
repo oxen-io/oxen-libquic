@@ -142,6 +142,8 @@ namespace oxen::quic::test
     {
         auto client_established = bool_waiter{[](connection_interface&) {}};
         auto server_established = bool_waiter{[](connection_interface&) {}};
+        // this needs to be destroyed *after* Network, as it may be called during ~Network
+        auto conn_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
 
         Network test_net{};
 
@@ -158,7 +160,6 @@ namespace oxen::quic::test
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto conn_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
             auto client_endpoint = test_net.endpoint(client_local, client_established, conn_closed);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 

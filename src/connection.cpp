@@ -777,19 +777,24 @@ namespace oxen::quic
             return;
         }
 
-        auto delta = exp_ns * 1ns - ts.time_since_epoch();
+        auto delta = static_cast<int64_t>(exp_ns) * 1ns - ts.time_since_epoch();
         log::trace(log_cat, "Expiry delta: {}ns", delta.count());
 
-        timeval* tv_ptr = nullptr;
+        // very rarely, something weird happens and the wakeup time ngtcp2 gives is
+        // in the past; if that happens, fire the timer with a 0µs timeout.
         timeval tv;
         if (delta > 0s)
         {
             delta += 999ns;  // Round up to the next µs (libevent timers have µs precision)
             tv.tv_sec = delta / 1s;
             tv.tv_usec = (delta % 1s) / 1us;
-            tv_ptr = &tv;
         }
-        event_add(packet_retransmit_timer.get(), tv_ptr);
+        else
+        {
+            tv.tv_sec = 0;
+            tv.tv_usec = 0;
+        }
+        event_add(packet_retransmit_timer.get(), &tv);
     }
 
     std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
@@ -1218,17 +1223,18 @@ namespace oxen::quic
                     this);
         }
 
+        if (rv != 0)
+        {
+            log::critical(log_cat, "Error: failed to initialize {} ngtcp2 connection: {}", d_str, ngtcp2_strerror(rv));
+            throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
+        }
+
         tls_session = tls_creds->make_session(is_outbound);
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
 
         conn.reset(connptr);
-
-        if (rv != 0)
-        {
-            throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
-        }
 
 #ifndef NDEBUG
         test_suite.datagram_drop_enabled = false;
