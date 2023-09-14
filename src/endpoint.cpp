@@ -154,6 +154,17 @@ namespace oxen::quic
         return;
     }
 
+    void Endpoint::close_connection(ConnectionID cid, int code, std::string_view msg)
+    {
+        for (auto& [scid, conn] : conns)
+        {
+            if (scid == cid)
+                return close_connection(*conn, code, msg);
+        }
+
+        log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
+    }
+
     void Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);

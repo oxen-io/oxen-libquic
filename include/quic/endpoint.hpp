@@ -171,6 +171,8 @@ namespace oxen::quic
 
         void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
 
+        void close_connection(ConnectionID cid, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
+
         const Address& local() { return _local; }
 
         bool is_accepting() const { return _accepting_inbound; }
