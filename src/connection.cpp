@@ -234,6 +234,11 @@ namespace oxen::quic
         event_active(packet_io_trigger.get(), 0, 0);
     }
 
+    void Connection::close_connection()
+    {
+        _endpoint.call([this]() { _endpoint.close_connection(*this); });
+    }
+
     void Connection::handle_conn_packet(const Packet& pkt)
     {
         if (auto rv = ngtcp2_conn_in_closing_period(*this); rv != 0)
