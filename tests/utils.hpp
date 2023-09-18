@@ -6,6 +6,7 @@
 #include <future>
 #include <optional>
 #include <oxen/log.hpp>
+#include <quic/endpoint.hpp>
 #include <quic/network.hpp>
 #include <quic/utils.hpp>
 #include <string>
@@ -110,5 +111,46 @@ namespace oxen::quic
     {
         REQUIRE(f.wait_for(timeout) == std::future_status::ready);
     }
+
+    template <typename T>
+    struct functional_helper : public functional_helper<decltype(&T::operator())>
+    {};
+
+    template <typename Class, typename Ret, typename... Args>
+    struct functional_helper<Ret (Class::*)(Args...) const>
+    {
+        using type = std::function<Ret(Args...)>;
+    };
+
+    template <typename T>
+    using functional_helper_t = typename functional_helper<T>::type;
+
+    template <typename T>
+    struct bool_waiter
+    {
+        using Func_t = functional_helper_t<T>;
+
+        Func_t func;
+        std::promise<bool> p;
+        std::future<bool> f{p.get_future()};
+
+        explicit bool_waiter(T f) : func{std::move(f)} {}
+
+        bool wait_ready(std::chrono::milliseconds timeout = 1s) { return f.wait_for(timeout) == std::future_status::ready; }
+
+        bool is_ready() { return f.wait_for(0s) == std::future_status::ready; }
+
+        bool get() { return f.get(); }
+
+        // Deliberate implicit conversion to the std::function<...>
+        operator Func_t()
+        {
+            return [this](auto&&... args) {
+                p.set_value(true);
+                return func(std::forward<decltype(args)>(args)...);
+            };
+            return func;
+        }
+    };
 
 }  // namespace oxen::quic

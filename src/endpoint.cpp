@@ -41,6 +41,18 @@ namespace oxen::quic
         dgram_recv_cb = std::move(func);
     }
 
+    void Endpoint::handle_ep_opt(connection_open_callback conn_established_cb)
+    {
+        log::trace(log_cat, "Endpoint given connection established callback");
+        connection_open_cb = std::move(conn_established_cb);
+    }
+
+    void Endpoint::handle_ep_opt(connection_closed_callback conn_closed_cb)
+    {
+        log::trace(log_cat, "Endpoint given connection closed callback");
+        connection_close_cb = std::move(conn_closed_cb);
+    }
+
     void Endpoint::_init_internals()
     {
         log::debug(log_cat, "Starting new UDP socket on {}", _local);
@@ -105,10 +117,24 @@ namespace oxen::quic
         if (conn.is_draining())
             return;
 
-        conn.call_close_cb();
         conn.halt_events();
-
         conn.set_draining();
+
+        const auto* err = ngtcp2_conn_get_ccerr(conn);
+
+        log::debug(
+                log_cat,
+                "Dropping connection (CID: {}), Reason: {}",
+                conn.scid(),
+                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
+
+        // call close callback
+        if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            connection_close_cb(conn, err->error_code);
+        }
+
         draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.scid());
 
         log::debug(log_cat, "Connection CID: {} marked as draining", conn.scid());
@@ -154,39 +180,58 @@ namespace oxen::quic
         return;
     }
 
-    void Endpoint::close_connection(ConnectionID cid, int code, std::string_view msg)
+    void Endpoint::close_connection(ConnectionID cid, io_error ec, std::string_view msg)
     {
         for (auto& [scid, conn] : conns)
         {
             if (scid == cid)
-                return close_connection(*conn, code, msg);
+                return close_connection(*conn, std::move(ec), std::move(msg));
         }
 
         log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
     }
 
-    void Endpoint::close_connection(Connection& conn, int code, std::string_view msg)
+    void Endpoint::drop_connection(Connection& conn)
+    {
+        const auto* err = ngtcp2_conn_get_ccerr(conn);
+
+        log::debug(
+                log_cat,
+                "Dropping connection (CID: {}), Reason: {}",
+                conn.scid(),
+                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
+
+        if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            connection_close_cb(conn, err->error_code);
+        }
+
+        delete_connection(conn.scid());
+    }
+
+    void Endpoint::close_connection(Connection& conn, io_error ec, std::string_view msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
 
         if (conn.is_closing() || conn.is_draining())
             return;
 
-        if (code == NGTCP2_ERR_IDLE_CLOSE)
+        if (ec.ngtcp2_code() == NGTCP2_ERR_IDLE_CLOSE)
         {
             log::info(
                     log_cat,
                     "Connection (CID: {}) passed idle expiry timer; closing now without close "
                     "packet",
                     *conn.scid().data);
-            delete_connection(conn.scid());
+            drop_connection(conn);
             return;
         }
 
         //  "The error not specifically mentioned, including NGTCP2_ERR_HANDSHAKE_TIMEOUT,
         //  should be dealt with by calling ngtcp2_conn_write_connection_close."
         //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
-        if (code == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
+        if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
             log::info(
                     log_cat,
@@ -198,8 +243,18 @@ namespace oxen::quic
         conn.halt_events();
         conn.set_closing();
 
+        if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            connection_close_cb(conn, ec.code());
+        }
+
         ngtcp2_ccerr err;
-        ngtcp2_ccerr_set_liberr(&err, code, reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+        ngtcp2_ccerr_default(&err);
+        if (ec.is_ngtcp2)
+            ngtcp2_ccerr_set_liberr(&err, ec.ngtcp2_code(), reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
+        else
+            ngtcp2_ccerr_set_application_error(&err, ec.code(), reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
 
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
@@ -220,6 +275,7 @@ namespace oxen::quic
         }
         // ensure we had enough write space
         assert(static_cast<size_t>(written) <= buf.size());
+        buf.resize(written);
 
         send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, cid = conn.scid()](io_result rv) {
             if (rv.failure())
@@ -238,13 +294,18 @@ namespace oxen::quic
     {
         if (auto itr = conns.find(cid); itr != conns.end())
         {
-            itr->second->call_close_cb();
-
             conns.erase(itr);
             log::debug(log_cat, "Successfully deleted connection [ID: {}]", *cid.data);
         }
         else
             log::warning(log_cat, "Error: could not delete connection [ID: {}]; could not find", *cid.data);
+    }
+
+    void Endpoint::connection_established(connection_interface& conn)
+    {
+        log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
+        if (connection_open_cb)
+            connection_open_cb(conn);
     }
 
     std::optional<ConnectionID> Endpoint::handle_packet_connid(const Packet& pkt)

@@ -145,6 +145,36 @@ namespace oxen::quic
         return 0;
     }
 
+    int on_handshake_completed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    {
+        auto* conn_ptr = static_cast<Connection*>(user_data);
+        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+
+        log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
+
+        // server considers handshake complete and confirmed, and connection established at this point
+        if (conn_ptr->is_inbound())
+            conn_ptr->endpoint().connection_established(*conn_ptr);
+
+        return 0;
+    }
+
+    int on_handshake_confirmed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    {
+        auto* conn_ptr = static_cast<Connection*>(user_data);
+        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+
+        log::trace(log_cat, "HANDSHAKE CONFIRMED on {} connection", dir_str);
+
+        // server should never call this, as it "confirms" on handshake completed
+        assert(conn_ptr->is_outbound());
+
+        // client considers handshake complete and confirmed, and connection established at this point
+        conn_ptr->endpoint().connection_established(*conn_ptr);
+
+        return 0;
+    }
+
     void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx)
     {
         (void)rand_ctx;
@@ -234,21 +264,20 @@ namespace oxen::quic
         event_active(packet_io_trigger.get(), 0, 0);
     }
 
-    void Connection::close_connection()
+    void Connection::close_connection(uint64_t error_code)
     {
-        _endpoint.call([this]() { _endpoint.close_connection(*this); });
+        _endpoint.call([this, error_code]() { _endpoint.close_connection(*this, io_error{error_code}); });
     }
 
     void Connection::handle_conn_packet(const Packet& pkt)
     {
         if (auto rv = ngtcp2_conn_in_closing_period(*this); rv != 0)
         {
-            log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
-
-            _endpoint.call([this]() {
-                log::debug(log_cat, "Note: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
-                _endpoint.delete_connection(scid());
-            });
+            log::trace(
+                    log_cat,
+                    "Note: {} CID-{} in closing period; dropping packet",
+                    is_inbound() ? "server" : "client",
+                    scid());
             return;
         }
 
@@ -289,7 +318,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, rv, "ERR_PROTO"sv);
+                    _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"sv);
                 });
                 break;
             case NGTCP2_ERR_DROP_CONN:
@@ -301,7 +330,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.delete_connection(scid());
+                    _endpoint.drop_connection(*this);
                 });
                 break;
             case NGTCP2_ERR_CRYPTO:
@@ -315,7 +344,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.delete_connection(scid());
+                    _endpoint.drop_connection(*this);
                 });
                 break;
             default:
@@ -326,7 +355,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
+                    _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
                 });
                 break;
         }
@@ -384,16 +413,6 @@ namespace oxen::quic
                 return strm;
             }
         });
-    }
-
-    void Connection::call_close_cb()
-    {
-        if (!on_closing)
-            return;
-
-        log::trace(log_cat, "Calling Connection::on_closing for CID: {}", _source_cid);
-        on_closing(*this);
-        on_closing = nullptr;
     }
 
     stream_data_callback Connection::get_default_data_callback() const
@@ -653,9 +672,9 @@ namespace oxen::quic
                 if (ngtcp2_err_is_fatal(nwrite))
                 {
                     log::critical(log_cat, "Fatal ngtcp2 error: could not write frame - \"{}\"", ngtcp2_strerror(nwrite));
-                    _endpoint.call([this, rv = nwrite]() {
+                    _endpoint.call([this, rv = (int)nwrite]() {
                         log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
-                        _endpoint.close_connection(*this, rv, ngtcp2_strerror(rv));
+                        _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
                     });
                     return;
                 }
@@ -757,19 +776,24 @@ namespace oxen::quic
             return;
         }
 
-        auto delta = exp_ns * 1ns - ts.time_since_epoch();
+        auto delta = static_cast<int64_t>(exp_ns) * 1ns - ts.time_since_epoch();
         log::trace(log_cat, "Expiry delta: {}ns", delta.count());
 
-        timeval* tv_ptr = nullptr;
+        // very rarely, something weird happens and the wakeup time ngtcp2 gives is
+        // in the past; if that happens, fire the timer with a 0µs timeout.
         timeval tv;
         if (delta > 0s)
         {
             delta += 999ns;  // Round up to the next µs (libevent timers have µs precision)
             tv.tv_sec = delta / 1s;
             tv.tv_usec = (delta % 1s) / 1us;
-            tv_ptr = &tv;
         }
-        event_add(packet_retransmit_timer.get(), tv_ptr);
+        else
+        {
+            tv.tv_sec = 0;
+            tv.tv_usec = 0;
+        }
+        event_add(packet_retransmit_timer.get(), &tv);
     }
 
     std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
@@ -794,7 +818,7 @@ namespace oxen::quic
         {
             log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
             assert(endpoint().in_event_loop());
-            stream->close(app_err_code);
+            stream->close(io_error{app_err_code});
             return 0;
         }
 
@@ -887,7 +911,7 @@ namespace oxen::quic
         }
         if (!good)
         {
-            str->close(STREAM_ERROR_EXCEPTION);
+            str->close(io_error{error::STREAM_EXCEPTION});
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
 
@@ -975,8 +999,10 @@ namespace oxen::quic
             }
             if (!good)
             {
-                // TODO: do we want to close the entire connection on user-supplied callback failure? WHat about in
-                // the above exceptions?
+                _endpoint.call([this, ec = io_error{error::DATAGRAM_EXCEPTION}]() {
+                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                    _endpoint.close_connection(*this, ec, ec.strerror());
+                });
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }
@@ -1040,7 +1066,7 @@ namespace oxen::quic
                     {
                         log::warning(
                                 log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                        self.endpoint().close_connection(self, rv);
+                        self.endpoint().close_connection(self, io_error{rv});
                         return;
                     }
                     self.on_packet_io_ready();
@@ -1066,6 +1092,8 @@ namespace oxen::quic
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
         callbacks.stream_open = on_stream_open;
+        callbacks.handshake_completed = on_handshake_completed;
+        callbacks.handshake_confirmed = on_handshake_confirmed;
 
         ngtcp2_settings_default(&settings);
 
@@ -1078,6 +1106,7 @@ namespace oxen::quic
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
+        settings.handshake_timeout = std::chrono::nanoseconds(5s).count();
 
         ngtcp2_transport_params_default(&params);
 
@@ -1193,17 +1222,18 @@ namespace oxen::quic
                     this);
         }
 
+        if (rv != 0)
+        {
+            log::critical(log_cat, "Error: failed to initialize {} ngtcp2 connection: {}", d_str, ngtcp2_strerror(rv));
+            throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
+        }
+
         tls_session = tls_creds->make_session(is_outbound);
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
 
         conn.reset(connptr);
-
-        if (rv != 0)
-        {
-            throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
-        }
 
 #ifndef NDEBUG
         test_suite.datagram_drop_enabled = false;

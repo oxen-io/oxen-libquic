@@ -4,14 +4,6 @@
 
 namespace oxen::quic
 {
-    struct ngtcp2_error_code_t final
-    {};
-
-    // Tag value to pass into the constructor to indicate an ngtcp2 error code.
-    //
-    // (For ngtcp2, error codes are arbitrary negative values without any connection to errno).
-    static inline constexpr ngtcp2_error_code_t ngtcp2_error_code{};
-
     enum class Direction { OUTBOUND = 0, INBOUND = 1 };
 
     enum class Splitting { NONE = 0, ACTIVE = 1 };

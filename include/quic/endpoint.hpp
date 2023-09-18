@@ -34,13 +34,21 @@ extern "C"
 
 namespace oxen::quic
 {
+    using connection_open_callback = std::function<void(connection_interface& conn)>;
+    using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
+
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(dgram_data_callback dgram_cb);
+        void handle_ep_opt(connection_open_callback conn_established_cb);
+        void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
       public:
+        connection_open_callback connection_open_cb;
+        connection_closed_callback connection_close_cb;
+
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
         Endpoint(const Endpoint&) = delete;
         Endpoint& operator=(const Endpoint&) = delete;
@@ -169,9 +177,11 @@ namespace oxen::quic
 
         void close_conns(std::optional<Direction> d = std::nullopt);
 
-        void close_connection(Connection& conn, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
+        void drop_connection(Connection& conn);
 
-        void close_connection(ConnectionID cid, int code = NGTCP2_NO_ERROR, std::string_view msg = "NO_ERROR"sv);
+        void close_connection(Connection& conn, io_error ec = io_error{0}, std::string_view msg = "NO_ERROR"sv);
+
+        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::string_view msg = "NO_ERROR"sv);
 
         const Address& local() { return _local; }
 
@@ -191,6 +201,8 @@ namespace oxen::quic
         // public so connections can call when handling conn packets
         void delete_connection(const ConnectionID& cid);
         void drain_connection(Connection& conn);
+
+        void connection_established(connection_interface& conn);
 
         int _rbufsize{4096};
 

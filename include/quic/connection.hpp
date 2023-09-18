@@ -116,7 +116,7 @@ namespace oxen::quic
         virtual int last_cleared() const = 0;
         virtual int datagram_bufsize() const = 0;
 
-        virtual void close_connection() = 0;
+        virtual void close_connection(uint64_t error_code = 0) = 0;
 
         virtual ~connection_interface() = default;
 
@@ -165,7 +165,6 @@ namespace oxen::quic
         void set_closing() { closing = true; }
         bool is_draining() const { return draining; }
         void set_draining() { draining = true; }
-        void call_close_cb();
         stream_data_callback get_default_data_callback() const;
 
         const ConnectionID& scid() const override { return _source_cid; }
@@ -191,7 +190,7 @@ namespace oxen::quic
 
         void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-        void close_connection() override;
+        void close_connection(uint64_t error_code = 0) override;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
@@ -210,7 +209,6 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        std::function<void(Connection&)> on_closing;  // clear immediately after use
         const int _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};

@@ -61,6 +61,13 @@ namespace oxen::quic
             false;
 #endif
 
+    struct ngtcp2_error_code_t final
+    {};
+
+    // Tag value to pass into the io_result/io_error constructors to indicate an ngtcp2 error code.
+    // (For ngtcp2, error codes are arbitrary negative values without any connection to errno).
+    static inline constexpr ngtcp2_error_code_t ngtcp2_error_code{};
+
     // SI (1000) and non-SI (1024-based) modifier prefix operators.  E.g.
     // 50_M is 50'000'000 and 50_Mi is 52'428'800.
     constexpr unsigned long long operator""_k(unsigned long long int x)

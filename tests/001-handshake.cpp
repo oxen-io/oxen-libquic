@@ -112,105 +112,75 @@ namespace oxen::quic::test
 
         SECTION("Endpoint::connect() - IPv6 Addressing")
         {
+            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto server_established = bool_waiter{[](connection_interface&) {}};
+
             Network test_net{};
-
-            std::promise<bool> tls;
-            std::future<bool> tls_future = tls.get_future();
-
-            gnutls_callback outbound_tls_cb =
-                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                        tls.set_value(true);
-                        return 0;
-                    };
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-            client_tls->set_client_tls_policy(outbound_tls_cb);
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_endpoint = test_net.endpoint(server_local);
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
             opt::remote_addr client_remote{"::1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local);
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            REQUIRE(tls_future.get());
+            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.get());
+            REQUIRE(server_established.get());
         };
     };
 
     TEST_CASE("001 - Handshaking: Execution", "[001][handshake][tls][execute]")
     {
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto server_established = bool_waiter{[](connection_interface&) {}};
+        // this needs to be destroyed *after* Network, as it may be called during ~Network
+        auto conn_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
+
+        Network test_net{};
+
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
         SECTION("Unsuccessful TLS handshake - No server TLS credentials")
         {
-            Network test_net{};
-
-            std::promise<bool> tls;
-            std::future<bool> tls_future = tls.get_future();
-
-            gnutls_callback outbound_tls_cb =
-                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                        tls.set_value(true);
-                        return 0;
-                    };
-
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-            client_tls->set_client_tls_policy(outbound_tls_cb);
-
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
-
-            auto server_endpoint = test_net.endpoint(server_local);
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE_THROWS(server_endpoint->listen());
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local);
+            auto client_endpoint = test_net.endpoint(client_local, client_established, conn_closed);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(tls_future.valid());
+            REQUIRE(conn_closed.wait_ready(10s));
+            REQUIRE(client_established.is_ready() == false);
         };
 
         SECTION("Successful TLS handshake")
         {
-            Network test_net{};
-
-            std::promise<bool> tls;
-            std::future<bool> tls_future = tls.get_future();
-
-            gnutls_callback outbound_tls_cb =
-                    [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                        log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                        tls.set_value(true);
-                        return 0;
-                    };
-
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-            client_tls->set_client_tls_policy(outbound_tls_cb);
-
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
-
-            auto server_endpoint = test_net.endpoint(server_local);
+            auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local);
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(tls_future.get());
+            REQUIRE(client_established.wait_ready());
+            REQUIRE(server_established.wait_ready());
+            REQUIRE(client_established.get());
+            REQUIRE(server_established.get());
         };
     };
 }  // namespace oxen::quic::test

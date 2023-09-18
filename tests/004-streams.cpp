@@ -3,42 +3,35 @@
 #include <quic/gnutls_crypto.hpp>
 #include <thread>
 
+#include "utils.hpp"
+
 namespace oxen::quic::test
 {
     using namespace std::literals;
 
     TEST_CASE("004 - Multiple pending streams: max stream count", "[004][streams][pending][config]")
     {
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
 
-        std::promise<bool> tls;
-        std::future<bool> tls_future = tls.get_future();
         opt::max_streams max_streams{8};
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        gnutls_callback outbound_tls_cb =
-                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                    tls.set_value(true);
-                    return 0;
-                };
-
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-        client_tls->set_client_tls_policy(outbound_tls_cb);
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams));
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local);
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-        REQUIRE(tls_future.get());
+        REQUIRE(client_established.wait_ready());
         REQUIRE(conn_interface->get_max_streams() == max_streams.stream_count);
     };
 
@@ -79,11 +72,13 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: different remote settings", "[004][streams][pending][config]")
     {
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::promise<bool> data_promise, tls;
-        std::future<bool> data_future = data_promise.get_future(), tls_future = tls.get_future();
+        std::promise<bool> data_promise;
+        std::future<bool> data_future = data_promise.get_future();
         opt::max_streams server_config{10}, client_config{8};
 
         std::shared_ptr<connection_interface> server_ci;
@@ -96,27 +91,18 @@ namespace oxen::quic::test
             data_promise.set_value(true);
         };
 
-        gnutls_callback outbound_tls_cb =
-                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                    tls.set_value(true);
-                    return 0;
-                };
-
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-        client_tls->set_client_tls_policy(outbound_tls_cb);
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_config, server_data_cb));
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local);
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
 
-        REQUIRE(tls_future.get());
+        REQUIRE(client_established.wait_ready());
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         // some transport parameters are set after handshake is completed; querying the client connection too
@@ -141,6 +127,8 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: Execution", "[004][streams][pending][execute]")
     {
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
@@ -155,9 +143,6 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        std::promise<bool> tls;
-        std::future<bool> tls_future = tls.get_future();
-
         std::vector<std::promise<bool>> send_promises{size_t(n_sends)}, receive_promises{size_t(n_recvs)};
         std::vector<std::future<bool>> send_futures{size_t(n_sends)}, receive_futures{size_t(n_recvs)};
 
@@ -167,14 +152,6 @@ namespace oxen::quic::test
             receive_futures[i] = receive_promises[i].get_future();
         }
         send_futures[n_sends - 1] = send_promises[n_sends - 1].get_future();
-
-        gnutls_callback outbound_tls_cb =
-                [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                    log::debug(log_cat, "Calling client TLS callback... handshake completed...");
-
-                    tls.set_value(true);
-                    return 0;
-                };
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
@@ -193,17 +170,16 @@ namespace oxen::quic::test
 
         auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
         auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
-        client_tls->set_client_tls_policy(outbound_tls_cb);
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
 
         opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        auto client_endpoint = test_net.endpoint(client_local);
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-        REQUIRE(tls_future.get());
+        REQUIRE(client_established.wait_ready());
 
         for (int i = 0; i < n_streams; ++i)
         {
