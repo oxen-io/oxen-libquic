@@ -273,12 +273,7 @@ namespace oxen::quic
     {
         if (auto rv = ngtcp2_conn_in_closing_period(*this); rv != 0)
         {
-            log::trace(log_cat, "Note: CID-{} in closing period; signaling endpoint to delete connection", scid());
-
-            _endpoint.call([this]() {
-                log::debug(log_cat, "Note: connection (CID: {}) is in closing period; endpoint deleting connection", scid());
-                _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_CLOSING});
-            });
+            log::trace(log_cat, "Note: {} CID-{} in closing period; dropping packet", is_inbound() ? "server" : "client", scid());
             return;
         }
 
