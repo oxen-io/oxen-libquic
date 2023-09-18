@@ -122,11 +122,11 @@ namespace oxen::quic
 
         const auto* err = ngtcp2_conn_get_ccerr(conn);
 
-        std::string_view reason = "None"sv;
-        if (err->reasonlen > 0)
-            reason = std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen};
-
-        log::debug(log_cat, "Draining connection (CID: {}), Reason: {}", conn.scid(), reason);
+        log::debug(
+                log_cat,
+                "Dropping connection (CID: {}), Reason: {}",
+                conn.scid(),
+                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
         // call close callback
         if (connection_close_cb)
@@ -195,11 +195,11 @@ namespace oxen::quic
     {
         const auto* err = ngtcp2_conn_get_ccerr(conn);
 
-        std::string_view reason = "None"sv;
-        if (err->reasonlen > 0)
-            reason = std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen};
-
-        log::debug(log_cat, "Dropping connection (CID: {}), Reason: {}", conn.scid(), reason);
+        log::debug(
+                log_cat,
+                "Dropping connection (CID: {}), Reason: {}",
+                conn.scid(),
+                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
         if (connection_close_cb)
         {
@@ -252,11 +252,9 @@ namespace oxen::quic
         ngtcp2_ccerr err;
         ngtcp2_ccerr_default(&err);
         if (ec.is_ngtcp2)
-            ngtcp2_ccerr_set_liberr(
-                    &err, ec.ngtcp2_code(), reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+            ngtcp2_ccerr_set_liberr(&err, ec.ngtcp2_code(), reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
         else
-            ngtcp2_ccerr_set_application_error(
-                    &err, ec.code(), reinterpret_cast<uint8_t*>(const_cast<char*>(msg.data())), msg.size());
+            ngtcp2_ccerr_set_application_error(&err, ec.code(), reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
 
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
