@@ -264,16 +264,20 @@ namespace oxen::quic
         event_active(packet_io_trigger.get(), 0, 0);
     }
 
-    void Connection::close_connection()
+    void Connection::close_connection(uint64_t error_code)
     {
-        _endpoint.call([this]() { _endpoint.close_connection(*this); });
+        _endpoint.call([this, error_code]() { _endpoint.close_connection(*this, io_error{error_code}); });
     }
 
     void Connection::handle_conn_packet(const Packet& pkt)
     {
         if (auto rv = ngtcp2_conn_in_closing_period(*this); rv != 0)
         {
-            log::trace(log_cat, "Note: {} CID-{} in closing period; dropping packet", is_inbound() ? "server" : "client", scid());
+            log::trace(
+                    log_cat,
+                    "Note: {} CID-{} in closing period; dropping packet",
+                    is_inbound() ? "server" : "client",
+                    scid());
             return;
         }
 
@@ -326,7 +330,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_DROP_CONN});
+                    _endpoint.drop_connection(*this);
                 });
                 break;
             case NGTCP2_ERR_CRYPTO:
@@ -340,7 +344,7 @@ namespace oxen::quic
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
                     log::debug(log_cat, "Endpoint deleting CID: {}", scid());
-                    _endpoint.drop_connection(*this, io_error{NGTCP2_ERR_CRYPTO});
+                    _endpoint.drop_connection(*this);
                 });
                 break;
             default:

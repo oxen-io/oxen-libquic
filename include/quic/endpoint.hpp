@@ -177,7 +177,7 @@ namespace oxen::quic
 
         void close_conns(std::optional<Direction> d = std::nullopt);
 
-        void drop_connection(Connection& conn, io_error ec = io_error{0});
+        void drop_connection(Connection& conn);
 
         void close_connection(Connection& conn, io_error ec = io_error{0}, std::string_view msg = "NO_ERROR"sv);
 

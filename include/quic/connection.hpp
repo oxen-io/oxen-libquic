@@ -116,7 +116,7 @@ namespace oxen::quic
         virtual int last_cleared() const = 0;
         virtual int datagram_bufsize() const = 0;
 
-        virtual void close_connection() = 0;
+        virtual void close_connection(uint64_t error_code = 0) = 0;
 
         virtual ~connection_interface() = default;
 
@@ -190,7 +190,7 @@ namespace oxen::quic
 
         void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-        void close_connection() override;
+        void close_connection(uint64_t error_code = 0) override;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
