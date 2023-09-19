@@ -50,7 +50,7 @@ namespace oxen::quic::test
             auto ep_notls = test_net.endpoint(default_addr);
             auto ep_tls = test_net.endpoint(local_addr);
 
-            REQUIRE_THROWS(ep_notls->listen());
+            // REQUIRE_THROWS(ep_notls->listen());  // Shouldn't compile if uncommented!
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
         };
 
@@ -152,33 +152,17 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        SECTION("Unsuccessful TLS handshake - No server TLS credentials")
-        {
-            auto server_endpoint = test_net.endpoint(server_local, server_established);
-            REQUIRE_THROWS(server_endpoint->listen());
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established);
-            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE_FALSE(client_established.is_ready());
-        };
-
-        SECTION("Successful TLS handshake")
-        {
-            auto server_endpoint = test_net.endpoint(server_local, server_established);
-            REQUIRE(server_endpoint->listen(server_tls));
-
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
-
-            auto client_endpoint = test_net.endpoint(client_local, client_established);
-            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
-
-            REQUIRE(client_established.wait_ready());
-            REQUIRE(server_established.wait_ready());
-            REQUIRE(client_established.get());
-            REQUIRE(server_established.get());
-        };
+        REQUIRE(client_established.wait_ready());
+        REQUIRE(server_established.wait_ready());
+        REQUIRE(client_established.get());
+        REQUIRE(server_established.get());
     };
 }  // namespace oxen::quic::test

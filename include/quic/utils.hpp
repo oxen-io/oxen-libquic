@@ -1,5 +1,7 @@
 #pragma once
 
+#include <type_traits>
+
 #include "format.hpp"
 
 extern "C"
@@ -133,6 +135,10 @@ namespace oxen::quic
     inline constexpr bool is_instantiation = false;
     template <template <typename...> class Class, typename... Us>
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
+
+    // Backport of c++20 std::remove_cvref_t
+    template <typename T>
+    using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
     // Application error code we close with if the stream data handle throws
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = (1ULL << 62) - 2;
