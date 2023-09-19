@@ -43,8 +43,8 @@ namespace oxen::quic::test
             uint64_t error_code = 12345;
             conn_interface->close_connection(error_code);
 
-            REQUIRE(client_closed.wait_ready());
             REQUIRE(server_closed.wait_ready());
+            REQUIRE(client_closed.wait_ready());
             REQUIRE(client_error == error_code);
             REQUIRE(server_error == error_code);
         };
