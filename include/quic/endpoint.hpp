@@ -98,6 +98,9 @@ namespace oxen::quic
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
+            if (!remote.is_addressable())
+                throw std::invalid_argument("Address must be addressible to connect");
+
             if (_local.is_ipv6() && !remote.is_ipv6())
                 remote.map_ipv4_as_ipv6();
 

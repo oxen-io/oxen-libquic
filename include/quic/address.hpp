@@ -5,6 +5,8 @@
 
 namespace oxen::quic
 {
+    inline constexpr std::array<uint8_t, 16> _ipv6_any_addr = {0};
+
     // Holds an address, with a ngtcp2_addr held for easier passing into ngtcp2 functions
     struct Address
     {
@@ -64,6 +66,20 @@ namespace oxen::quic
 
         bool is_set() const { return is_ipv4() || is_ipv6(); }
 
+        /// Returns true if this is the "any" address ("::" for ipv6, "0.0.0.0" for IPv4)
+        bool is_any_addr() const
+        {
+            return is_ipv4()
+                         ? in4().sin_addr.s_addr == 0
+                         : std::memcmp(in6().sin6_addr.s6_addr, _ipv6_any_addr.data(), sizeof(in6().sin6_addr.s6_addr)) == 0;
+        }
+
+        /// Returns true if this is the "any" port (port 0)
+        bool is_any_port() const { return (is_ipv4() ? in4().sin_port : in6().sin6_port) == 0; }
+
+        /// Returns true if this is an addressable address, i.e. not the "any" address or port
+        bool is_addressable() const { return !is_any_addr() && !is_any_port(); }
+
         inline bool is_ipv4() const
         {
             return _addr.addrlen == sizeof(sockaddr_in) &&
@@ -78,7 +94,7 @@ namespace oxen::quic
         // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
         inline const sockaddr_in& in4() const
         {
-            // assert(is_ipv4());
+            assert(is_ipv4());
             return reinterpret_cast<const sockaddr_in&>(_sock_addr);
         }
 
@@ -140,7 +156,8 @@ namespace oxen::quic
             {
                 auto& a = in4();
                 auto& b = other.in4();
-                return a.sin_port == b.sin_port && a.sin_addr.s_addr == b.sin_addr.s_addr;
+                return a.sin_port == b.sin_port &&
+                       memcmp(&a.sin_addr.s_addr, &b.sin_addr.s_addr, sizeof(a.sin_addr.s_addr)) == 0;
             }
             if (is_ipv6() && other.is_ipv6())
             {
@@ -151,6 +168,35 @@ namespace oxen::quic
             }
             return false;
         }
+
+        bool operator<(const Address& other) const
+        {
+            if (is_ipv4() && other.is_ipv4())
+            {
+                auto& a = in4();
+                auto& b = other.in4();
+
+                if (auto r = memcmp(&a.sin_addr.s_addr, &b.sin_addr.s_addr, sizeof(a.sin_addr.s_addr)); r == 0)
+                    return a.sin_port < b.sin_port;
+                else
+                    return (r < 0);
+            }
+            if (is_ipv6() && other.is_ipv6())
+            {
+                auto& a = in6();
+                auto& b = other.in6();
+
+                if (auto r = memcmp(a.sin6_addr.s6_addr, b.sin6_addr.s6_addr, sizeof(a.sin6_addr.s6_addr)); r == 0)
+                    return a.sin6_port < b.sin6_port;
+                else
+                    return (r < 0);
+            }
+            if (is_ipv6() && other.is_ipv4())
+                return false;
+            return true;
+        }
+
+        bool operator!=(const Address& other) const { return !(*this == other); }
 
         // Returns the size of the sockaddr
         socklen_t socklen() const { return _addr.addrlen; }

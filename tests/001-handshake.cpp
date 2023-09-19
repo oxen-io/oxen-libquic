@@ -22,9 +22,9 @@ namespace oxen::quic::test
             opt::local_addr empty_addr{};
             opt::local_addr good_addr{"127.0.0.1", 4400};
 
+            REQUIRE(empty_addr.is_set());
             REQUIRE_THROWS(opt::local_addr{"127.001", 4400});
             REQUIRE_THROWS(opt::local_addr{""s, 0});
-            REQUIRE(empty_addr.is_set());
             REQUIRE(empty_addr == opt::local_addr{"::", 0});
             REQUIRE(good_addr.is_set());
         };
@@ -54,7 +54,7 @@ namespace oxen::quic::test
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
         };
 
-        SECTION("Endpoint::listen() - Default addressing")
+        SECTION("Endpoint::listen() + Endpoint::Connect() - Default addressing")
         {
             Network test_net{};
             opt::local_addr default_addr{};
@@ -63,6 +63,7 @@ namespace oxen::quic::test
             auto ep = test_net.endpoint(default_addr);
 
             REQUIRE_NOTHROW(ep->listen(local_tls));
+            REQUIRE_THROWS(ep->connect(default_addr, local_tls));
         };
 
         SECTION("Endpoint::connect() - Immediate network shutdown")
@@ -142,8 +143,6 @@ namespace oxen::quic::test
     {
         auto client_established = bool_waiter{[](connection_interface&) {}};
         auto server_established = bool_waiter{[](connection_interface&) {}};
-        // this needs to be destroyed *after* Network, as it may be called during ~Network
-        auto conn_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
 
         Network test_net{};
 
@@ -160,11 +159,10 @@ namespace oxen::quic::test
 
             opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established, conn_closed);
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(conn_closed.wait_ready(10s));
-            REQUIRE(client_established.is_ready() == false);
+            REQUIRE_FALSE(client_established.is_ready());
         };
 
         SECTION("Successful TLS handshake")
