@@ -27,26 +27,23 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        SECTION("Connection Closes with correct error code")
-        {
-            auto server_endpoint = test_net.endpoint(server_local, server_established, server_closed);
-            REQUIRE(server_endpoint->listen(server_tls));
+        auto server_endpoint = test_net.endpoint(server_local, server_established, server_closed);
+        REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
-            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+        auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
-            REQUIRE(server_established.wait_ready());
+        REQUIRE(client_established.wait_ready());
+        REQUIRE(server_established.wait_ready());
 
-            uint64_t error_code = 12345;
-            conn_interface->close_connection(error_code);
+        uint64_t error_code = 12345;
+        conn_interface->close_connection(error_code);
 
-            REQUIRE(server_closed.wait_ready());
-            REQUIRE(client_closed.wait_ready());
-            REQUIRE(client_error == error_code);
-            REQUIRE(server_error == error_code);
-        };
+        REQUIRE(server_closed.get());
+        REQUIRE(client_error == error_code);
+        REQUIRE(client_closed.get());
+        REQUIRE(server_error == error_code);
     };
 }  // namespace oxen::quic::test

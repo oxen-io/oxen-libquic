@@ -244,6 +244,10 @@ namespace oxen::quic::test
             log::debug(log_cat, "Calling custom stream data callback... data received...");
             p.set_value(true);
         }
+        void command(std::string endpoint, std::string body) final override
+        {
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+        }
     };
 
     struct ServerStream : public Stream
@@ -256,6 +260,10 @@ namespace oxen::quic::test
         {
             log::debug(log_cat, "Calling custom stream data callback... data received...");
             p.set_value(true);
+        }
+        void command(std::string endpoint, std::string body) final override
+        {
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
         }
     };
 

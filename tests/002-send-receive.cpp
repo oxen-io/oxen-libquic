@@ -45,7 +45,6 @@ namespace oxen::quic::test
         REQUIRE(d_future.get());
     };
 
-<<<<<<< HEAD
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][bidirectional]")
     {
         Network test_net{};
@@ -151,9 +150,6 @@ namespace oxen::quic::test
     };
 
     TEST_CASE("002 - BParser Testing", "[002][bparser]")
-=======
-    /* TEST_CASE("002 - BParser Testing", "[002][bparser]")
->>>>>>> 678a9e5 (stashing)
     {
         Network test_net{};
 
@@ -166,32 +162,65 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        auto server_endpoint = test_net.endpoint(server_local);
-        REQUIRE(server_endpoint->listen(server_tls));
+        SECTION("Client sends a command")
+        {
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+                return std::make_shared<bparser>(c, e, [&](Stream&, message msg) mutable {
+                    log::critical(log_cat, "Server bparser received: {}", msg.view());
+                    d_promise.set_value(true);
+                });
+            };
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
 
-        auto client_endpoint = test_net.endpoint(client_local);
-        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
-        std::this_thread::sleep_for(250ms);
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        auto client_bp = std::make_shared<bparser>();
-        auto server_bp = std::make_shared<bparser>();
+            auto client_bp = conn_interface->get_new_stream<bparser>();
 
-        auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
-        auto server_stream = server_ci->get_new_stream(*server_bp, *server_bp);
+            client_bp->command("test_endpoint"s, "test_request_body"s);
 
-        // client make stream and send; message displayed by server_data_cb
-        auto client_stream = conn_interface->get_new_stream(*client_bp, *client_bp);
+            REQUIRE(d_future.get());
+        }
 
-        client_bp->command("test_endpoint"s, "test_request_body"s);
+        SECTION("Client sends a request, server sends a response")
+        {
+            std::promise<bool> c_promise;
+            auto c_future = c_promise.get_future();
 
-        std::this_thread::sleep_for(250ms);
-<<<<<<< HEAD
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+                return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
+                    log::critical(log_cat, "Server bparser received: {}", msg.view());
+                    d_promise.set_value(true);
+                    s.respond(msg.rid(), "test_response"s);
+                });
+            };
+
+            stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e) {
+                return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
+                    log::critical(log_cat, "Client bparser received: {}", msg.view());
+                    c_promise.set_value(true);
+                });
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_constructor);
+
+            auto client_bp = conn_interface->get_new_stream();
+
+            client_bp->request("test_endpoint"s, "test_request_body"s);
+
+            REQUIRE(d_future.get());
+            REQUIRE(c_future.get());
+        }
     };
 
-=======
-    }; */
->>>>>>> 678a9e5 (stashing)
 }  // namespace oxen::quic::test
