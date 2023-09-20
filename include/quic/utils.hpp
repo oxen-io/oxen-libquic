@@ -163,6 +163,16 @@ namespace oxen::quic
         return {reinterpret_cast<const char*>(x.data()), x.size()};
     }
 
+    // Quasi-backport of C++20 str.starts_with/ends_with
+    inline constexpr bool starts_with(std::string_view str, std::string_view prefix)
+    {
+        return prefix.size() <= str.size() && str.substr(0, prefix.size()) == prefix;
+    }
+    inline constexpr bool ends_with(std::string_view str, std::string_view suffix)
+    {
+        return suffix.size() <= str.size() && str.substr(str.size() - suffix.size()) == suffix;
+    }
+
     void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
 
     std::chrono::steady_clock::time_point get_time();

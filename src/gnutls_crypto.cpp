@@ -65,14 +65,14 @@ namespace oxen::quic
             throw std::runtime_error{
                     "Must initialize GNUTLS credentials using local private key and certificate at minimum"};
 
-        datum lkey = datum{local_key};
-        datum lcert = datum{local_cert};
-        datum rcert;
+        x509_loader lkey{local_key};
+        x509_loader lcert{local_cert};
+        x509_loader rcert;
         if (not remote_cert.empty())
-            rcert = datum{remote_cert};
-        datum ca;
+            rcert = {remote_cert};
+        x509_loader ca;
         if (not ca_arg.empty())
-            ca = datum{ca};
+            ca = {ca};
 
         if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
         {
@@ -82,9 +82,8 @@ namespace oxen::quic
 
         if (ca)
         {
-            if (auto rv = (ca.from_mem)
-                                ? gnutls_certificate_set_x509_trust_mem(cred, ca, ca.format)
-                                : gnutls_certificate_set_x509_trust_file(cred, ca.path.u8string().c_str(), ca.format);
+            if (auto rv = (ca.from_mem()) ? gnutls_certificate_set_x509_trust_mem(cred, ca, ca.format)
+                                          : gnutls_certificate_set_x509_trust_file(cred, ca, ca.format);
                 rv < 0)
             {
                 log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
@@ -92,10 +91,8 @@ namespace oxen::quic
             }
         }
 
-        if (auto rv = (lcert.from_mem)
-                            ? gnutls_certificate_set_x509_key_mem(cred, lcert, lkey, lkey.format)
-                            : gnutls_certificate_set_x509_key_file(
-                                      cred, lcert.path.u8string().c_str(), lkey.path.u8string().c_str(), lkey.format);
+        if (auto rv = (lcert.from_mem()) ? gnutls_certificate_set_x509_key_mem(cred, lcert, lkey, lkey.format)
+                                         : gnutls_certificate_set_x509_key_file(cred, lcert, lkey, lkey.format);
             rv < 0)
         {
             log::warning(log_cat, "Set x509 key failed with code {}", gnutls_strerror(rv));
@@ -105,30 +102,23 @@ namespace oxen::quic
         log::info(log_cat, "Completed credential initialization");
     }
 
+    // These bytes mean "this is a raw Ed25519 private key" in ASN.1 (or something like that)
+    static const std::string ASN_ED25519_SEED_PREFIX = oxenc::from_hex("302e020100300506032b657004220420"sv);
+    // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
+    static const std::string ASN_ED25519_PUBKEY_PREFIX = oxenc::from_hex("302a300506032b6570032100"sv);
+
     GNUTLSCreds::GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode) : using_raw_pk{true}, is_snode{snode}
     {
         log::trace(log_cat, "Initializing GNUTLSCreds from Ed25519 keypair");
 
-        // These bytes mean "this is a raw Ed25519 private key" in ASN.1 (or something like that)
-        auto asn_seed_bytes = oxenc::from_hex("302e020100300506032b657004220420");
-        asn_seed_bytes += ed_seed;
+        constexpr auto pem_fmt = "-----BEGIN {0} KEY-----\n{1}\n-----END {0} KEY-----\n"sv;
 
-        std::string seed_pem = "-----BEGIN PRIVATE KEY-----\n";
-        seed_pem += oxenc::to_base64(asn_seed_bytes);
-        seed_pem += "\n-----END PRIVATE KEY-----\n";
+        x509_loader seed{fmt::format(pem_fmt, "PRIVATE", oxenc::to_base64(ASN_ED25519_SEED_PREFIX + ed_seed))};
 
-        // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
-        auto asn_pubkey_bytes = oxenc::from_hex("302a300506032b6570032100");
-        asn_pubkey_bytes += ed_pubkey;
+        x509_loader pubkey{fmt::format(pem_fmt, "PUBLIC", oxenc::to_base64(ASN_ED25519_PUBKEY_PREFIX + ed_pubkey))};
 
-        std::string pubkey_pem = "-----BEGIN PUBLIC KEY-----\n";
-        pubkey_pem += oxenc::to_base64(asn_pubkey_bytes);
-        pubkey_pem += "\n-----END PUBLIC KEY-----\n";
-
-        // uint32_t cast to appease narrowing conversion gods
-        const gnutls_datum_t seed_datum{reinterpret_cast<uint8_t*>(seed_pem.data()), static_cast<uint32_t>(seed_pem.size())};
-        const gnutls_datum_t pubkey_datum{
-                reinterpret_cast<uint8_t*>(pubkey_pem.data()), static_cast<uint32_t>(pubkey_pem.size())};
+        assert(seed.from_mem() && pubkey.from_mem());
+        assert(seed.format == pubkey.format);
 
         if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
         {
@@ -144,7 +134,7 @@ namespace oxen::quic
         //        we're only using it for ECDH, setting it to "use key for anything" should be fine.
         //        I believe the value for this is 0, and if it works it works.
         if (auto rv = gnutls_certificate_set_rawpk_key_mem(
-                    cred, &pubkey_datum, &seed_datum, GNUTLS_X509_FMT_PEM, nullptr, usage_flags, nullptr, 0, 0);
+                    cred, pubkey, seed, seed.format, nullptr, usage_flags, nullptr, 0, 0);
             rv < 0)
         {
             log::warning(log_cat, "gnutls import of raw Ed keys failed: {}", gnutls_strerror(rv));
