@@ -36,7 +36,9 @@ namespace oxen::quic
         std::string_view endpoint;
         std::string_view req_body;
 
-        message(std::string req) : data{std::move(req)}
+        bool error{false};
+
+        message(std::string req, bool is_error = false) : data{std::move(req)}, error{is_error}
         {
             oxenc::bt_list_consumer btlc(data);
 
@@ -56,7 +58,7 @@ namespace oxen::quic
             }
         }
 
-        std::string rid() { return std::move(std::string{req_id}); }
+        std::string rid() { return std::string{req_id}; }
         std::string_view view() { return {data}; }
     };
 
@@ -69,8 +71,8 @@ namespace oxen::quic
         // total length of the request; is at the beginning of the request
         size_t total_len;
 
-        uint64_t req_time;
-        uint64_t timeout;
+        std::chrono::steady_clock::time_point req_time;
+        std::chrono::steady_clock::time_point timeout;
 
         bool is_empty() const { return data.empty() && total_len == 0; }
 
@@ -82,8 +84,8 @@ namespace oxen::quic
             data.reserve(data.length() + total_len);
             data.append(d);
 
-            req_time = get_time().time_since_epoch().count();
-            timeout = req_time + TIMEOUT.count();
+            req_time = get_time();
+            timeout = req_time + TIMEOUT;
         }
 
         message to_message() { return {data}; }
@@ -96,7 +98,7 @@ namespace oxen::quic
     {
       private:
         // outgoing requests awaiting response
-        std::unordered_map<uint64_t, std::shared_ptr<sent_request>> sent_reqs;
+        std::map<std::chrono::steady_clock::time_point, std::shared_ptr<sent_request>> sent_reqs;
 
         std::string buf;
         std::string size_buf;
@@ -105,8 +107,9 @@ namespace oxen::quic
 
         std::function<void(Stream&, message)> recv_callback;
 
-        std::function<void(Stream&, uint64_t)> close_callback = [](Stream& s, uint64_t ec) {
+        std::function<void(Stream&, uint64_t)> close_callback = [this](Stream& s, uint64_t ec) {
             log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            sent_reqs.clear();
             s.close(io_error{ec});
         };
 
@@ -159,12 +162,12 @@ namespace oxen::quic
 
         void check_timeouts() override
         {
-            const auto& now = get_timestamp().count();
+            const auto& now = get_time();
 
-            for (auto& [exp, req] : sent_reqs)
+            for (auto itr = sent_reqs.begin(); itr != sent_reqs.end();)
             {
-                if (exp < now)
-                    sent_reqs.erase(exp);
+                if (itr->first < now)
+                    itr = sent_reqs.erase(itr);
                 else
                     return;
             }

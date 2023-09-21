@@ -221,6 +221,38 @@ namespace oxen::quic::test
             REQUIRE(d_future.get());
             REQUIRE(c_future.get());
         }
+
+        SECTION("Client (alternate construction) sends a request, server sends a response")
+        {
+            std::promise<bool> c_promise;
+            auto c_future = c_promise.get_future();
+
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+                return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
+                    log::critical(log_cat, "Server bparser received: {}", msg.view());
+                    d_promise.set_value(true);
+                    s.respond(msg.rid(), "test_response"s);
+                });
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+            auto client_bp = conn_interface->get_new_stream<bparser>([&](Stream& s, message msg) mutable {
+                log::critical(log_cat, "Client bparser received: {}", msg.view());
+                c_promise.set_value(true);
+            });
+
+            client_bp->request("test_endpoint"s, "test_request_body"s);
+
+            REQUIRE(d_future.get());
+            REQUIRE(c_future.get());
+        }
     };
 
 }  // namespace oxen::quic::test
