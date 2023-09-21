@@ -67,6 +67,11 @@ namespace oxen::quic
         template <typename... Opt>
         bool listen(Opt&&... opts)
         {
+
+            static_assert(
+                    (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                    "Endpoint listen requires exactly one std::shared_ptr<TLSCreds> argument");
+
             std::promise<bool> p;
             auto f = p.get_future();
 
