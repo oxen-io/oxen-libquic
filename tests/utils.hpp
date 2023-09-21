@@ -119,37 +119,69 @@ namespace oxen::quic
     template <typename Class, typename Ret, typename... Args>
     struct functional_helper<Ret (Class::*)(Args...) const>
     {
+        using return_type = Ret;
+        static constexpr bool is_void = std::is_void_v<Ret>;
         using type = std::function<Ret(Args...)>;
     };
 
     template <typename T>
     using functional_helper_t = typename functional_helper<T>::type;
 
+    struct set_on_exit
+    {
+        std::promise<void>& p;
+        explicit set_on_exit(std::promise<void>& p) : p{p} {}
+        ~set_on_exit() { p.set_value(); }
+    };
+
+    /// Test suite helper that takes a callable lambda at construction and then man-in-the-middles
+    /// an intermediate std::function matching the lambda that calls the inner lambda but also sets
+    /// a promise just after calling the inner lambda.
+    ///
+    /// The main purpose is to synchronize an asynchronous interface with a promise/future to
+    /// simplify test code which is full of "wait for this thing to be called" checks, without
+    /// needing any sort of sleep & poll (and reducing the direct usage of promise/futures in the
+    /// test suite).
+    ///
+    /// Usage example:
+    ///
+    ///     int foo = 0;
+    ///     callback_waiter waiter{[&foo](int a, int b) { foo = a + b; }};
+    ///     invoke_something(waiter);
+    ///
+    /// where `invoke_something` takes a `std::function<int(Foo&, int)>`.  The test code would then
+    /// go on to synchronize with:
+    ///
+    ///     REQUIRE(waiter.wait(/* 1s */)); // will fail if the lambda doesn't get called within ~1s
+    ///
+    /// and then can go on to check side effects of the lambda, e.g.:
+    ///
+    ///     CHECK(foo == 42);
+    ///
+    /// Care must be taken to ensure the lambda is only called once.  The lambda may throw, but the
+    /// throw propagates to the caller of the lambda, *not* the inner promise.
     template <typename T>
-    struct bool_waiter
+    struct callback_waiter
     {
         using Func_t = functional_helper_t<T>;
 
         Func_t func;
-        std::promise<bool> p;
-        std::future<bool> f{p.get_future()};
+        std::promise<void> p;
+        std::future<void> f{p.get_future()};
 
-        explicit bool_waiter(T f) : func{std::move(f)} {}
+        explicit callback_waiter(T f) : func{std::move(f)} {}
 
-        bool wait_ready(std::chrono::milliseconds timeout = 1s) { return f.wait_for(timeout) == std::future_status::ready; }
+        bool wait(std::chrono::milliseconds timeout = 1s) { return f.wait_for(timeout) == std::future_status::ready; }
 
-        bool is_ready() { return f.wait_for(0s) == std::future_status::ready; }
-
-        bool get() { return f.get(); }
+        bool is_ready() { return wait(0s); }
 
         // Deliberate implicit conversion to the std::function<...>
         operator Func_t()
         {
             return [this](auto&&... args) {
-                p.set_value(true);
+                set_on_exit prom_setter{p};
                 return func(std::forward<decltype(args)>(args)...);
             };
-            return func;
         }
     };
 

@@ -114,8 +114,8 @@ namespace oxen::quic::test
 
         SECTION("Endpoint::connect() - IPv6 Addressing")
         {
-            auto client_established = bool_waiter{[](connection_interface&) {}};
-            auto server_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
+            auto server_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -134,16 +134,15 @@ namespace oxen::quic::test
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            REQUIRE(client_established.wait_ready());
-            REQUIRE(client_established.get());
-            REQUIRE(server_established.get());
+            REQUIRE(client_established.wait());
+            REQUIRE(server_established.wait());
         };
     };
 
     TEST_CASE("001 - Handshaking: Execution", "[001][handshake][tls][execute]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
-        auto server_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
 
@@ -161,9 +160,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(client_established.wait_ready());
-        REQUIRE(server_established.wait_ready());
-        REQUIRE(client_established.get());
-        REQUIRE(server_established.get());
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
     };
 }  // namespace oxen::quic::test

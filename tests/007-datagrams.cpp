@@ -64,7 +64,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query param info from datagram-disabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
 
@@ -82,7 +82,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(client_established.wait_ready());
+        REQUIRE(client_established.wait());
         REQUIRE_FALSE(conn_interface->datagrams_enabled());
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
@@ -91,7 +91,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query param info from default datagram-enabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
 
@@ -111,7 +111,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, default_gram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(client_established.wait_ready());
+        REQUIRE(client_established.wait());
         REQUIRE(conn_interface->datagrams_enabled());
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
         REQUIRE_FALSE(conn_interface->packet_splitting_enabled());
@@ -122,7 +122,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query params from split-datagram enabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
 
@@ -141,7 +141,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, split_dgram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(client_established.get());
+        REQUIRE(client_established.wait());
         REQUIRE(conn_interface->datagrams_enabled());
         REQUIRE(conn_interface->packet_splitting_enabled());
 
@@ -153,7 +153,7 @@ namespace oxen::quic::test
     {
         SECTION("Simple datagram transmission")
         {
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
             auto msg = "hello from the other siiiii-iiiiide"_bsv;
@@ -183,7 +183,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, default_gram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
             REQUIRE(server_endpoint->datagrams_enabled());
             REQUIRE(client->datagrams_enabled());
 
@@ -203,7 +203,7 @@ namespace oxen::quic::test
     {
         SECTION("Simple datagram transmission")
         {
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -234,7 +234,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
             REQUIRE(server_endpoint->datagrams_enabled());
             REQUIRE(client->datagrams_enabled());
 
@@ -270,7 +270,7 @@ namespace oxen::quic::test
         SECTION("Simple oversized datagram transmission - Clear first row")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -315,7 +315,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             REQUIRE(server_endpoint->datagrams_enabled());
             REQUIRE(client->datagrams_enabled());
@@ -355,7 +355,7 @@ namespace oxen::quic::test
         SECTION("Simple datagram transmission - mixed sizes")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -400,7 +400,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             REQUIRE(server_endpoint->datagrams_enabled());
             REQUIRE(client->datagrams_enabled());
@@ -443,7 +443,7 @@ namespace oxen::quic::test
         SECTION("Simple datagram transmission - induced loss")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -492,7 +492,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
@@ -539,7 +539,7 @@ namespace oxen::quic::test
         SECTION("Simple datagram transmission - flip flop ordering")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
-            auto client_established = bool_waiter{[](connection_interface&) {}};
+            auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
 
@@ -585,7 +585,7 @@ namespace oxen::quic::test
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             std::this_thread::sleep_for(5ms);
             auto max_size = conn_interface->get_max_datagram_size();

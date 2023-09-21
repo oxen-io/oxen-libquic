@@ -13,11 +13,11 @@ namespace oxen::quic::test
     {
         uint64_t client_error{0};
         uint64_t server_error{0};
-        auto client_established = bool_waiter{[](connection_interface&) {}};
-        auto server_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[](connection_interface&) {}};
         // this needs to be destroyed *after* Network, as it may be called during ~Network
-        auto client_closed = bool_waiter{[&client_error](connection_interface&, uint64_t ec) { client_error = ec; }};
-        auto server_closed = bool_waiter{[&server_error](connection_interface&, uint64_t ec) { server_error = ec; }};
+        auto client_closed = callback_waiter{[&client_error](connection_interface&, uint64_t ec) { client_error = ec; }};
+        auto server_closed = callback_waiter{[&server_error](connection_interface&, uint64_t ec) { server_error = ec; }};
 
         Network test_net{};
 
@@ -35,15 +35,15 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        REQUIRE(client_established.wait_ready());
-        REQUIRE(server_established.wait_ready());
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
 
         uint64_t error_code = 12345;
         conn_interface->close_connection(error_code);
 
-        REQUIRE(server_closed.get());
-        REQUIRE(client_error == error_code);
-        REQUIRE(client_closed.get());
-        REQUIRE(server_error == error_code);
+        REQUIRE(server_closed.wait());
+        REQUIRE(client_closed.wait());
+        CHECK(client_error == error_code);
+        CHECK(server_error == error_code);
     };
 }  // namespace oxen::quic::test
