@@ -50,7 +50,8 @@ namespace oxen::quic::test
             auto ep_notls = test_net.endpoint(default_addr);
             auto ep_tls = test_net.endpoint(local_addr);
 
-            // REQUIRE_THROWS(ep_notls->listen());  // Shouldn't compile if uncommented!
+            // ep_notls->listen();  // Shouldn't compile if uncommented!
+            // ep_notls->listen(local_tls, local_tls);  // Nor this
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
         };
 
