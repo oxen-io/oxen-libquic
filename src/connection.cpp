@@ -394,12 +394,16 @@ namespace oxen::quic
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint)
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
                                                          : make_stream(*this, _endpoint);
 
             stream->set_not_ready();
-            streams_on_deck.push_back(std::move(stream));
-            return streams_on_deck.back();
+            stream->_stream_id = next_incoming_stream_id;
+            next_incoming_stream_id += 4;
+
+            auto& str = stream_queue[stream->_stream_id];
+            str = std::move(stream);
+            return str;
         });
     }
 
@@ -407,7 +411,7 @@ namespace oxen::quic
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint)
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
                                                          : make_stream(*this, _endpoint);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
@@ -819,22 +823,21 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        if (not streams_on_deck.empty())
+        if (auto itr = stream_queue.find(id); itr != stream_queue.end())
         {
             log::critical(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
 
-            auto& s = streams_on_deck.front();
-            s->_stream_id = id;
+            auto& s = itr->second;
             s->set_ready();
-            streams_on_deck.pop_front();
 
             [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(s));
+            stream_queue.erase(itr);
             assert(ins);
             return 0;
         }
 
         auto stream = (context->stream_construct_cb)
-                            ? context->stream_construct_cb(*this, _endpoint)
+                            ? context->stream_construct_cb(*this, _endpoint, id)
                             : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
         stream->_stream_id = id;
         stream->set_ready();

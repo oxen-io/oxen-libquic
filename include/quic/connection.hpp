@@ -262,7 +262,10 @@ namespace oxen::quic
 
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
-        std::deque<std::shared_ptr<Stream>> streams_on_deck;
+        std::map<int64_t, std::shared_ptr<Stream>> stream_queue;
+
+        int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
+
         // datagram "pseudo-stream"
         std::unique_ptr<DatagramIO> datagrams;
         // "pseudo-stream" to represent ngtcp2 stream ID -1

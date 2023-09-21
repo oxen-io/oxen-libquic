@@ -164,7 +164,7 @@ namespace oxen::quic::test
 
         SECTION("Client sends a command")
         {
-            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 return std::make_shared<bparser>(c, e, [&](Stream&, message msg) mutable {
                     log::critical(log_cat, "Server bparser received: {}", msg.view());
                     d_promise.set_value(true);
@@ -191,7 +191,7 @@ namespace oxen::quic::test
             std::promise<bool> c_promise;
             auto c_future = c_promise.get_future();
 
-            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
                     log::critical(log_cat, "Server bparser received: {}", msg.view());
                     d_promise.set_value(true);
@@ -199,7 +199,7 @@ namespace oxen::quic::test
                 });
             };
 
-            stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e) {
+            stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
                     log::critical(log_cat, "Client bparser received: {}", msg.view());
                     c_promise.set_value(true);
@@ -227,7 +227,7 @@ namespace oxen::quic::test
             std::promise<bool> c_promise;
             auto c_future = c_promise.get_future();
 
-            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 return std::make_shared<bparser>(c, e, [&](Stream& s, message msg) mutable {
                     log::critical(log_cat, "Server bparser received: {}", msg.view());
                     d_promise.set_value(true);

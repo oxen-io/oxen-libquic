@@ -13,20 +13,10 @@ namespace oxen::quic
     const std::chrono::seconds TIMEOUT{10};
 
     // request sizes
-    inline constexpr long long MAX_REQ_LEN{10000000};
+    inline constexpr long long MAX_REQ_LEN = 10_M;
 
     // Application error
     inline constexpr uint64_t BPARSER_EXCEPTION = (1ULL << 60) + 69;
-
-    inline std::basic_string<std::byte> operator""_bs(const char* __str, size_t __len) noexcept
-    {
-        return std::basic_string<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
-    }
-
-    inline std::string_view to_sv(bstring_view x)
-    {
-        return {reinterpret_cast<const char*>(x.data()), x.size()};
-    }
 
     struct message
     {
@@ -42,20 +32,13 @@ namespace oxen::quic
         {
             oxenc::bt_list_consumer btlc(data);
 
-            try
-            {
-                req_type = btlc.consume_string_view();
-                req_id = btlc.consume_string_view();
+            req_type = btlc.consume_string_view();
+            req_id = btlc.consume_string_view();
 
-                if (req_type == "Q" || req_type == "C")
-                    endpoint = btlc.consume_string_view();
+            if (req_type == "Q" || req_type == "C")
+                endpoint = btlc.consume_string_view();
 
-                req_body = btlc.consume_string_view();
-            }
-            catch (...)
-            {
-                log::critical(bp_cat, "Invalid request body!");
-            }
+            req_body = btlc.consume_string_view();
         }
 
         std::string rid() { return std::string{req_id}; }
@@ -79,9 +62,9 @@ namespace oxen::quic
         explicit sent_request(std::string d, std::string rid) : req_id{std::move(rid)}
         {
             total_len = d.length();
+            data.reserve(data.length() + total_len);
             data += std::to_string(total_len);
             data += ':';
-            data.reserve(data.length() + total_len);
             data.append(d);
 
             req_time = get_time();
@@ -104,6 +87,8 @@ namespace oxen::quic
         std::string size_buf;
 
         size_t current_len{0};
+
+        std::atomic<int64_t> next_rid{0};
 
         std::function<void(Stream&, message)> recv_callback;
 
@@ -151,7 +136,15 @@ namespace oxen::quic
         {
             log::info(bp_cat, "bparser recv data callback called!");
             log::debug(bp_cat, "Received data: {}", buffer_printer{data});
-            process_incoming(to_sv(data));
+
+            try
+            {
+                process_incoming(to_sv(data));
+            }
+            catch (std::exception& e)
+            {
+                log::error(bp_cat, "Exception caught: {}", e.what());
+            }
         }
 
         void closed(uint64_t app_code) override
@@ -288,7 +281,7 @@ namespace oxen::quic
         std::shared_ptr<sent_request> make_request(std::string endpoint, std::string body)
         {
             oxenc::bt_list_producer btlp;
-            std::string rid = "111112222233333"s;  // replace with libsodium function call
+            std::string rid = std::to_string(++next_rid);
 
             try
             {
@@ -297,7 +290,7 @@ namespace oxen::quic
                 btlp.append(endpoint);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), std::move(rid));
+                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
                 return req;
             }
             catch (...)
@@ -311,7 +304,7 @@ namespace oxen::quic
         std::shared_ptr<sent_request> make_command(std::string endpoint, std::string body)
         {
             oxenc::bt_list_producer btlp;
-            std::string rid = "111112222233333"s;  // replace with libsodium function call
+            std::string rid = std::to_string(++next_rid);
 
             try
             {
@@ -320,7 +313,7 @@ namespace oxen::quic
                 btlp.append(endpoint);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), std::move(rid));
+                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
                 return req;
             }
             catch (...)
@@ -341,7 +334,7 @@ namespace oxen::quic
                 btlp.append(rid);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), std::move(rid));
+                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
                 return req;
             }
             catch (...)
