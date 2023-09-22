@@ -10,7 +10,7 @@ namespace oxen::quic
     using time_point = std::chrono::steady_clock::time_point;
 
     // timeout is used for sent requests awaiting responses
-    const std::chrono::seconds TIMEOUT{10};
+    inline constexpr std::chrono::seconds TIMEOUT{10};
 
     // request sizes
     inline constexpr long long MAX_REQ_LEN = 10_M;
@@ -18,38 +18,48 @@ namespace oxen::quic
     // Application error
     inline constexpr uint64_t BPARSER_EXCEPTION = (1ULL << 60) + 69;
 
+    class BTRequestStream;
+
     struct message
     {
+        friend class BTRequestStream;
+
+      private:
+        int64_t req_id;
         std::string data;
         std::string_view req_type;
-        std::string_view req_id;
         std::string_view endpoint;
         std::string_view req_body;
+        std::weak_ptr<BTRequestStream> return_sender;
+        bool timed_out{false};
 
-        bool error{false};
+      public:
+        message(BTRequestStream& bp, std::string req, bool is_error = false);
 
-        message(std::string req, bool is_error = false) : data{std::move(req)}, error{is_error}
-        {
-            oxenc::bt_list_consumer btlc(data);
+        void respond(int64_t rid, std::string body, bool error = false);
 
-            req_type = btlc.consume_string_view();
-            req_id = btlc.consume_string_view();
+        //  To be used to determine if the message was a result of an error as such:
+        //
+        //  void f(const message& m)
+        //  {
+        //      if (not m.timed_out)
+        //      { // success logic }
+        //      ... // is identical to:
+        //      if (m)
+        //      { // success logic }
+        //  }
+        operator bool() const { return not timed_out; }
 
-            if (req_type == "Q" || req_type == "C")
-                endpoint = btlc.consume_string_view();
-
-            req_body = btlc.consume_string_view();
-        }
-
-        std::string rid() { return std::string{req_id}; }
-        std::string_view view() { return {data}; }
+        int64_t rid() const { return req_id; }
+        std::string_view view() const { return {data}; }
     };
 
     struct sent_request
     {
         // parsed request data
+        int64_t req_id;
         std::string data;
-        std::string req_id;
+        BTRequestStream& return_sender;
 
         // total length of the request; is at the beginning of the request
         size_t total_len;
@@ -59,29 +69,27 @@ namespace oxen::quic
 
         bool is_empty() const { return data.empty() && total_len == 0; }
 
-        explicit sent_request(std::string d, std::string rid) : req_id{std::move(rid)}
+        explicit sent_request(BTRequestStream& bp, std::string_view d, int64_t rid) : req_id{rid}, return_sender{bp}
         {
             total_len = d.length();
-            data.reserve(data.length() + total_len);
-            data += std::to_string(total_len);
-            data += ':';
-            data.append(d);
-
+            data = oxenc::bt_serialize(d);
             req_time = get_time();
             timeout = req_time + TIMEOUT;
         }
 
-        message to_message() { return {data}; }
+        bool is_expired(std::chrono::steady_clock::time_point tp) const { return timeout < tp; }
+
+        message to_message(bool timed_out = false) { return {return_sender, data, timed_out}; }
 
         std::string_view view() { return {data}; }
-        std::string&& payload() { return std::move(data); }
+        std::string payload() && { return std::move(data); }
     };
 
-    class bparser : public Stream
+    class BTRequestStream : public Stream
     {
       private:
         // outgoing requests awaiting response
-        std::map<std::chrono::steady_clock::time_point, std::shared_ptr<sent_request>> sent_reqs;
+        std::deque<std::shared_ptr<sent_request>> sent_reqs;
 
         std::string buf;
         std::string size_buf;
@@ -90,60 +98,91 @@ namespace oxen::quic
 
         std::atomic<int64_t> next_rid{0};
 
-        std::function<void(Stream&, message)> recv_callback;
-
-        std::function<void(Stream&, uint64_t)> close_callback = [this](Stream& s, uint64_t ec) {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
-            sent_reqs.clear();
-            s.close(io_error{ec});
-        };
+        friend class sent_request;
+        std::function<void(message)> recv_callback;
 
       public:
         template <typename... Opt>
-        explicit bparser(Connection& _c, Endpoint& _e, Opt&&... opts) : Stream{_c, _e}
+        explicit BTRequestStream(Connection& _c, Endpoint& _e, Opt&&... opts) : Stream{_c, _e}
         {
             ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
         }
 
-        void request(std::string endpoint, std::string body) override
+        ~BTRequestStream() { sent_reqs.clear(); }
+
+        std::weak_ptr<BTRequestStream> weak_from_this()
         {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            return std::dynamic_pointer_cast<BTRequestStream>(shared_from_this());
+        }
+
+        void request(std::string endpoint, std::string body)
+        {
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
             auto req = make_request(std::move(endpoint), std::move(body));
             send(req->view());
 
-            auto& sr = sent_reqs[req->timeout];
-            sr = std::move(req);
+            sent_reqs.push_back(std::move(req));
         }
 
-        void command(std::string endpoint, std::string body) override
+        void command(std::string endpoint, std::string body)
         {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
             auto req = make_command(std::move(endpoint), std::move(body));
-            send(req->payload());
+
+            if (req)
+                send(std::move(*req).payload());
+            else
+                throw std::invalid_argument{"Invalid command!"};
         }
 
-        void respond(std::string rid, std::string body, bool error = false) override
+        void respond(int64_t rid, std::string body, bool error = false)
         {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-            auto req = make_response(std::move(rid), std::move(body), error);
-            send(req->payload());
+            auto req = make_response(rid, std::move(body), error);
+
+            if (req)
+                send(std::move(*req).payload());
+            else
+                throw std::invalid_argument{"Invalid response!"};
+        }
+
+        void check_timeouts()
+        {
+            const auto now = get_time();
+
+            do
+            {
+                auto& f = sent_reqs.front();
+
+                if (f->is_expired(now))
+                {
+                    recv_callback(f->to_message(true));
+                    sent_reqs.pop_front();
+                }
+                else
+                    return;
+
+            } while (not sent_reqs.empty());
         }
 
         void receive(bstring_view data) override
         {
-            log::info(bp_cat, "bparser recv data callback called!");
-            log::debug(bp_cat, "Received data: {}", buffer_printer{data});
+            log::trace(bp_cat, "bparser recv data callback called!");
+
+            if (is_closing())
+                return;
 
             try
             {
                 process_incoming(to_sv(data));
             }
-            catch (std::exception& e)
+            catch (const std::exception& e)
             {
                 log::error(bp_cat, "Exception caught: {}", e.what());
+                close(io_error{BPARSER_EXCEPTION});
             }
         }
 
@@ -153,21 +192,8 @@ namespace oxen::quic
             close_callback(*this, app_code);
         }
 
-        void check_timeouts() override
-        {
-            const auto& now = get_time();
-
-            for (auto itr = sent_reqs.begin(); itr != sent_reqs.end();)
-            {
-                if (itr->first < now)
-                    itr = sent_reqs.erase(itr);
-                else
-                    return;
-            }
-        }
-
       private:
-        void handle_bp_opt(std::function<void(Stream&, message)> recv_cb)
+        void handle_bp_opt(std::function<void(message)> recv_cb)
         {
             log::debug(bp_cat, "Bparser set user-provided recv callback!");
             recv_callback = std::move(recv_cb);
@@ -179,18 +205,22 @@ namespace oxen::quic
             close_callback = std::move(close_cb);
         }
 
-        bool match(std::string_view rid)
+        bool match(int64_t rid)
         {
             log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-            for (auto& r : sent_reqs)
+            // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
+            // As a result, our comparator checks if the sent request ID is greater thanthan the target rid
+            auto itr = std::lower_bound(
+                    sent_reqs.begin(), sent_reqs.end(), rid, [](const std::shared_ptr<sent_request>& sr, int64_t rid) {
+                        return sr->req_id > rid;
+                    });
+
+            if (itr != sent_reqs.end() and itr->get()->req_id == rid)
             {
-                if (r.second->req_id == rid)
-                {
-                    log::debug(bp_cat, "Successfully matched response to sent request!");
-                    sent_reqs.erase(r.first);
-                    return true;
-                }
+                log::debug(bp_cat, "Successfully matched response to sent request!");
+                sent_reqs.erase(itr);
+                return true;
             }
 
             return false;
@@ -198,7 +228,7 @@ namespace oxen::quic
 
         void handle_input(message msg)
         {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (msg.req_type == "R" || msg.req_type == "E")
             {
@@ -209,12 +239,12 @@ namespace oxen::quic
                 }
             }
 
-            recv_callback(*this, std::move(msg));
+            recv_callback(std::move(msg));
         }
 
         void process_incoming(std::string_view req)
         {
-            log::debug(bp_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
             while (not req.empty())
             {
@@ -250,7 +280,7 @@ namespace oxen::quic
                     if (req.size() >= current_len)
                     {
                         buf += req.substr(0, current_len);
-                        handle_input(message{std::move(buf)});
+                        handle_input(message{*this, std::move(buf)});
                         req.remove_prefix(current_len);
 
                         current_len = 0;
@@ -268,7 +298,7 @@ namespace oxen::quic
                 {
                     buf += req.substr(0, r_size);
                     req.remove_prefix(r_size);
-                    handle_input(message{std::move(buf)});
+                    handle_input(message{*this, std::move(buf)});
                     current_len = 0;
                     continue;
                 }
@@ -281,7 +311,7 @@ namespace oxen::quic
         std::shared_ptr<sent_request> make_request(std::string endpoint, std::string body)
         {
             oxenc::bt_list_producer btlp;
-            std::string rid = std::to_string(++next_rid);
+            auto rid = ++next_rid;
 
             try
             {
@@ -290,8 +320,7 @@ namespace oxen::quic
                 btlp.append(endpoint);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
-                return req;
+                return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid);
             }
             catch (...)
             {
@@ -301,10 +330,10 @@ namespace oxen::quic
             return nullptr;
         }
 
-        std::shared_ptr<sent_request> make_command(std::string endpoint, std::string body)
+        std::optional<sent_request> make_command(std::string endpoint, std::string body)
         {
             oxenc::bt_list_producer btlp;
-            std::string rid = std::to_string(++next_rid);
+            auto rid = ++next_rid;
 
             try
             {
@@ -313,18 +342,17 @@ namespace oxen::quic
                 btlp.append(endpoint);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
-                return req;
+                return sent_request{*this, btlp.view(), rid};
             }
             catch (...)
             {
                 log::critical(bp_cat, "Invalid outgoing command encoding!");
             }
 
-            return nullptr;
+            return std::nullopt;
         }
 
-        std::shared_ptr<sent_request> make_response(std::string rid, std::string body, bool error = false)
+        std::optional<sent_request> make_response(int64_t rid, std::string body, bool error = false)
         {
             oxenc::bt_list_producer btlp;
 
@@ -334,15 +362,14 @@ namespace oxen::quic
                 btlp.append(rid);
                 btlp.append(body);
 
-                auto req = std::make_shared<sent_request>(std::move(btlp).str(), rid);
-                return req;
+                return sent_request{*this, btlp.view(), rid};
             }
             catch (...)
             {
                 log::critical(bp_cat, "Invalid outgoing response encoding!");
             }
 
-            return nullptr;
+            return std::nullopt;
         }
 
         /** Returns:
@@ -364,17 +391,38 @@ namespace oxen::quic
 
             if (ec != std::errc())
             {
-                close_callback(*this, BPARSER_EXCEPTION);
+                close(io_error{BPARSER_EXCEPTION});
                 throw std::invalid_argument{"Invalid incoming request encoding!"};
             }
 
             if (current_len > MAX_REQ_LEN)
             {
-                close_callback(*this, BPARSER_EXCEPTION);
+                close(io_error{BPARSER_EXCEPTION});
                 throw std::invalid_argument{"Request exceeds maximum size!"};
             }
 
             return pos + 1;
         }
     };
+
+    inline message::message(BTRequestStream& bp, std::string req, bool is_error) :
+            data{std::move(req)}, timed_out{is_error}, return_sender{bp.weak_from_this()}
+    {
+        oxenc::bt_list_consumer btlc(data);
+
+        req_type = btlc.consume_string_view();
+        req_id = btlc.consume_integer<int64_t>();
+
+        if (req_type == "Q" || req_type == "C")
+            endpoint = btlc.consume_string_view();
+
+        req_body = btlc.consume_string_view();
+    }
+
+    inline void message::respond(int64_t rid, std::string body, bool error)
+    {
+        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+
+        return_sender.lock()->respond(rid, std::move(body), error);
+    }
 }  // namespace oxen::quic

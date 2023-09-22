@@ -68,19 +68,19 @@ namespace oxen::quic
 
       public:
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<Stream> queue_stream(Args&&... args)
+        std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {
-            return queue_stream_impl([&](Connection& c, Endpoint& e) {
+            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, Endpoint& e) {
                 return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
-            });
+            }));
         }
 
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<Stream> get_new_stream(Args&&... args)
+        std::shared_ptr<StreamT> get_new_stream(Args&&... args)
         {
-            return get_new_stream_impl([&](Connection& c, Endpoint& e) {
+            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, Endpoint& e) {
                 return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
-            });
+            }));
         }
 
         template <

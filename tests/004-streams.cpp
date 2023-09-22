@@ -244,10 +244,6 @@ namespace oxen::quic::test
             log::debug(log_cat, "Calling custom stream data callback... data received...");
             p.set_value(true);
         }
-        void command(std::string endpoint, std::string body) final override
-        {
-            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-        }
     };
 
     struct ServerStream : public Stream
@@ -260,10 +256,6 @@ namespace oxen::quic::test
         {
             log::debug(log_cat, "Calling custom stream data callback... data received...");
             p.set_value(true);
-        }
-        void command(std::string endpoint, std::string body) final override
-        {
-            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
         }
     };
 
@@ -366,7 +358,7 @@ namespace oxen::quic::test
 
         void receive(bstring_view m) override
         {
-            log::critical(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
             REQUIRE(m == msg);
             p.set_value(true);
         }
@@ -380,7 +372,7 @@ namespace oxen::quic::test
 
         void receive(bstring_view m) override
         {
-            log::critical(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
             REQUIRE(m == msg);
             p.set_value(true);
         }
@@ -394,7 +386,7 @@ namespace oxen::quic::test
 
         void receive(bstring_view m) override
         {
-            log::critical(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
             REQUIRE(m == msg);
             p.set_value(true);
         }
@@ -408,7 +400,7 @@ namespace oxen::quic::test
 
         void receive(bstring_view m) override
         {
-            log::critical(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
             REQUIRE(m == msg);
             p.set_value(true);
         }
@@ -422,7 +414,9 @@ namespace oxen::quic::test
         std::future<bool> sf1 = sp1.get_future(), sf2 = sp2.get_future(), sf3 = sp3.get_future(), cf1 = cp1.get_future(),
                           cf2 = cp2.get_future(), cf3 = cp3.get_future();
 
-        std::shared_ptr<Stream> server_a, server_b, server_c, client_a, client_b, client_c;
+        std::shared_ptr<CustomStreamA> server_a, client_a;
+        std::shared_ptr<CustomStreamB> server_b, client_b;
+        std::shared_ptr<CustomStreamC> server_c, client_c;
 
         auto client_established = bool_waiter{[](connection_interface&) {}};
         auto server_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
@@ -430,11 +424,11 @@ namespace oxen::quic::test
         SECTION("Stream logic using connection open callback")
         {
             connection_open_callback server_open_cb = [&](connection_interface& ci) {
-                log::critical(bp_cat, "Server queuing Custom Stream A!");
+                log::info(bp_cat, "Server queuing Custom Stream A!");
                 server_a = ci.queue_stream<CustomStreamA>(std::move(sp1));
-                log::critical(bp_cat, "Server queuing Custom Stream B!");
+                log::info(bp_cat, "Server queuing Custom Stream B!");
                 server_b = ci.queue_stream<CustomStreamB>(std::move(sp2));
-                log::critical(bp_cat, "Server queuing Custom Stream C!");
+                log::info(bp_cat, "Server queuing Custom Stream C!");
                 server_c = ci.queue_stream<CustomStreamC>(std::move(sp3));
             };
 
@@ -454,17 +448,17 @@ namespace oxen::quic::test
 
             REQUIRE(client_established.wait_ready());
 
-            log::critical(bp_cat, "Client opening Custom Stream A!");
+            log::info(bp_cat, "Client opening Custom Stream A!");
             client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
             REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
             REQUIRE(sf1.get());
 
-            log::critical(bp_cat, "Client opening Custom Stream B!");
+            log::info(bp_cat, "Client opening Custom Stream B!");
             client_b = client_ci->get_new_stream<CustomStreamB>(std::move(cp2));
             REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
             REQUIRE(sf2.get());
 
-            log::critical(bp_cat, "Client opening Custom Stream C!");
+            log::info(bp_cat, "Client opening Custom Stream C!");
             client_c = client_ci->get_new_stream<CustomStreamC>(std::move(cp3));
             REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
             REQUIRE(sf3.get());
@@ -482,13 +476,13 @@ namespace oxen::quic::test
                     switch (*id)
                     {
                         case 0:
-                            log::critical(bp_cat, "Server opening Custom Stream A!");
+                            log::info(bp_cat, "Server opening Custom Stream A!");
                             return std::make_shared<CustomStreamA>(c, e, std::move(sp1));
                         case 4:
-                            log::critical(bp_cat, "Server opening Custom Stream B!");
+                            log::info(bp_cat, "Server opening Custom Stream B!");
                             return std::make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
-                            log::critical(bp_cat, "Server opening Custom Stream C!");
+                            log::info(bp_cat, "Server opening Custom Stream C!");
                             return std::make_shared<CustomStreamC>(c, e, std::move(sp3));
                         default:
                             return std::make_shared<Stream>(c, e);
@@ -513,17 +507,17 @@ namespace oxen::quic::test
 
             REQUIRE(client_established.wait_ready());
 
-            log::critical(bp_cat, "Client opening Custom Stream A!");
+            log::info(bp_cat, "Client opening Custom Stream A!");
             client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
             REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
             REQUIRE(sf1.get());
 
-            log::critical(bp_cat, "Client opening Custom Stream B!");
+            log::info(bp_cat, "Client opening Custom Stream B!");
             client_b = client_ci->get_new_stream<CustomStreamB>(std::move(cp2));
             REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
             REQUIRE(sf2.get());
 
-            log::critical(bp_cat, "Client opening Custom Stream C!");
+            log::info(bp_cat, "Client opening Custom Stream C!");
             client_c = client_ci->get_new_stream<CustomStreamC>(std::move(cp3));
             REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
             REQUIRE(sf3.get());

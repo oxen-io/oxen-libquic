@@ -825,7 +825,7 @@ namespace oxen::quic
 
         if (auto itr = stream_queue.find(id); itr != stream_queue.end())
         {
-            log::critical(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
+            log::debug(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
 
             auto& s = itr->second;
             s->set_ready();
@@ -910,7 +910,7 @@ namespace oxen::quic
             return 0;
         }
 
-        log::critical(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
+        log::debug(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
         bool good = false;
         try

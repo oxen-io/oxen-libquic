@@ -176,16 +176,5 @@ namespace oxen::quic::test
 
         REQUIRE(server_futures[2].get());
         REQUIRE(data_check == 4);
-
-        log::critical(
-                log_cat,
-                "Server: Local created ID = {}, Remote created ID = {}",
-                server_stream->stream_id(),
-                server_extracted_stream->stream_id());
-        log::critical(
-                log_cat,
-                "Client: Local created ID = {}, Remote created ID = {}",
-                client_stream->stream_id(),
-                client_extracted_stream->stream_id());
     };
 }  // namespace oxen::quic::test

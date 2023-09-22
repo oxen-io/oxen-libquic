@@ -250,30 +250,6 @@ namespace oxen::quic
         }
 
       public:
-        virtual void command(std::string, std::string)
-        {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            throw std::runtime_error{"Stream objects should not be queried for RPC commands!"};
-        }
-
-        virtual void request(std::string, std::string)
-        {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            throw std::runtime_error{"Stream objects should not be queried for RPC requests!"};
-        }
-
-        virtual void respond(std::string, std::string, bool = false)
-        {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            throw std::runtime_error{"Stream objects should not respond to RPC requests!"};
-        }
-
-        virtual void check_timeouts()
-        {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
-            throw std::runtime_error{"Stream objects do not have RPC requests to check timeouts!"};
-        }
-
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called
         /// with a const reference to the stream instance as needed to obtain the next chunk of data
         /// until it returns an empty container, at which point `done(stream)` will be called.
