@@ -10,6 +10,7 @@ extern "C"
 }
 
 #include <optional>
+#include <variant>
 
 #include "crypto.hpp"
 
@@ -57,52 +58,117 @@ namespace oxen::quic
     //      - const char* (ex: to gnutls_certificate_set_x509_key_file)
     //      - gnutls_datum_t* (ex: to gnutls_certificate_set_x509_trust_dir)
     //      - gnutls_x509_crt_fmt_t (ex: to parameter 3 of the above functions)
-    struct datum
+    struct x509_loader
     {
-        fs::path path{};
-        gnutls_datum_t mem{};
+        std::variant<std::string, fs::path> source;
+        gnutls_datum_t mem{nullptr, 0};  // Will point at the string content when in_mem() is true
         gnutls_x509_crt_fmt_t format{};
-        bool from_mem{false};
 
-        datum() = default;
-        datum(std::string input) : path{input}
+        x509_loader() = default;
+        x509_loader(std::string input)
         {
-            if (fs::exists(path))
+            if (auto path = fs::u8path(input); fs::exists(path))
             {
                 format = (str_tolower(path.extension().u8string()) == ".pem") ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
-                mem.data = nullptr;
-                mem.size = 0;
+                source = std::move(path);
+            }
+            else if (bool pem = starts_with(input, "-----"); pem || (starts_with(input, "\x30") && input.size() >= 48))
+            {
+                source = std::move(input);
+                update_datum();
+                format = pem ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
             }
             else
             {
-                path = NULL;
-
-                // uint32_t cast to appease narrowing conversion gods,
-                // if cert size won't fit in 32 bits we have bigger problems
-                mem = {reinterpret_cast<uint8_t*>(input.data()), static_cast<uint32_t>(input.size())};
-                format = !("-----"s.compare(input.substr(0, 5))) ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
-                from_mem = true;
+                throw std::invalid_argument{"Invalid cert/key: input is neither a file nor raw valid x509 data"};
             }
         }
-        datum(const datum& other) { *this = other; }
-        datum& operator=(const datum& other)
+
+      private:
+        void update_datum()
         {
-            path = other.path;
-            std::memcpy(mem.data, other.mem.data, other.mem.size);
-            mem.size = other.mem.size;
+            if (auto* s = std::get_if<std::string>(&source))
+            {
+                mem.data = reinterpret_cast<uint8_t*>(s->data());
+                mem.size = s->size();
+            }
+            else
+            {
+                mem.data = nullptr;
+                mem.size = 0;
+            }
+        }
+
+      public:
+        x509_loader(const x509_loader& other) { *this = other; }
+        x509_loader& operator=(const x509_loader& other)
+        {
+            source = other.source;
+            update_datum();
             format = other.format;
-            from_mem = other.from_mem;
             return *this;
         }
 
-        // returns true if path is not empty OR mem has a value set
-        explicit operator bool() const noexcept { return (!path.empty() || mem.size); }
+        x509_loader(x509_loader&& other) { *this = std::move(other); }
+        x509_loader& operator=(x509_loader&& other)
+        {
+            source = std::move(other.source);
+            update_datum();
+            format = other.format;
+            return *this;
+        }
 
-        // Hidden behind a template so that implicit conversion to pointer doesn't cause trouble
-        template <typename T, typename = std::enable_if_t<std::is_same_v<T, gnutls_datum_t>>>
+        bool from_mem() const
+        {
+            auto* s = std::get_if<std::string>(&source);
+            return s && !s->empty();
+        }
+
+        // returns true if we have either a non-empty path or non-empty raw cert data
+        explicit operator bool() const
+        {
+            return std::visit([](const auto& x) { return !x.empty(); }, source);
+        }
+
+        // Implicit conversion to a `const gnutls_datum_t*`.  The datum will point at nullptr if
+        // this is not a `from_mem()` instance.
+        //
+        // Hidden behind a template so that implicit conversion to pointer doesn't cause trouble via
+        // other unwanted implicit conversions.
+        template <typename T, std::enable_if_t<std::is_same_v<T, gnutls_datum_t>, int> = 0>
         operator const T*() const
         {
             return &mem;
+        }
+
+#ifdef _WIN32
+      private:
+        // On windows we can't return a c string directly from a path (because paths are
+        // natively wchar_t-based), so we write the local utf8 path here first when path_cstr is
+        // called.
+        mutable std::string u8path_buf;
+
+      public:
+#endif
+
+        // Implicit conversion to a C string (null terminated `const char*`) containing the path, if
+        // this is not a `from_mem()` instance (otherwise returns an empty c string).
+        //
+        // Hidden behind a template so that implicit conversion to pointer doesn't cause trouble via
+        // other unwanted implicit conversions.
+        template <typename T, std::enable_if_t<std::is_same_v<T, char>, int> = 0>
+        operator const T*() const
+        {
+            if (auto* p = std::get_if<fs::path>(&source))
+            {
+#ifdef _WIN32
+                u8path_buf = p->u8string();
+                return u8path_buf.c_str();
+#else
+                return p->c_str();
+#endif
+            }
+            return "";
         }
     };
 
