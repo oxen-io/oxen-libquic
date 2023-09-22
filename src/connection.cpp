@@ -390,11 +390,28 @@ namespace oxen::quic
         }
     }
 
+    std::shared_ptr<Stream> Connection::queue_stream_impl(
+            std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
+    {
+        return _endpoint.call_get([this, &make_stream]() {
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
+                                                         : make_stream(*this, _endpoint);
+
+            stream->set_not_ready();
+            stream->_stream_id = next_incoming_stream_id;
+            next_incoming_stream_id += 4;
+
+            auto& str = stream_queue[stream->_stream_id];
+            str = std::move(stream);
+            return str;
+        });
+    }
+
     std::shared_ptr<Stream> Connection::get_new_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint)
+            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
                                                          : make_stream(*this, _endpoint);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
@@ -806,8 +823,21 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
+        if (auto itr = stream_queue.find(id); itr != stream_queue.end())
+        {
+            log::debug(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
+
+            auto& s = itr->second;
+            s->set_ready();
+
+            [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(s));
+            stream_queue.erase(itr);
+            assert(ins);
+            return 0;
+        }
+
         auto stream = (context->stream_construct_cb)
-                            ? context->stream_construct_cb(*this, _endpoint)
+                            ? context->stream_construct_cb(*this, _endpoint, id)
                             : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
         stream->_stream_id = id;
         stream->set_ready();
@@ -880,7 +910,7 @@ namespace oxen::quic
             return 0;
         }
 
-        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
+        log::debug(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
         bool good = false;
         try

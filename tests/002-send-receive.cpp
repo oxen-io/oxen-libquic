@@ -3,6 +3,8 @@
 #include <quic/gnutls_crypto.hpp>
 #include <thread>
 
+#include "utils.hpp"
+
 namespace oxen::quic::test
 {
     using namespace std::literals;
@@ -147,6 +149,123 @@ namespace oxen::quic::test
         server_b_stream->send(good_msg);
 
         REQUIRE(d_futures[1].get());
+    };
+
+    TEST_CASE("002 - BParser Testing", "[002][bparser]")
+    {
+        Network test_net{};
+
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
+        SECTION("Client sends a command")
+        {
+            auto server_bp_cb = bool_waiter{[&](message msg) {
+                if (msg)
+                    log::info(log_cat, "Server bparser received: {}", msg.view());
+            }};
+
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+            auto client_bp = conn_interface->get_new_stream<BTRequestStream>();
+
+            client_bp->command("test_endpoint"s, "test_request_body"s);
+
+            REQUIRE(server_bp_cb.get());
+        }
+
+        SECTION("Client sends a request, server sends a response")
+        {
+            auto server_bp_cb = bool_waiter{[&](message msg) {
+                if (msg)
+                {
+                    log::info(log_cat, "Server bparser received: {}", msg.view());
+                    msg.respond(msg.rid(), "test_response"s);
+                }
+            }};
+
+            auto client_bp_cb = bool_waiter{[&](message msg) {
+                if (msg)
+                {
+                    log::info(log_cat, "Client bparser received: {}", msg.view());
+                    msg.respond(msg.rid(), "test_response"s);
+                }
+            }};
+
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+            };
+
+            stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                return std::make_shared<BTRequestStream>(c, e, client_bp_cb);
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_constructor);
+
+            std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+
+            client_bp->request("test_endpoint"s, "test_request_body"s);
+
+            REQUIRE(server_bp_cb.get());
+            REQUIRE(client_bp_cb.get());
+        }
+
+        SECTION("Client (alternate construction) sends a request, server sends a response")
+        {
+            auto server_bp_cb = bool_waiter{[&](message msg) {
+                if (msg)
+                {
+                    log::info(log_cat, "Server bparser received: {}", msg.view());
+                    msg.respond(msg.rid(), "test_response"s);
+                }
+            }};
+
+            auto client_bp_cb = bool_waiter{[&](message msg) {
+                if (msg)
+                {
+                    log::info(log_cat, "Client bparser received: {}", msg.view());
+                    msg.respond(msg.rid(), "test_response"s);
+                }
+            }};
+
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+            auto client_bp = conn_interface->get_new_stream<BTRequestStream>(client_bp_cb);
+
+            client_bp->request("test_endpoint"s, "test_request_body"s);
+
+            REQUIRE(server_bp_cb.get());
+            REQUIRE(client_bp_cb.get());
+        }
     };
 
 }  // namespace oxen::quic::test

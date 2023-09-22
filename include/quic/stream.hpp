@@ -30,7 +30,8 @@ namespace oxen::quic
     // Stream callbacks
     using stream_data_callback = std::function<void(Stream&, bstring_view)>;
     using stream_close_callback = std::function<void(Stream&, uint64_t error_code)>;
-    using stream_constructor_callback = std::function<std::shared_ptr<Stream>(Connection&, Endpoint&)>;
+    using stream_constructor_callback =
+            std::function<std::shared_ptr<Stream>(Connection&, Endpoint&, std::optional<int64_t>)>;
     // returns 0 on success
     using stream_open_callback = std::function<uint64_t(Stream&)>;
     using stream_unblocked_callback = std::function<bool(Stream&)>;
@@ -85,6 +86,10 @@ namespace oxen::quic
         {
             send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
         }
+
+        void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
+
+        void set_stream_close_cb(stream_close_callback cb) { close_callback = std::move(cb); }
 
         stream_data_callback data_callback;
         stream_close_callback close_callback;

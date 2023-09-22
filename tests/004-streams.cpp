@@ -320,11 +320,11 @@ namespace oxen::quic::test
         std::promise<bool> server_promise, client_promise;
         std::future<bool> server_future = server_promise.get_future();
 
-        stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e) {
+        stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
             return std::make_shared<ServerStream>(c, e, std::move(client_promise));
         };
 
-        stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e) {
+        stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
             return std::make_shared<ClientStream>(c, e, std::move(server_promise));
         };
 
@@ -348,4 +348,183 @@ namespace oxen::quic::test
 
         REQUIRE(server_future.get());
     };
+
+    struct CustomStream : public Stream
+    {
+        std::promise<bool> p;
+        const bstring msg = "Stream!"_bs;
+
+        CustomStream(Connection& _c, Endpoint& _e, std::promise<bool> _p) : Stream{_c, _e}, p{std::move(_p)} {}
+
+        void receive(bstring_view m) override
+        {
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            REQUIRE(m == msg);
+            p.set_value(true);
+        }
+    };
+
+    struct CustomStreamA : public CustomStream
+    {
+        const bstring msg = "Stream A!"_bs;
+
+        using CustomStream::CustomStream;
+
+        void receive(bstring_view m) override
+        {
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            REQUIRE(m == msg);
+            p.set_value(true);
+        }
+    };
+
+    struct CustomStreamB : public CustomStream
+    {
+        const bstring msg = "Stream B!"_bs;
+
+        using CustomStream::CustomStream;
+
+        void receive(bstring_view m) override
+        {
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            REQUIRE(m == msg);
+            p.set_value(true);
+        }
+    };
+
+    struct CustomStreamC : public CustomStream
+    {
+        const bstring msg = "Stream C!"_bs;
+
+        using CustomStream::CustomStream;
+
+        void receive(bstring_view m) override
+        {
+            log::info(log_cat, "Custom stream received data. Identity: \n{}", buffer_printer{msg});
+            REQUIRE(m == msg);
+            p.set_value(true);
+        }
+    };
+
+    TEST_CASE("004 - Subclassing quic::stream, sequential stream opening", "[004][customstream][sequential]")
+    {
+        Network test_net{};
+
+        std::promise<bool> sp1, sp2, sp3, cp1, cp2, cp3;
+        std::future<bool> sf1 = sp1.get_future(), sf2 = sp2.get_future(), sf3 = sp3.get_future(), cf1 = cp1.get_future(),
+                          cf2 = cp2.get_future(), cf3 = cp3.get_future();
+
+        std::shared_ptr<CustomStreamA> server_a, client_a;
+        std::shared_ptr<CustomStreamB> server_b, client_b;
+        std::shared_ptr<CustomStreamC> server_c, client_c;
+
+        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto server_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
+
+        SECTION("Stream logic using connection open callback")
+        {
+            connection_open_callback server_open_cb = [&](connection_interface& ci) {
+                log::info(bp_cat, "Server queuing Custom Stream A!");
+                server_a = ci.queue_stream<CustomStreamA>(std::move(sp1));
+                log::info(bp_cat, "Server queuing Custom Stream B!");
+                server_b = ci.queue_stream<CustomStreamB>(std::move(sp2));
+                log::info(bp_cat, "Server queuing Custom Stream C!");
+                server_c = ci.queue_stream<CustomStreamC>(std::move(sp3));
+            };
+
+            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
+
+            auto server_endpoint = test_net.endpoint(server_local, server_open_cb, server_closed);
+            REQUIRE(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+            REQUIRE(client_established.wait_ready());
+
+            log::info(bp_cat, "Client opening Custom Stream A!");
+            client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
+            REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
+            REQUIRE(sf1.get());
+
+            log::info(bp_cat, "Client opening Custom Stream B!");
+            client_b = client_ci->get_new_stream<CustomStreamB>(std::move(cp2));
+            REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
+            REQUIRE(sf2.get());
+
+            log::info(bp_cat, "Client opening Custom Stream C!");
+            client_c = client_ci->get_new_stream<CustomStreamC>(std::move(cp3));
+            REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
+            REQUIRE(sf3.get());
+
+            client_ci->close_connection();
+            REQUIRE(server_closed.get());
+        }
+
+        SECTION("Stream logic using stream constructor callback")
+        {
+            stream_constructor_callback server_constructor =
+                    [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
+                if (id)
+                {
+                    switch (*id)
+                    {
+                        case 0:
+                            log::info(bp_cat, "Server opening Custom Stream A!");
+                            return std::make_shared<CustomStreamA>(c, e, std::move(sp1));
+                        case 4:
+                            log::info(bp_cat, "Server opening Custom Stream B!");
+                            return std::make_shared<CustomStreamB>(c, e, std::move(sp2));
+                        case 8:
+                            log::info(bp_cat, "Server opening Custom Stream C!");
+                            return std::make_shared<CustomStreamC>(c, e, std::move(sp3));
+                        default:
+                            return std::make_shared<Stream>(c, e);
+                    }
+                }
+                return std::make_shared<Stream>(c, e);
+            };
+
+            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+            opt::local_addr server_local{};
+            opt::local_addr client_local{};
+
+            auto server_endpoint = test_net.endpoint(server_local, server_closed);
+            REQUIRE(server_endpoint->listen(server_tls, server_constructor));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local, client_established);
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+            REQUIRE(client_established.wait_ready());
+
+            log::info(bp_cat, "Client opening Custom Stream A!");
+            client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
+            REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
+            REQUIRE(sf1.get());
+
+            log::info(bp_cat, "Client opening Custom Stream B!");
+            client_b = client_ci->get_new_stream<CustomStreamB>(std::move(cp2));
+            REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
+            REQUIRE(sf2.get());
+
+            log::info(bp_cat, "Client opening Custom Stream C!");
+            client_c = client_ci->get_new_stream<CustomStreamC>(std::move(cp3));
+            REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
+            REQUIRE(sf3.get());
+
+            client_ci->close_connection();
+            REQUIRE(server_closed.get());
+        }
+    };
+
 }  // namespace oxen::quic::test

@@ -61,16 +61,26 @@ namespace oxen::quic
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       protected:
+        virtual std::shared_ptr<Stream> queue_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
         virtual std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
 
       public:
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<Stream> get_new_stream(Args&&... args)
+        std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {
-            return get_new_stream_impl([&](Connection& c, Endpoint& e) {
+            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, Endpoint& e) {
                 return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
-            });
+            }));
+        }
+
+        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> get_new_stream(Args&&... args)
+        {
+            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, Endpoint& e) {
+                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            }));
         }
 
         template <
@@ -152,6 +162,9 @@ namespace oxen::quic
         void packet_io_ready();
 
         TLSSession* get_session() { return tls_session.get(); };
+
+        std::shared_ptr<Stream> queue_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
         std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
@@ -249,6 +262,10 @@ namespace oxen::quic
 
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
+        std::map<int64_t, std::shared_ptr<Stream>> stream_queue;
+
+        int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
+
         // datagram "pseudo-stream"
         std::unique_ptr<DatagramIO> datagrams;
         // "pseudo-stream" to represent ngtcp2 stream ID -1

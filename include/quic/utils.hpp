@@ -153,6 +153,16 @@ namespace oxen::quic
         return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
     }
 
+    inline std::basic_string<std::byte> operator""_bs(const char* _str, size_t _len) noexcept
+    {
+        return std::basic_string<std::byte>(reinterpret_cast<const std::byte*>(_str), _len);
+    }
+
+    inline std::string_view to_sv(bstring_view x)
+    {
+        return {reinterpret_cast<const char*>(x.data()), x.size()};
+    }
+
     void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
 
     std::chrono::steady_clock::time_point get_time();
