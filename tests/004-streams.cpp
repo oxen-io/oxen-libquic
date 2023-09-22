@@ -11,7 +11,7 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: max stream count", "[004][streams][pending][config]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
 
@@ -31,7 +31,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-        REQUIRE(client_established.wait_ready());
+        REQUIRE(client_established.wait());
         REQUIRE(conn_interface->get_max_streams() == max_streams.stream_count);
     };
 
@@ -72,7 +72,7 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: different remote settings", "[004][streams][pending][config]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
@@ -102,7 +102,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_config);
 
-        REQUIRE(client_established.wait_ready());
+        REQUIRE(client_established.wait());
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         // some transport parameters are set after handshake is completed; querying the client connection too
@@ -127,7 +127,7 @@ namespace oxen::quic::test
 
     TEST_CASE("004 - Multiple pending streams: Execution", "[004][streams][pending][execute]")
     {
-        auto client_established = bool_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
@@ -179,7 +179,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
-        REQUIRE(client_established.wait_ready());
+        REQUIRE(client_established.wait());
 
         for (int i = 0; i < n_streams; ++i)
         {
@@ -418,8 +418,8 @@ namespace oxen::quic::test
         std::shared_ptr<CustomStreamB> server_b, client_b;
         std::shared_ptr<CustomStreamC> server_c, client_c;
 
-        auto client_established = bool_waiter{[](connection_interface&) {}};
-        auto server_closed = bool_waiter{[](connection_interface&, uint64_t) {}};
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_closed = callback_waiter{[](connection_interface&, uint64_t) {}};
 
         SECTION("Stream logic using connection open callback")
         {
@@ -446,7 +446,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local, client_established);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             log::info(bp_cat, "Client opening Custom Stream A!");
             client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
@@ -464,7 +464,7 @@ namespace oxen::quic::test
             REQUIRE(sf3.get());
 
             client_ci->close_connection();
-            REQUIRE(server_closed.get());
+            REQUIRE(server_closed.wait());
         }
 
         SECTION("Stream logic using stream constructor callback")
@@ -505,7 +505,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local, client_established);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait_ready());
+            REQUIRE(client_established.wait());
 
             log::info(bp_cat, "Client opening Custom Stream A!");
             client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));
@@ -523,7 +523,7 @@ namespace oxen::quic::test
             REQUIRE(sf3.get());
 
             client_ci->close_connection();
-            REQUIRE(server_closed.get());
+            REQUIRE(server_closed.wait());
         }
     };
 

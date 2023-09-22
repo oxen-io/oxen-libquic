@@ -163,7 +163,7 @@ namespace oxen::quic::test
 
         SECTION("Client sends a command")
         {
-            auto server_bp_cb = bool_waiter{[&](message msg) {
+            auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                     log::info(log_cat, "Server bparser received: {}", msg.view());
             }};
@@ -184,12 +184,12 @@ namespace oxen::quic::test
 
             client_bp->command("test_endpoint"s, "test_request_body"s);
 
-            REQUIRE(server_bp_cb.get());
+            REQUIRE(server_bp_cb.wait());
         }
 
         SECTION("Client sends a request, server sends a response")
         {
-            auto server_bp_cb = bool_waiter{[&](message msg) {
+            auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
                     log::info(log_cat, "Server bparser received: {}", msg.view());
@@ -197,7 +197,7 @@ namespace oxen::quic::test
                 }
             }};
 
-            auto client_bp_cb = bool_waiter{[&](message msg) {
+            auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
                     log::info(log_cat, "Client bparser received: {}", msg.view());
@@ -225,13 +225,13 @@ namespace oxen::quic::test
 
             client_bp->request("test_endpoint"s, "test_request_body"s);
 
-            REQUIRE(server_bp_cb.get());
-            REQUIRE(client_bp_cb.get());
+            REQUIRE(server_bp_cb.wait());
+            REQUIRE(client_bp_cb.wait());
         }
 
         SECTION("Client (alternate construction) sends a request, server sends a response")
         {
-            auto server_bp_cb = bool_waiter{[&](message msg) {
+            auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
                     log::info(log_cat, "Server bparser received: {}", msg.view());
@@ -239,7 +239,7 @@ namespace oxen::quic::test
                 }
             }};
 
-            auto client_bp_cb = bool_waiter{[&](message msg) {
+            auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
                     log::info(log_cat, "Client bparser received: {}", msg.view());
@@ -263,8 +263,8 @@ namespace oxen::quic::test
 
             client_bp->request("test_endpoint"s, "test_request_body"s);
 
-            REQUIRE(server_bp_cb.get());
-            REQUIRE(client_bp_cb.get());
+            REQUIRE(server_bp_cb.wait());
+            REQUIRE(client_bp_cb.wait());
         }
     };
 
