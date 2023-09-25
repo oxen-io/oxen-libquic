@@ -98,7 +98,7 @@ namespace oxen::quic
 
         std::atomic<int64_t> next_rid{0};
 
-        friend class sent_request;
+        friend struct sent_request;
         std::function<void(message)> recv_callback;
 
       public:
@@ -108,7 +108,7 @@ namespace oxen::quic
             ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
         }
 
-        ~BTRequestStream() { sent_reqs.clear(); }
+        ~BTRequestStream() override { sent_reqs.clear(); }
 
         std::weak_ptr<BTRequestStream> weak_from_this()
         {
@@ -250,11 +250,11 @@ namespace oxen::quic
             {
                 if (current_len == 0)
                 {
-                    int consumed = 0;
+                    size_t consumed = 0;
 
                     if (not size_buf.empty())
                     {
-                        int prev_len = size_buf.size();
+                        size_t prev_len = size_buf.size();
                         size_buf += req.substr(0, 15);
 
                         consumed = parse_length(size_buf);
@@ -379,7 +379,7 @@ namespace oxen::quic
             Error:
                 throws on invalid value
         */
-        int parse_length(std::string_view req)
+        size_t parse_length(std::string_view req)
         {
             auto pos = req.find_first_of(':');
 
@@ -406,7 +406,7 @@ namespace oxen::quic
     };
 
     inline message::message(BTRequestStream& bp, std::string req, bool is_error) :
-            data{std::move(req)}, timed_out{is_error}, return_sender{bp.weak_from_this()}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 
