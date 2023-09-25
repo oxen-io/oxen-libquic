@@ -1,5 +1,6 @@
 add_library(quic
     address.cpp
+    btstream.cpp
     connection.cpp
     context.cpp
     datagram.cpp
