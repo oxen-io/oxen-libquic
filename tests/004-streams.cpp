@@ -423,14 +423,14 @@ namespace oxen::quic::test
 
         SECTION("Stream logic using connection open callback")
         {
-            connection_open_callback server_open_cb = [&](connection_interface& ci) {
+            auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
                 log::info(bp_cat, "Server queuing Custom Stream A!");
                 server_a = ci.queue_stream<CustomStreamA>(std::move(sp1));
                 log::info(bp_cat, "Server queuing Custom Stream B!");
                 server_b = ci.queue_stream<CustomStreamB>(std::move(sp2));
                 log::info(bp_cat, "Server queuing Custom Stream C!");
                 server_c = ci.queue_stream<CustomStreamC>(std::move(sp3));
-            };
+            }};
 
             auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
             auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
@@ -447,6 +447,7 @@ namespace oxen::quic::test
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(client_established.wait());
+            CHECK(server_open_cb.is_ready());
 
             log::info(bp_cat, "Client opening Custom Stream A!");
             client_a = client_ci->get_new_stream<CustomStreamA>(std::move(cp1));

@@ -56,10 +56,10 @@ namespace oxen::quic
         dgram_recv_cb = std::move(func);
     }
 
-    void Endpoint::handle_ep_opt(connection_open_callback conn_established_cb)
+    void Endpoint::handle_ep_opt(connection_established_callback conn_established_cb)
     {
         log::trace(log_cat, "Endpoint given connection established callback");
-        connection_open_cb = std::move(conn_established_cb);
+        connection_established_cb = std::move(conn_established_cb);
     }
 
     void Endpoint::handle_ep_opt(connection_closed_callback conn_closed_cb)
@@ -319,8 +319,8 @@ namespace oxen::quic
     void Endpoint::connection_established(connection_interface& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
-        if (connection_open_cb)
-            connection_open_cb(conn);
+        if (connection_established_cb)
+            connection_established_cb(conn);
     }
 
     std::optional<ConnectionID> Endpoint::handle_packet_connid(const Packet& pkt)
