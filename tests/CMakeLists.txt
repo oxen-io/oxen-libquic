@@ -16,7 +16,10 @@ add_executable(alltests
     
     main.cpp
 )
-target_link_libraries(alltests PUBLIC quic Catch2::Catch2 CLI11::CLI11)
+target_link_libraries(alltests
+    PUBLIC quic Catch2::Catch2 CLI11::CLI11
+    PRIVATE internal-warnings
+)
 
 foreach(x speedtest-client speedtest-server dgram-speed-client dgram-speed-server)
     add_executable(${x} ${x}.cpp)
