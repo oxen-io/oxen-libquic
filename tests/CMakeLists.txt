@@ -13,6 +13,7 @@ add_executable(alltests
     007-datagrams.cpp
     008-ed-keys.cpp
     009-close.cpp
+    010-alpns.cpp
     
     main.cpp
 )
