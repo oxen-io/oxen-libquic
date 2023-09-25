@@ -154,7 +154,10 @@ namespace oxen::quic
 
         // server considers handshake complete and confirmed, and connection established at this point
         if (conn_ptr->is_inbound())
+        {
+            conn_ptr->established = true;
             conn_ptr->endpoint().connection_established(*conn_ptr);
+        }
 
         return 0;
     }
@@ -170,6 +173,7 @@ namespace oxen::quic
         assert(conn_ptr->is_outbound());
 
         // client considers handshake complete and confirmed, and connection established at this point
+        conn_ptr->established = true;
         conn_ptr->endpoint().connection_established(*conn_ptr);
 
         return 0;
