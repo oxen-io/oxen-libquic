@@ -28,7 +28,7 @@ namespace oxen::quic
         int64_t req_id;
         std::string data;
         std::string_view req_type;
-        std::string_view endpoint;
+        std::string_view ep;
         std::string_view req_body;
         std::weak_ptr<BTRequestStream> return_sender;
         bool timed_out{false};
@@ -50,8 +50,12 @@ namespace oxen::quic
         //  }
         operator bool() const { return not timed_out; }
 
-        int64_t rid() const { return req_id; }
         std::string_view view() const { return {data}; }
+
+        int64_t rid() const { return req_id; }
+        std::string_view type() const { return req_type; }
+        std::string_view endpoint() const { return ep; }
+        std::string_view body() const { return req_body; }
     };
 
     struct sent_request

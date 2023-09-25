@@ -11,7 +11,7 @@ namespace oxen::quic
         req_id = btlc.consume_integer<int64_t>();
 
         if (req_type == "Q" || req_type == "C")
-            endpoint = btlc.consume_string_view();
+            ep = btlc.consume_string_view();
 
         req_body = btlc.consume_string_view();
     }
