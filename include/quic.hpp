@@ -1,6 +1,7 @@
 #pragma once
 
 #include "quic/address.hpp"
+#include "quic/btstream.hpp"
 #include "quic/connection.hpp"
 #include "quic/context.hpp"
 #include "quic/crypto.hpp"
@@ -12,7 +13,6 @@
 #include "quic/messages.hpp"
 #include "quic/network.hpp"
 #include "quic/opt.hpp"
-#include "quic/parser.hpp"
 #include "quic/stream.hpp"
 #include "quic/types.hpp"
 #include "quic/udp.hpp"
