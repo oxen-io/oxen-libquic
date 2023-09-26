@@ -31,12 +31,14 @@ namespace oxen::quic
         std::string_view ep;
         std::string_view req_body;
         std::weak_ptr<BTRequestStream> return_sender;
-        bool timed_out{false};
 
       public:
         message(BTRequestStream& bp, std::string req, bool is_error = false);
 
-        void respond(int64_t rid, std::string body, bool error = false);
+        void respond(std::string body, bool error = false);
+
+        bool timed_out{false};
+        bool is_error{false};
 
         //  To be used to determine if the message was a result of an error as such:
         //
@@ -48,7 +50,7 @@ namespace oxen::quic
         //      if (m)
         //      { // success logic }
         //  }
-        operator bool() const { return not timed_out; }
+        operator bool() const { return not timed_out && not is_error; }
 
         std::string_view view() const { return {data}; }
 
@@ -56,6 +58,8 @@ namespace oxen::quic
         std::string_view type() const { return req_type; }
         std::string_view endpoint() const { return ep; }
         std::string_view body() const { return req_body; }
+        std::string endpoint_str() const { return std::string{ep}; }
+        std::string body_str() const { return std::string{req_body}; }
     };
 
     struct sent_request
@@ -63,6 +67,7 @@ namespace oxen::quic
         // parsed request data
         int64_t req_id;
         std::string data;
+        std::function<void(message)> cb;
         BTRequestStream& return_sender;
 
         // total length of the request; is at the beginning of the request
@@ -73,7 +78,8 @@ namespace oxen::quic
 
         bool is_empty() const { return data.empty() && total_len == 0; }
 
-        explicit sent_request(BTRequestStream& bp, std::string_view d, int64_t rid);
+        explicit sent_request(
+                BTRequestStream& bp, std::string_view d, int64_t rid, std::function<void(message)> f = nullptr);
 
         bool is_expired(std::chrono::steady_clock::time_point tp) const { return timeout < tp; }
 
@@ -89,6 +95,8 @@ namespace oxen::quic
         // outgoing requests awaiting response
         std::deque<std::shared_ptr<sent_request>> sent_reqs;
 
+        std::unordered_map<std::string, std::function<void(message)>> func_map;
+
         std::string buf;
         std::string size_buf;
 
@@ -97,7 +105,6 @@ namespace oxen::quic
         std::atomic<int64_t> next_rid{0};
 
         friend struct sent_request;
-        std::function<void(message)> recv_callback;
 
       public:
         template <typename... Opt>
@@ -113,9 +120,7 @@ namespace oxen::quic
             return std::dynamic_pointer_cast<BTRequestStream>(shared_from_this());
         }
 
-        void request(std::string endpoint, std::string body);
-
-        void command(std::string endpoint, std::string body);
+        void command(std::string endpoint, std::string body, std::function<void(message)> = nullptr);
 
         void respond(int64_t rid, std::string body, bool error = false);
 
@@ -125,28 +130,21 @@ namespace oxen::quic
 
         void closed(uint64_t app_code) override;
 
-      private:
-        void handle_bp_opt(std::function<void(message)> recv_cb)
-        {
-            log::debug(bp_cat, "Bparser set user-provided recv callback!");
-            recv_callback = std::move(recv_cb);
-        }
+        void register_command(std::string endpoint, std::function<void(message)>);
 
+      private:
         void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
         {
             log::debug(bp_cat, "Bparser set user-provided close callback!");
             close_callback = std::move(close_cb);
         }
 
-        bool match(int64_t rid);
-
         void handle_input(message msg);
 
         void process_incoming(std::string_view req);
 
-        std::shared_ptr<sent_request> make_request(std::string endpoint, std::string body);
-
-        std::optional<sent_request> make_command(std::string endpoint, std::string body);
+        std::shared_ptr<sent_request> make_command(
+                std::string endpoint, std::string body, std::function<void(message)> = nullptr);
 
         std::optional<sent_request> make_response(int64_t rid, std::string body, bool error = false);
 

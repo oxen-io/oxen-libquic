@@ -1,5 +1,7 @@
 #include "btstream.hpp"
 
+#include "endpoint.hpp"
+
 namespace oxen::quic
 {
     message::message(BTRequestStream& bp, std::string req, bool is_error) :
@@ -10,13 +12,16 @@ namespace oxen::quic
         req_type = btlc.consume_string_view();
         req_id = btlc.consume_integer<int64_t>();
 
-        if (req_type == "Q" || req_type == "C")
+        if (req_type == "C")
             ep = btlc.consume_string_view();
+        else if (req_type == "E")
+            is_error = true;
 
         req_body = btlc.consume_string_view();
     }
 
-    sent_request::sent_request(BTRequestStream& bp, std::string_view d, int64_t rid) : req_id{rid}, return_sender{bp}
+    sent_request::sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, std::function<void(message)> f) :
+            req_id{rid}, cb{std::move(f)}, return_sender{bp}
     {
         total_len = d.length();
         data = oxenc::bt_serialize(d);
@@ -24,31 +29,30 @@ namespace oxen::quic
         timeout = req_time + TIMEOUT;
     }
 
-    void message::respond(int64_t rid, std::string body, bool error)
+    void message::respond(std::string body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        return_sender.lock()->respond(rid, std::move(body), error);
+        return_sender.lock()->respond(req_id, std::move(body), error);
     }
 
-    void BTRequestStream::request(std::string endpoint, std::string body)
+    void BTRequestStream::command(std::string endpoint, std::string body, std::function<void(message)> func)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        auto req = make_request(std::move(endpoint), std::move(body));
-        send(req->view());
-
-        sent_reqs.push_back(std::move(req));
-    }
-
-    void BTRequestStream::command(std::string endpoint, std::string body)
-    {
-        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-
-        auto req = make_command(std::move(endpoint), std::move(body));
+        auto req = make_command(std::move(endpoint), std::move(body), std::move(func));
 
         if (req)
-            send(std::move(*req).payload());
+        {
+            // if we have a cb, then this is a request; else, it is a command
+            if (req->cb)
+            {
+                send(req->view());
+                sent_reqs.push_back(std::move(req));
+            }
+            else
+                send(std::move(*req).payload());
+        }
         else
             throw std::invalid_argument{"Invalid command!"};
     }
@@ -75,7 +79,7 @@ namespace oxen::quic
 
             if (f->is_expired(now))
             {
-                recv_callback(f->to_message(true));
+                f->cb(f->to_message(true));
                 sent_reqs.pop_front();
             }
             else
@@ -108,25 +112,9 @@ namespace oxen::quic
         close_callback(*this, app_code);
     }
 
-    bool BTRequestStream::match(int64_t rid)
+    void BTRequestStream::register_command(std::string ep, std::function<void(message)> func)
     {
-        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-
-        // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
-        // As a result, our comparator checks if the sent request ID is greater thanthan the target rid
-        auto itr = std::lower_bound(
-                sent_reqs.begin(), sent_reqs.end(), rid, [](const std::shared_ptr<sent_request>& sr, int64_t rid) {
-                    return sr->req_id > rid;
-                });
-
-        if (itr != sent_reqs.end() and itr->get()->req_id == rid)
-        {
-            log::debug(bp_cat, "Successfully matched response to sent request!");
-            sent_reqs.erase(itr);
-            return true;
-        }
-
-        return false;
+        endpoint.call([&]() { func_map[std::move(ep)] = std::move(func); });
     }
 
     void BTRequestStream::handle_input(message msg)
@@ -135,14 +123,28 @@ namespace oxen::quic
 
         if (msg.req_type == "R" || msg.req_type == "E")
         {
-            if (auto b = match(msg.req_id); not b)
+            // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
+            // As a result, our comparator checks if the sent request ID is greater thanthan the target rid
+            auto itr = std::lower_bound(
+                    sent_reqs.begin(),
+                    sent_reqs.end(),
+                    msg.req_id,
+                    [](const std::shared_ptr<sent_request>& sr, int64_t rid) { return sr->req_id > rid; });
+
+            if (itr != sent_reqs.end() and itr->get()->req_id == msg.req_id)
             {
-                log::warning(bp_cat, "Error: could not match orphaned response!");
+                log::debug(bp_cat, "Successfully matched response to sent request!");
+                itr->get()->cb(msg);
+                sent_reqs.erase(itr);
                 return;
             }
         }
 
-        recv_callback(std::move(msg));
+        if (auto itr = func_map.find(msg.endpoint_str()); itr != func_map.end())
+        {
+            log::debug(bp_cat, "Executing request endpoint {}", msg.endpoint());
+            itr->second(std::move(msg));
+        }
     }
 
     void BTRequestStream::process_incoming(std::string_view req)
@@ -211,29 +213,8 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<sent_request> BTRequestStream::make_request(std::string endpoint, std::string body)
-    {
-        oxenc::bt_list_producer btlp;
-        auto rid = ++next_rid;
-
-        try
-        {
-            btlp.append("Q");
-            btlp.append(rid);
-            btlp.append(endpoint);
-            btlp.append(body);
-
-            return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid);
-        }
-        catch (...)
-        {
-            log::critical(bp_cat, "Invalid outgoing request encoding!");
-        }
-
-        return nullptr;
-    }
-
-    std::optional<sent_request> BTRequestStream::make_command(std::string endpoint, std::string body)
+    std::shared_ptr<sent_request> BTRequestStream::make_command(
+            std::string endpoint, std::string body, std::function<void(message)> func)
     {
         oxenc::bt_list_producer btlp;
         auto rid = ++next_rid;
@@ -245,14 +226,14 @@ namespace oxen::quic
             btlp.append(endpoint);
             btlp.append(body);
 
-            return sent_request{*this, btlp.view(), rid};
+            return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid, func);
         }
         catch (...)
         {
             log::critical(bp_cat, "Invalid outgoing command encoding!");
         }
 
-        return std::nullopt;
+        return nullptr;
     }
 
     std::optional<sent_request> BTRequestStream::make_response(int64_t rid, std::string body, bool error)

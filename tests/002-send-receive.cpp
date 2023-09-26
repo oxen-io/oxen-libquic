@@ -169,7 +169,9 @@ namespace oxen::quic::test
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+                auto s = std::make_shared<BTRequestStream>(c, e);
+                s->register_command("test_endpoint"s, server_bp_cb);
+                return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -193,7 +195,7 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     log::info(log_cat, "Server bparser received: {}", msg.view());
-                    msg.respond(msg.rid(), "test_response"s);
+                    msg.respond("test_response"s);
                 }
             }};
 
@@ -201,16 +203,18 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     log::info(log_cat, "Client bparser received: {}", msg.view());
-                    msg.respond(msg.rid(), "test_response"s);
+                    msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+                auto s = std::make_shared<BTRequestStream>(c, e);
+                s->register_command("test_endpoint"s, server_bp_cb);
+                return s;
             };
 
             stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return std::make_shared<BTRequestStream>(c, e, client_bp_cb);
+                return std::make_shared<BTRequestStream>(c, e);
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -223,7 +227,7 @@ namespace oxen::quic::test
 
             std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
 
-            client_bp->request("test_endpoint"s, "test_request_body"s);
+            client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
 
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
@@ -235,7 +239,7 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     log::info(log_cat, "Server bparser received: {}", msg.view());
-                    msg.respond(msg.rid(), "test_response"s);
+                    msg.respond("test_response"s);
                 }
             }};
 
@@ -243,12 +247,14 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     log::info(log_cat, "Client bparser received: {}", msg.view());
-                    msg.respond(msg.rid(), "test_response"s);
+                    msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return std::make_shared<BTRequestStream>(c, e, server_bp_cb);
+                auto s = std::make_shared<BTRequestStream>(c, e);
+                s->register_command("test_endpoint"s, server_bp_cb);
+                return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -259,9 +265,9 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            auto client_bp = conn_interface->get_new_stream<BTRequestStream>(client_bp_cb);
+            auto client_bp = conn_interface->get_new_stream<BTRequestStream>();
 
-            client_bp->request("test_endpoint"s, "test_request_body"s);
+            client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
 
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
