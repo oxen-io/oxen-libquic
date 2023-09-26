@@ -61,108 +61,77 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls));
 
-        opt::local_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
 
-        std::promise<bool> key_was_allowed;
-        bool remote_was_relay{false};
-        auto f = key_was_allowed.get_future();
+        bool key_was_allowed{false};
 
-        auto client_key_allowed_cb = [&](const oxen::quic::gnutls_key& key, const std::string_view& alpn) {
-            remote_was_relay = (alpn == "relay");
-            if (not remote_was_relay)
-            {
-                key_was_allowed.set_value(true);
-                return true;
-            }
+        auto client_key_allowed_cb = callback_waiter{
+                [&key_was_allowed, &client_pubkey_array](const oxen::quic::gnutls_key& key, const std::string_view&) {
+                    if (key == client_pubkey_array)
+                    {
+                        key_was_allowed = true;
+                        return true;
+                    }
 
-            if (key == client_pubkey_array)
-            {
-                key_was_allowed.set_value(true);
-                return true;
-            }
+                    key_was_allowed = false;
+                    return false;
+                }};
 
-            log::error(
-                    log_cat,
-                    "Key mismatch:\n{}\n{}",
-                    oxenc::to_hex(key.begin(), key.end()),
-                    oxenc::to_hex(client_pubkey_array.begin(), client_pubkey_array.end()));
-
-            key_was_allowed.set_value(false);
-            return false;
-        };
-
-        auto always_allow_cb = [&](auto, const std::string_view& alpn) {
-            remote_was_relay = (alpn == "relay");
-            key_was_allowed.set_value(true);
+        auto always_allow_cb = callback_waiter{[&](const oxen::quic::gnutls_key&, const std::string_view&) {
+            key_was_allowed = true;
             return true;
-        };
+        }};
 
-        auto always_deny_cb = [&](auto, const std::string_view& alpn) {
-            remote_was_relay = (alpn == "relay");
-            key_was_allowed.set_value(false);
+        auto always_deny_cb = callback_waiter{[&](const oxen::quic::gnutls_key&, const std::string_view&) {
+            key_was_allowed = false;
             return false;
-        };
-
-        const std::vector<std::string> alpns{"client", "relay"};
+        }};
 
         client_tls->set_key_verify_callback(client_key_allowed_cb);
-        client_tls->set_outbound_alpn(alpns[0]);
         server_tls2->set_key_verify_callback(always_allow_cb);
-        server_tls2->set_outbound_alpn(alpns[1]);
-        server_tls2->set_allowed_alpns(alpns);
 
         SECTION("All Connections Allowed")
         {
             server_tls->set_key_verify_callback(always_allow_cb);
-            server_tls->set_outbound_alpn(alpns[1]);
-            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            require_future(f);
-            REQUIRE(not remote_was_relay);
-            REQUIRE(f.get() == true);
+            REQUIRE(always_allow_cb.wait());
+            REQUIRE(key_was_allowed);
         };
 
         SECTION("Connection Not Allowed")
         {
             server_tls->set_key_verify_callback(always_deny_cb);
-            server_tls->set_outbound_alpn(alpns[1]);
-            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
 
-            require_future(f);
-            REQUIRE(not remote_was_relay);
-            REQUIRE(f.get() == false);
+            REQUIRE(always_deny_cb.wait());
+            REQUIRE_FALSE(key_was_allowed);
         };
+
+        client_endpoint = test_net.endpoint(client_local);
 
         SECTION("Connection Allowed By Pubkey")
         {
             server_tls->set_key_verify_callback(client_key_allowed_cb);
-            server_tls->set_outbound_alpn(alpns[1]);
-            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls2));
 
-            require_future(f);
-            REQUIRE(remote_was_relay);
-            REQUIRE(f.get() == true);
+            REQUIRE(client_key_allowed_cb.wait());
+            REQUIRE(key_was_allowed);
         };
 
         SECTION("Connection Not Allowed By Pubkey")
         {
             server_tls->set_key_verify_callback(client_key_allowed_cb);
-            server_tls->set_outbound_alpn(alpns[1]);
-            server_tls->set_allowed_alpns(alpns);
 
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, server_tls));
 
-            require_future(f);
-            REQUIRE(remote_was_relay);
-            REQUIRE(f.get() == false);
+            REQUIRE(client_key_allowed_cb.wait());
+            REQUIRE_FALSE(key_was_allowed);
         };
     };
 

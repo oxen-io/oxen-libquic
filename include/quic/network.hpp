@@ -116,7 +116,16 @@ namespace oxen::quic
 
             std::promise<Ret> prom;
             auto fut = prom.get_future();
-            call_soon([&f, &prom] { prom.set_value(f()); });
+            call_soon([&f, &prom] {
+                try
+                {
+                    prom.set_value(f());
+                }
+                catch (...)
+                {
+                    prom.set_exception(std::current_exception());
+                }
+            });
             return fut.get();
         }
 

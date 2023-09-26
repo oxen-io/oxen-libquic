@@ -31,6 +31,10 @@ namespace oxen::quic
     // arguments: remote pubkey, ALPN
     using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, const std::string_view& alpn)>;
 
+    inline const gnutls_datum_t gnutls_default_alpn{
+            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(default_alpn_str.data())),
+            static_cast<uint32_t>(default_alpn_str.size())};
+
     struct gnutls_callback_wrapper
     {
         gnutls_callback f = nullptr;
@@ -182,12 +186,6 @@ namespace oxen::quic
         // Construct from raw Ed25519 keys
         GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode = false);
 
-        std::vector<std::string> allowed_alpn_strings;
-        std::vector<gnutls_datum_t> allowed_alpns;
-
-        std::string outbound_alpn_string;
-        gnutls_datum_t outbound_alpn;
-
       public:
         ~GNUTLSCreds();
 
@@ -210,15 +208,12 @@ namespace oxen::quic
 
         void set_key_verify_callback(gnutls_key_verify_callback cb) { key_verify = std::move(cb); }
 
-        void set_outbound_alpn(const std::string& alpn);
-        void set_allowed_alpns(const std::vector<std::string>& alpns);
-
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
         static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey, bool is_relay = false);
 
-        std::unique_ptr<TLSSession> make_session(bool is_client = false) override;
+        std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) override;
     };
 
     class GNUTLSSession : public TLSSession
@@ -235,10 +230,17 @@ namespace oxen::quic
 
         void set_tls_hook_functions();  // TODO: which and when?
       public:
-        GNUTLSSession(GNUTLSCreds& creds, bool is_client, std::optional<gnutls_key> expected_key = std::nullopt);
+        GNUTLSSession(
+                GNUTLSCreds& creds,
+                bool is_client,
+                const std::vector<std::string>& alpns,
+                std::optional<gnutls_key> expected_key = std::nullopt);
+
         ~GNUTLSSession();
 
         void* get_session() override { return session; };
+
+        std::string_view selected_alpn() override;
 
         int do_tls_callback(
                 gnutls_session_t session,

@@ -67,6 +67,8 @@ namespace oxen::quic
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
 
       public:
+        virtual std::string_view selected_alpn() const = 0;
+
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {
@@ -157,11 +159,13 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
+                const std::vector<std::string>& alpns,
+                std::chrono::nanoseconds handshake_timeout,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         void packet_io_ready();
 
-        TLSSession* get_session() { return tls_session.get(); };
+        TLSSession* get_session() const { return tls_session.get(); };
 
         std::shared_ptr<Stream> queue_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
@@ -172,6 +176,7 @@ namespace oxen::quic
         Direction direction() const { return dir; }
         bool is_inbound() const { return dir == Direction::INBOUND; }
         bool is_outbound() const { return dir == Direction::OUTBOUND; }
+        std::string_view direction_str() const { return dir == Direction::INBOUND ? "server"sv : "client"sv; }
 
         void halt_events();
         bool is_closing() const { return closing; }
@@ -189,6 +194,8 @@ namespace oxen::quic
 
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
+
+        std::string_view selected_alpn() const override;
 
         int get_streams_available() const override;
         size_t get_max_datagram_size() const override;
@@ -214,6 +221,8 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
+                const std::vector<std::string>& alpns,
+                std::chrono::nanoseconds handshake_timeout,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         Endpoint& _endpoint;
@@ -274,7 +283,11 @@ namespace oxen::quic
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
 
-        int init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks);
+        int init(
+                ngtcp2_settings& settings,
+                ngtcp2_transport_params& params,
+                ngtcp2_callbacks& callbacks,
+                std::chrono::nanoseconds handshake_timeout);
 
         io_result read_packet(const Packet& pkt);
 

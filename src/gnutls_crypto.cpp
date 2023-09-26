@@ -59,6 +59,18 @@ namespace oxen::quic
         }
     }
 
+    struct gnutls_log_setter
+    {
+        gnutls_log_setter()
+        {
+            gnutls_global_set_log_level(99);
+            gnutls_global_set_log_function(gnutls_log);
+        }
+    };
+
+    // uncomment to enable gnutls logging; set level above.
+    // inline static const gnutls_log_setter gls{};
+
     GNUTLSCreds::GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg)
     {
         if (local_key.empty() || local_cert.empty())
@@ -181,9 +193,9 @@ namespace oxen::quic
         return p;
     }
 
-    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(bool is_client)
+    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(bool is_client, const std::vector<std::string>& alpns)
     {
-        return std::make_unique<GNUTLSSession>(*this, is_client);
+        return std::make_unique<GNUTLSSession>(*this, is_client, alpns);
     }
 
     void GNUTLSCreds::set_client_tls_policy(
@@ -204,21 +216,6 @@ namespace oxen::quic
         server_tls_policy.incoming = incoming;
     }
 
-    void GNUTLSCreds::set_outbound_alpn(const std::string& alpn)
-    {
-        outbound_alpn_string = alpn;
-        outbound_alpn.data = reinterpret_cast<uint8_t*>(outbound_alpn_string.data());
-        outbound_alpn.size = static_cast<uint32_t>(outbound_alpn_string.size());
-    }
-
-    void GNUTLSCreds::set_allowed_alpns(const std::vector<std::string>& alpns)
-    {
-        allowed_alpn_strings = alpns;
-        for (auto& s : allowed_alpn_strings)
-            allowed_alpns.emplace_back(
-                    gnutls_datum_t{reinterpret_cast<uint8_t*>(s.data()), static_cast<uint32_t>(s.size())});
-    }
-
     GNUTLSSession::~GNUTLSSession()
     {
         log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
@@ -231,12 +228,17 @@ namespace oxen::quic
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, gnutls_callback_wrapper);
     }
 
-    GNUTLSSession::GNUTLSSession(GNUTLSCreds& creds, bool is_client, std::optional<gnutls_key> expected_key) :
+    GNUTLSSession::GNUTLSSession(
+            GNUTLSCreds& creds,
+            bool is_client,
+            const std::vector<std::string>& alpns,
+            std::optional<gnutls_key> expected_key) :
             creds{creds}, is_client{is_client}, expected_remote_key{expected_key}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
 
-        log::trace(log_cat, "Creating {} GNUTLSSession", (is_client) ? "client" : "server");
+        auto direction_string = (is_client) ? "Client"s : "Server"s;
+        log::trace(log_cat, "Creating {} GNUTLSSession", direction_string);
 
         uint32_t init_flags = is_client ? GNUTLS_CLIENT : GNUTLS_SERVER;
         if (creds.using_raw_pk)
@@ -247,9 +249,8 @@ namespace oxen::quic
 
         if (auto rv = gnutls_init(&session, init_flags); rv < 0)
         {
-            auto s = (is_client) ? "Client"s : "Server"s;
-            log::error(log_cat, "{} gnutls_init failed: {}", s, gnutls_strerror(rv));
-            throw std::runtime_error("{} gnutls_init failed"_format(s));
+            log::error(log_cat, "{} gnutls_init failed: {}", direction_string, gnutls_strerror(rv));
+            throw std::runtime_error("{} gnutls_init failed"_format(direction_string));
         }
 
         if (creds.using_raw_pk)
@@ -266,35 +267,35 @@ namespace oxen::quic
             throw std::runtime_error("gnutls_set_default_priority failed");
         }
 
-        if (creds.using_raw_pk)
+        if (alpns.size())
         {
-            // server accepts all ALPNs configured as "allowed", client sends singular
-            // ALPN configured as "outbound".
-            const gnutls_datum_t* proto{nullptr};
-            unsigned int alpn_count{0};
-            if (is_client)
+            std::vector<gnutls_datum_t> allowed_alpns;
+            for (auto& s : alpns)
             {
-                proto = &creds.outbound_alpn;
-                alpn_count = 1;
-            }
-            else
-            {
-                proto = &(creds.allowed_alpns[0]);
-                alpn_count = creds.allowed_alpns.size();
+                log::trace(log_cat, "GNUTLS adding \"{}\" to {} ALPNs", s, direction_string);
+                allowed_alpns.emplace_back(gnutls_datum_t{
+                        reinterpret_cast<uint8_t*>(const_cast<char*>(s.data())), static_cast<uint32_t>(s.size())});
             }
 
-            if (proto == nullptr or alpn_count == 0)
-            {
-                log::error(log_cat, "raw public key mode session init, but no ALPNs have been specified.");
-                throw std::runtime_error("raw public key mode session init, but no ALPN specified.");
-            }
-
-            if (auto rv = gnutls_alpn_set_protocols(session, proto, alpn_count, 0); rv < 0)
+            if (auto rv =
+                        gnutls_alpn_set_protocols(session, &(allowed_alpns[0]), allowed_alpns.size(), GNUTLS_ALPN_MANDATORY);
+                rv < 0)
             {
                 log::error(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
                 throw std::runtime_error("gnutls_alpn_set_protocols failed");
             }
+        }
+        else  // set default, mandatory ALPN string
+        {
+            if (auto rv = gnutls_alpn_set_protocols(session, &gnutls_default_alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
+            {
+                log::error(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
+                throw std::runtime_error("gnutls_alpn_set_protocols failed");
+            }
+        }
 
+        if (creds.using_raw_pk)
+        {
             // server always requests cert from client in raw public key mode
             if (not is_client)
             {
@@ -340,6 +341,18 @@ namespace oxen::quic
         }
 
         set_tls_hook_functions();
+    }
+
+    std::string_view GNUTLSSession::selected_alpn()
+    {
+        gnutls_datum_t proto;
+        if (auto rv = gnutls_alpn_get_selected_protocol(session, &proto); rv < 0)
+        {
+            auto err = fmt::format("{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
+            throw std::logic_error(err);
+        }
+
+        return proto.size ? std::string_view{(const char*)proto.data, proto.size} : ""sv;
     }
 
     int GNUTLSSession::do_tls_callback(
@@ -402,14 +415,7 @@ namespace oxen::quic
         // pubkey comes as 12 bytes header + 32 bytes key
         std::copy(cert_data + 12, cert_data + 44, remote_key.data());
 
-        gnutls_datum_t proto;
-        if (auto rv = gnutls_alpn_get_selected_protocol(session, &proto); rv < 0)
-        {
-            log::error(log_cat, "{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
-            return false;
-        }
-
-        std::string_view proto_sv{(const char*)proto.data, proto.size};
+        auto alpn = selected_alpn();
 
         if (is_client and expected_remote_key)
         {
@@ -423,7 +429,7 @@ namespace oxen::quic
         else if ((not is_client) and creds.key_verify)
         {
             log::trace(log_cat, "{}: Calling key verify callback", __PRETTY_FUNCTION__);
-            return creds.key_verify(remote_key, proto_sv);
+            return creds.key_verify(remote_key, alpn);
         }
 
         log::trace(log_cat, "{} reached end, defaulting to return true", __PRETTY_FUNCTION__);

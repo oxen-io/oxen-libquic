@@ -337,8 +337,9 @@ namespace oxen::quic
                 // drop conn without calling ngtcp2_conn_write_connection_close()
                 log::trace(
                         log_cat,
-                        "Note: CID-{} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
+                        "Note: {} CID-{} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
                         "connection",
+                        direction_str(),
                         scid(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
@@ -1046,6 +1047,11 @@ namespace oxen::quic
         return 0;
     }
 
+    std::string_view Connection::selected_alpn() const
+    {
+        return _endpoint.call_get([this]() { return get_session()->selected_alpn(); });
+    }
+
     void Connection::send_datagram(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -1076,7 +1082,11 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::init(ngtcp2_settings& settings, ngtcp2_transport_params& params, ngtcp2_callbacks& callbacks)
+    int Connection::init(
+            ngtcp2_settings& settings,
+            ngtcp2_transport_params& params,
+            ngtcp2_callbacks& callbacks,
+            std::chrono::nanoseconds handshake_timeout)
     {
         auto* ev_base = endpoint().get_loop().get();
 
@@ -1136,7 +1146,7 @@ namespace oxen::quic
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
-        settings.handshake_timeout = std::chrono::nanoseconds(5s).count();
+        settings.handshake_timeout = handshake_timeout.count();
 
         ngtcp2_transport_params_default(&params);
 
@@ -1185,6 +1195,8 @@ namespace oxen::quic
             const ConnectionID& dcid,
             const Path& path,
             std::shared_ptr<IOContext> ctx,
+            const std::vector<std::string>& alpns,
+            std::chrono::nanoseconds handshake_timeout,
             ngtcp2_pkt_hd* hdr) :
             _endpoint{ep},
             context{std::move(ctx)},
@@ -1212,7 +1224,7 @@ namespace oxen::quic
         ngtcp2_conn* connptr;
         int rv = 0;
 
-        if (rv = init(settings, params, callbacks); rv != 0)
+        if (rv = init(settings, params, callbacks, handshake_timeout); rv != 0)
             log::critical(log_cat, "Error: {} connection not created", d_str);
 
         if (is_outbound)
@@ -1258,7 +1270,7 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
         }
 
-        tls_session = tls_creds->make_session(is_outbound);
+        tls_session = tls_creds->make_session(is_outbound, alpns);
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
@@ -1280,10 +1292,13 @@ namespace oxen::quic
             const ConnectionID& dcid,
             const Path& path,
             std::shared_ptr<IOContext> ctx,
+            const std::vector<std::string>& alpns,
+            std::chrono::nanoseconds handshake_timeout,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        std::shared_ptr<Connection> conn{new Connection{ep, scid, dcid, path, std::move(ctx), hdr}};
+        std::shared_ptr<Connection> conn{
+                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, hdr}};
 
         conn->packet_io_ready();
 

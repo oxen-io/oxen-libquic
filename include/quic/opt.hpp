@@ -68,4 +68,21 @@ namespace oxen::quic::opt
         }
     };
 
+    // supported ALPNs for outbound connections
+    struct outbound_alpns
+    {
+        std::vector<std::string> alpns;
+    };
+
+    // supported ALPNs for inbound connections
+    struct inbound_alpns
+    {
+        std::vector<std::string> alpns;
+    };
+
+    struct handshake_timeout : public std::chrono::nanoseconds
+    {
+        using std::chrono::nanoseconds::nanoseconds;
+    };
+
 }  // namespace oxen::quic::opt

@@ -35,6 +35,21 @@ namespace oxen::quic
                 _packet_splitting ? "" : "no");
     }
 
+    void Endpoint::handle_ep_opt(opt::outbound_alpns alpns)
+    {
+        outbound_alpns = std::move(alpns.alpns);
+    }
+
+    void Endpoint::handle_ep_opt(opt::inbound_alpns alpns)
+    {
+        inbound_alpns = std::move(alpns.alpns);
+    }
+
+    void Endpoint::handle_ep_opt(opt::handshake_timeout timeout)
+    {
+        handshake_timeout = timeout;
+    }
+
     void Endpoint::handle_ep_opt(dgram_data_callback func)
     {
         log::trace(log_cat, "Endpoint given datagram recv callback");
@@ -372,7 +387,8 @@ namespace oxen::quic
         {
             if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
-                itr->second = Connection::make_conn(*this, itr->first, hdr.scid, pkt.path, inbound_ctx, &hdr);
+                itr->second = Connection::make_conn(
+                        *this, itr->first, hdr.scid, pkt.path, inbound_ctx, inbound_alpns, handshake_timeout, &hdr);
                 return itr->second.get();
             }
         }

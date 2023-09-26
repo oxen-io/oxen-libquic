@@ -41,6 +41,9 @@ namespace oxen::quic
     {
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
+        void handle_ep_opt(opt::outbound_alpns alpns);
+        void handle_ep_opt(opt::inbound_alpns alpns);
+        void handle_ep_opt(opt::handshake_timeout timeout);
         void handle_ep_opt(dgram_data_callback dgram_cb);
         void handle_ep_opt(connection_open_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
@@ -123,7 +126,13 @@ namespace oxen::quic
                         if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
                         {
                             itr->second = Connection::make_conn(
-                                    *this, itr->first, ConnectionID::random(), std::move(path), outbound_ctx);
+                                    *this,
+                                    itr->first,
+                                    ConnectionID::random(),
+                                    std::move(path),
+                                    outbound_ctx,
+                                    outbound_alpns,
+                                    handshake_timeout);
 
                             p.set_value(itr->second);
                             return;
@@ -226,6 +235,10 @@ namespace oxen::quic
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
+
+        std::vector<std::string> outbound_alpns;
+        std::vector<std::string> inbound_alpns;
+        std::chrono::nanoseconds handshake_timeout{5s};
 
         void _init_internals();
 

@@ -11,12 +11,14 @@ extern "C"
 
 namespace oxen::quic
 {
+    constexpr auto default_alpn_str = "default"sv;
+
     class TLSSession;
 
     class TLSCreds
     {
       public:
-        virtual std::unique_ptr<TLSSession> make_session(bool is_client) = 0;
+        virtual std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) = 0;
         virtual ~TLSCreds() = default;
     };
 
@@ -25,6 +27,7 @@ namespace oxen::quic
       public:
         ngtcp2_crypto_conn_ref conn_ref;
         virtual void* get_session() = 0;
+        virtual std::string_view selected_alpn() = 0;
         virtual ~TLSSession() = default;
     };
 
