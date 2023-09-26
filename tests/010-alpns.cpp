@@ -30,10 +30,10 @@ namespace oxen::quic::test
 
         SECTION("Do not get ALPN before negotiated")
         {
-            auto server_endpoint = test_net.endpoint(server_local, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
-
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            // send to (almost certainly) the void, so connection can't establish
+            // this is to avoid a race condition where the connection negotiates ALPN
+            // before the REQUIRE_THROWS line below can execute
+            opt::remote_addr client_remote{"127.42.0.69"s, 42069};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, timeout);
 
