@@ -352,8 +352,8 @@ namespace oxen::quic
         gnutls_datum_t proto;
         if (auto rv = gnutls_alpn_get_selected_protocol(session, &proto); rv < 0)
         {
-            log::warning(log_cat, "{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
-            return ""sv;
+            auto err = fmt::format("{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
+            throw std::logic_error(err);
         }
 
         return proto.size ? std::string_view{(const char*)proto.data, proto.size} : ""sv;

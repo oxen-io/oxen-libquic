@@ -31,6 +31,10 @@ namespace oxen::quic
     // arguments: remote pubkey, ALPN
     using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, const std::string_view& alpn)>;
 
+    inline const gnutls_datum_t gnutls_default_alpn{
+            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(default_alpn_str.data())),
+            static_cast<uint32_t>(default_alpn_str.size())};
+
     struct gnutls_callback_wrapper
     {
         gnutls_callback f = nullptr;

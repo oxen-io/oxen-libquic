@@ -11,6 +11,8 @@ extern "C"
 
 namespace oxen::quic
 {
+    constexpr auto default_alpn_str = "default"sv;
+
     class TLSSession;
 
     class TLSCreds

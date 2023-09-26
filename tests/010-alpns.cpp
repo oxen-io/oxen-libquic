@@ -27,7 +27,20 @@ namespace oxen::quic::test
 
         Network test_net{};
 
-        SECTION("No ALPNs specified")
+        SECTION("Do not get ALPN before negotiated")
+        {
+            auto server_endpoint = test_net.endpoint(server_local, timeout);
+            REQUIRE(server_endpoint->listen(server_tls));
+
+            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local, client_established, timeout);
+
+            auto conn = client_endpoint->connect(client_remote, client_tls);
+            REQUIRE_THROWS(conn->selected_alpn());
+        };
+
+        SECTION("Default ALPN")
         {
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
