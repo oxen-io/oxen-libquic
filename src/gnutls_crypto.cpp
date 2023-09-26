@@ -287,11 +287,7 @@ namespace oxen::quic
         }
         else  // set default, mandatory ALPN string
         {
-            gnutls_datum_t alpn;
-            auto default_alpn = "default"s;
-            alpn.data = reinterpret_cast<uint8_t*>(default_alpn.data());
-            alpn.size = default_alpn.size();
-            if (auto rv = gnutls_alpn_set_protocols(session, &alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
+            if (auto rv = gnutls_alpn_set_protocols(session, &gnutls_default_alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
             {
                 log::error(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
                 throw std::runtime_error("gnutls_alpn_set_protocols failed");

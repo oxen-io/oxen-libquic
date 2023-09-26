@@ -21,6 +21,7 @@ namespace oxen::quic::test
         opt::handshake_timeout timeout{500ms};
 
         auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established2 = callback_waiter{[](connection_interface&) {}};
 
         // this has to destroy *after* network, in case it doesn't go off before then
         auto client_closed = callback_waiter{[](connection_interface&, uint64_t) {}};
@@ -54,7 +55,7 @@ namespace oxen::quic::test
             REQUIRE(conn->selected_alpn() == "default"sv);
         };
 
-        SECTION("No Server ALPNs specified")
+        SECTION("No Server ALPNs specified (defaulted)")
         {
             opt::outbound_alpns client_alpns{.alpns{"client"}};
 
@@ -70,7 +71,7 @@ namespace oxen::quic::test
             REQUIRE_FALSE(client_established.is_ready());
         };
 
-        SECTION("No Client ALPNs specified")
+        SECTION("No Client ALPNs specified (defaulted)")
         {
             opt::inbound_alpns server_alpns{.alpns{"client", "relay"}};
 
@@ -107,6 +108,7 @@ namespace oxen::quic::test
         {
             opt::inbound_alpns server_alpns{.alpns{"client", "relay"}};
             opt::outbound_alpns client_alpns{.alpns{"client"}};
+            opt::outbound_alpns client_alpns2{.alpns{"relay"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
@@ -118,6 +120,12 @@ namespace oxen::quic::test
             auto conn = client_endpoint->connect(client_remote, client_tls);
             REQUIRE(client_established.wait());
             REQUIRE(conn->selected_alpn() == "client"sv);
+
+            auto client_endpoint2 = test_net.endpoint(client_local, client_established2, client_alpns2, timeout);
+
+            auto conn2 = client_endpoint2->connect(client_remote, client_tls);
+            REQUIRE(client_established2.wait());
+            REQUIRE(conn2->selected_alpn() == "relay"sv);
         };
     };
 
