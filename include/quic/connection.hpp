@@ -69,6 +69,8 @@ namespace oxen::quic
       public:
         virtual std::string_view selected_alpn() const = 0;
 
+        bool established{false};
+
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {

@@ -34,7 +34,12 @@ extern "C"
 
 namespace oxen::quic
 {
-    using connection_open_callback = std::function<void(connection_interface& conn)>;
+    // called when a connection's handshake completes
+    // the server will call this when it sends the final handshake packet
+    // the client will call this when it receives that final handshake packet
+    using connection_established_callback = std::function<void(connection_interface& conn)>;
+
+    // called when a connection closes or times out before the handshake completes
     using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
 
     class Endpoint : std::enable_shared_from_this<Endpoint>
@@ -45,11 +50,11 @@ namespace oxen::quic
         void handle_ep_opt(opt::inbound_alpns alpns);
         void handle_ep_opt(opt::handshake_timeout timeout);
         void handle_ep_opt(dgram_data_callback dgram_cb);
-        void handle_ep_opt(connection_open_callback conn_established_cb);
+        void handle_ep_opt(connection_established_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
       public:
-        connection_open_callback connection_open_cb;
+        connection_established_callback connection_established_cb;
         connection_closed_callback connection_close_cb;
 
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
