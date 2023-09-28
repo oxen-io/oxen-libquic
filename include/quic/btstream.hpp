@@ -1,5 +1,6 @@
 #include <oxenc/bt.h>
 
+#include "endpoint.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
 
@@ -10,7 +11,7 @@ namespace oxen::quic
     using time_point = std::chrono::steady_clock::time_point;
 
     // timeout is used for sent requests awaiting responses
-    inline constexpr std::chrono::seconds TIMEOUT{10};
+    inline constexpr std::chrono::seconds DEFAULT_TIMEOUT{10s};
 
     // request sizes
     inline constexpr long long MAX_REQ_LEN = 10_M;
@@ -67,32 +68,47 @@ namespace oxen::quic
         // parsed request data
         int64_t req_id;
         std::string data;
-        std::function<void(message)> cb;
+        std::function<void(message)> cb = nullptr;
         BTRequestStream& return_sender;
 
         // total length of the request; is at the beginning of the request
         size_t total_len;
 
         std::chrono::steady_clock::time_point req_time;
-        std::chrono::steady_clock::time_point timeout;
+        std::chrono::steady_clock::time_point expiry;
+        std::optional<std::chrono::milliseconds> timeout;
 
         bool is_empty() const { return data.empty() && total_len == 0; }
 
-        explicit sent_request(
-                BTRequestStream& bp, std::string_view d, int64_t rid, std::function<void(message)> f = nullptr);
+        template <typename... Opt>
+        sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, Opt&&... opts) :
+                req_id{rid}, return_sender{bp}, total_len{d.length()}, req_time{get_time()}, expiry{req_time}
+        {
+            if (total_len > MAX_REQ_LEN)
+                throw std::invalid_argument{"Request body too long!"};
 
-        bool is_expired(std::chrono::steady_clock::time_point tp) const { return timeout < tp; }
+            ((void)handle_req_opts(std::forward<Opt>(opts)), ...);
+            data = oxenc::bt_serialize(d);
+            expiry += timeout.value_or(DEFAULT_TIMEOUT);
+        }
+
+        bool is_expired(std::chrono::steady_clock::time_point tp) const { return expiry < tp; }
 
         message to_message(bool timed_out = false) { return {return_sender, data, timed_out}; }
 
         std::string_view view() { return {data}; }
         std::string payload() && { return std::move(data); }
+
+      private:
+        void handle_req_opts(std::function<void(message)> func) { cb = std::move(func); }
+        void handle_req_opts(std::chrono::milliseconds exp) { timeout = exp; }
     };
 
     class BTRequestStream : public Stream
     {
       private:
         // outgoing requests awaiting response
+        // We use shared_ptr's so we can lambda capture it, though it is not actually shared
         std::deque<std::shared_ptr<sent_request>> sent_reqs;
 
         std::unordered_map<std::string, std::function<void(message)>> func_map;
@@ -120,7 +136,36 @@ namespace oxen::quic
             return std::dynamic_pointer_cast<BTRequestStream>(shared_from_this());
         }
 
-        void command(std::string endpoint, std::string body, std::function<void(message)> = nullptr);
+        /** API: ::command
+
+            Invokes a remote RPC endpoint. The user can provide a callback if they are expecting
+            a response, making this a "request." Also, a timeout can be provided to set a specific
+            expiry time for the request.
+
+            Parameters:
+                std::string endpoint - remote RPC endpoint to be called
+                std::string body - remote RPC endpoint body to be called
+                Opt&&... opts:
+                    std::function<void(message)> cb - callback to be executed if expecting response
+                    std::chrono::milliseconds timeout - request timeout (defaults to 10 seconds)
+        */
+        template <typename... Opt>
+        void command(std::string ep, std::string body, Opt&&... opts)
+        {
+            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+
+            auto req = make_command(std::move(ep), std::move(body), std::forward<Opt>(opts)...);
+
+            if (req->cb)
+            {
+                endpoint.call([this, r = std::move(req)]() {
+                    sent_reqs.push_back(std::move(r));
+                    send(sent_reqs.back()->view());
+                });
+            }
+            else
+                send(std::move(*req).payload());
+        }
 
         void respond(int64_t rid, std::string body, bool error = false);
 
@@ -143,8 +188,27 @@ namespace oxen::quic
 
         void process_incoming(std::string_view req);
 
-        std::shared_ptr<sent_request> make_command(
-                std::string endpoint, std::string body, std::function<void(message)> = nullptr);
+        template <typename... Opt>
+        std::shared_ptr<sent_request> make_command(std::string endpoint, std::string body, Opt&&... opts)
+        {
+            oxenc::bt_list_producer btlp;
+            auto rid = ++next_rid;
+
+            try
+            {
+                btlp.append("C");
+                btlp.append(rid);
+                btlp.append(endpoint);
+                btlp.append(body);
+
+                return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid, std::forward<Opt>(opts)...);
+            }
+            catch (const std::exception& e)
+            {
+                log::critical(bp_cat, "Invalid outgoing command encoding: {}", e.what());
+                throw;
+            }
+        }
 
         std::optional<sent_request> make_response(int64_t rid, std::string body, bool error = false);
 

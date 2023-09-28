@@ -1,7 +1,5 @@
 #include "btstream.hpp"
 
-#include "endpoint.hpp"
-
 namespace oxen::quic
 {
     message::message(BTRequestStream& bp, std::string req, bool is_error) :
@@ -20,41 +18,11 @@ namespace oxen::quic
         req_body = btlc.consume_string_view();
     }
 
-    sent_request::sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, std::function<void(message)> f) :
-            req_id{rid}, cb{std::move(f)}, return_sender{bp}
-    {
-        total_len = d.length();
-        data = oxenc::bt_serialize(d);
-        req_time = get_time();
-        timeout = req_time + TIMEOUT;
-    }
-
     void message::respond(std::string body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
         return_sender.lock()->respond(req_id, std::move(body), error);
-    }
-
-    void BTRequestStream::command(std::string endpoint, std::string body, std::function<void(message)> func)
-    {
-        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-
-        auto req = make_command(std::move(endpoint), std::move(body), std::move(func));
-
-        if (req)
-        {
-            // if we have a cb, then this is a request; else, it is a command
-            if (req->cb)
-            {
-                send(req->view());
-                sent_reqs.push_back(std::move(req));
-            }
-            else
-                send(std::move(*req).payload());
-        }
-        else
-            throw std::invalid_argument{"Invalid command!"};
     }
 
     void BTRequestStream::respond(int64_t rid, std::string body, bool error)
@@ -134,7 +102,7 @@ namespace oxen::quic
             if (itr != sent_reqs.end() and itr->get()->req_id == msg.req_id)
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
-                itr->get()->cb(msg);
+                itr->get()->cb(std::move(msg));
                 sent_reqs.erase(itr);
                 return;
             }
@@ -211,29 +179,6 @@ namespace oxen::quic
             buf += req;
             return;
         }
-    }
-
-    std::shared_ptr<sent_request> BTRequestStream::make_command(
-            std::string endpoint, std::string body, std::function<void(message)> func)
-    {
-        oxenc::bt_list_producer btlp;
-        auto rid = ++next_rid;
-
-        try
-        {
-            btlp.append("C");
-            btlp.append(rid);
-            btlp.append(endpoint);
-            btlp.append(body);
-
-            return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid, func);
-        }
-        catch (...)
-        {
-            log::critical(bp_cat, "Invalid outgoing command encoding!");
-        }
-
-        return nullptr;
     }
 
     std::optional<sent_request> BTRequestStream::make_response(int64_t rid, std::string body, bool error)
