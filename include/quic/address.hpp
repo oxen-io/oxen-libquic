@@ -62,7 +62,30 @@ namespace oxen::quic
             return *this;
         }
 
+        // Converts an IPv4 address into an IPv4-mapped IPv6 address.  The address must already be
+        // an IPv4 address (throws if not).
         void map_ipv4_as_ipv6();
+
+        // Returns true if this address is an IPv4-mapped IPv6 address.
+        bool is_ipv4_mapped_ipv6() const;
+
+        // Undoes `map_ipv4_as_ipv6`, converting the address to an IPv4 address; the address must be
+        // a IPv4-mapped IPv6 address (throws if not).
+        void unmap_ipv4_from_ipv6();
+
+        // Wrappers around map_.../unmap_... that return a mapped/unmapped copy.
+        Address mapped_ipv4_as_ipv6() const
+        {
+            Address tmp{*this};
+            tmp.map_ipv4_as_ipv6();
+            return tmp;
+        }
+        Address unmapped_ipv4_from_ipv6() const
+        {
+            Address tmp{*this};
+            tmp.unmap_ipv4_from_ipv6();
+            return tmp;
+        }
 
         bool is_set() const { return is_ipv4() || is_ipv6(); }
 
