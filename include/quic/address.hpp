@@ -103,6 +103,10 @@ namespace oxen::quic
         /// Returns true if this is an addressable address, i.e. not the "any" address or port
         bool is_addressable() const { return !is_any_addr() && !is_any_port(); }
 
+        /// Returns true if this is an addressable, public IP (i.e. addressable and not in a private
+        /// range).
+        bool is_public() const;
+
         inline bool is_ipv4() const
         {
             return _addr.addrlen == sizeof(sockaddr_in) &&
