@@ -34,6 +34,9 @@ namespace oxen::quic
             throw std::system_error{errno, std::system_category()};
     }
 
+    static inline constexpr auto ipv6_ipv4_mapped_prefix = "\0\0\0\0\0\0\0\0\0\0\xff\xff"sv;
+    static_assert(ipv6_ipv4_mapped_prefix.size() == 12);
+
     void Address::map_ipv4_as_ipv6()
     {
         if (!is_ipv4())
@@ -42,8 +45,7 @@ namespace oxen::quic
         sockaddr_in6 a6{};
         a6.sin6_family = AF_INET6;
         a6.sin6_port = a4.sin_port;
-        a6.sin6_addr.s6_addr[10] = 0xff;
-        a6.sin6_addr.s6_addr[11] = 0xff;
+        std::memcpy(&a6.sin6_addr.s6_addr[0], ipv6_ipv4_mapped_prefix.data(), 12);
         std::memcpy(&a6.sin6_addr.s6_addr[12], &a4.sin_addr.s_addr, 4);
         std::memcpy(&_sock_addr, &a6, sizeof(a6));
         update_socklen(sizeof(a6));
@@ -51,7 +53,7 @@ namespace oxen::quic
 
     bool Address::is_ipv4_mapped_ipv6() const
     {
-        return is_ipv6() && std::memcmp(in6().sin6_addr.s6_addr, "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12) == 0;
+        return is_ipv6() && std::memcmp(in6().sin6_addr.s6_addr, ipv6_ipv4_mapped_prefix.data(), 12) == 0;
     }
 
     void Address::unmap_ipv4_from_ipv6()
