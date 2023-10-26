@@ -22,7 +22,8 @@ namespace oxen::quic
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        return_sender.lock()->respond(req_id, std::move(body), error);
+        if (auto ptr = return_sender.lock())
+            ptr->respond(req_id, std::move(body), error);
     }
 
     void BTRequestStream::respond(int64_t rid, std::string body, bool error)
