@@ -223,6 +223,49 @@ function(build_external target)
 endfunction()
 
 
+set(apple_cflags_arch)
+set(apple_cxxflags_arch)
+set(apple_ldflags_arch)
+set(gmp_build_host "${cross_host}")
+if(APPLE AND CMAKE_CROSSCOMPILING)
+    if(gmp_build_host MATCHES "^(.*-.*-)ios([0-9.]+)(-.*)?$")
+        set(gmp_build_host "${CMAKE_MATCH_1}darwin${CMAKE_MATCH_2}${CMAKE_MATCH_3}")
+    endif()
+    if(gmp_build_host MATCHES "^(.*-.*-.*)-simulator$")
+        set(gmp_build_host "${CMAKE_MATCH_1}")
+    endif()
+
+    set(apple_arch)
+    if(ARCH_TRIPLET MATCHES "^(arm|aarch)64.*")
+        set(apple_arch "arm64")
+    elseif(ARCH_TRIPLET MATCHES "^x86_64.*")
+        set(apple_arch "x86_64")
+    else()
+        message(FATAL_ERROR "Don't know how to specify -arch for GMP for ${ARCH_TRIPLET} (${APPLE_TARGET_TRIPLE})")
+    endif()
+
+    set(apple_cflags_arch " -arch ${apple_arch}")
+    set(apple_cxxflags_arch " -arch ${apple_arch}")
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+      if (SDK_NAME)
+        set(apple_ldflags_arch " -m${SDK_NAME}-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+      elseif(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(apple_ldflags_arch " -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+      endif()
+    endif()
+    set(apple_ldflags_arch "${apple_ldflags_arch} -arch ${apple_arch}")
+
+    if(CMAKE_OSX_SYSROOT)
+      foreach(f c cxx ld)
+        set(apple_${f}flags_arch "${apple_${f}flags_arch} -isysroot ${CMAKE_OSX_SYSROOT}")
+      endforeach()
+    endif()
+elseif(gmp_build_host STREQUAL "")
+    set(gmp_build_host "--build=${CMAKE_LIBRARY_ARCHITECTURE}")
+endif()
+
+
+
 build_external(libtasn1
     CONFIGURE_EXTRA --disable-doc
     BUILD_BYPRODUCTS ${DEPS_DESTDIR}/lib/libtasn1.a ${DEPS_DESTDIR}/include/libtasn1.h)
@@ -239,13 +282,20 @@ build_external(libidn2
 add_static_target(libidn2 libidn2_external libidn2.a libunistring)
 
 build_external(gmp
-    CONFIGURE_EXTRA CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp
-    DEPENDS libidn2_external libtasn1_external)
+    CONFIGURE_COMMAND ./configure ${gmp_build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
+        "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}"
+        "LDFLAGS=${apple_ldflags_arch}" ${cross_rc} CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp
+    DEPENDS libidn2_external libtasn1_external
+)
 add_static_target(gmp gmp_external libgmp.a libidn2 libtasn1)
 
 build_external(nettle
-    CONFIGURE_EXTRA --disable-openssl --libdir=${DEPS_DESTDIR}/lib
-        "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib"
+    CONFIGURE_COMMAND ./configure ${gmp_build_host} --disable-shared --prefix=${DEPS_DESTDIR} --libdir=${DEPS_DESTDIR}/lib
+        --with-pic --disable-openssl
+        "CC=${deps_cc}" "CXX=${deps_cxx}"
+        "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}"
+        "CPPFLAGS=-I${DEPS_DESTDIR}/include"
+        "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
 
     DEPENDS gmp_external
     BUILD_BYPRODUCTS
