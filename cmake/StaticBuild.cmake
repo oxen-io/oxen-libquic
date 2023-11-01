@@ -5,12 +5,12 @@
 
 set(LOCAL_MIRROR "" CACHE STRING "local mirror path/URL for lib downloads")
 
-set(GNUTLS_VERSION 3.8.0 CACHE STRING "gnutls version")
+set(GNUTLS_VERSION 3.8.1 CACHE STRING "gnutls version")
 string(REGEX REPLACE "^([0-9]+\\.[0-9]+)\\.[0-9]+$" "\\1" gnutls_version_nopatch "${GNUTLS_VERSION}")
 set(GNUTLS_MIRROR ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v${gnutls_version_nopatch}
     CACHE STRING "gnutls mirror(s)")
 set(GNUTLS_SOURCE gnutls-${GNUTLS_VERSION}.tar.xz)
-set(GNUTLS_HASH SHA512=2507b3133423fdaf90fbd826ccb1142e9ff6fc90fcd5531720218f19ddf0e6bbb8267d23bad35c0954860e5a4179da74823e0c8357db56a14f252e6ec9d59629
+set(GNUTLS_HASH SHA512=22e78db86b835843df897d14ad633d8a553c0f9b1389daa0c2f864869c6b9ca889028d434f9552237dc4f1b37c978fbe0cce166e3768e5d4e8850ff69a6fc872
     CACHE STRING "gnutls source hash")
 
 set(LIBUNISTRING_VERSION 1.1 CACHE STRING "libunistring version")
