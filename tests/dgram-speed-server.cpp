@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
             return;
         }
 
-        // Subsequent packets start with a \x00 until the final one, that has first byte set to \x01.
+        // Subsequent packets start with a \x00 until the final one; that has first byte set to \x01.
         const bool done = data[0] != std::byte{0};
 
         auto& info = dgram_data;
