@@ -17,10 +17,6 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-#ifdef ENABLE_PERF_TESTING
-extern std::atomic<bool> datagram_test_enabled;
-#endif
-
 namespace oxen::quic
 {
     struct dgram_interface;

@@ -57,9 +57,6 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-#ifdef ENABLE_PERF_TESTING
-    datagram_test_enabled = true;
-
     Network server_net{};
 
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
@@ -79,9 +76,6 @@ int main(int argc, char* argv[])
     };
 
     recv_info dgram_data;
-    auto _overflow = 65534;
-    auto overflow = 16383;
-    std::atomic<uint64_t> carry = 0;
 
     std::promise<void> t_prom;
     std::future<void> t_fut = t_prom.get_future();
@@ -96,14 +90,15 @@ int main(int argc, char* argv[])
 
     server_tls->set_server_tls_policy(outbound_tls_cb);
 
-    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring data) {
+    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring_view data) {
         if (dgram_data.n_expected == 0)
         {
-            data = data.substr(2);
+            // The very first packet should be 8 bytes containing the uint64_t count of total
+            // packets being sent, not including this initial one.
+            if (data.size() != 8)
+                log::error(test_cat, "Invalid initial packet: expected 8-byte test size, got {} bytes", data.size());
             auto count = oxenc::load_little_to_host<uint64_t>(data.data());
-            data = data.substr(sizeof(uint64_t));
-            dgram_data.n_expected = count + 1;
-            dgram_data.n_received += 1;
+            dgram_data.n_expected = count;
             log::warning(
                     test_cat,
                     "First data from new connection datagram channel, expecting {} datagrams!",
@@ -111,14 +106,8 @@ int main(int argc, char* argv[])
             return;
         }
 
-        uint16_t raw = oxenc::load_big_to_host<uint16_t>(bstring_view{data.data(), size_t(2)}.data());
-        uint16_t _dgid = (raw >> 2);
-        uint64_t dgid = _dgid + (overflow * carry) + carry;
-
-        log::debug(test_cat, "Received datagram number: raw: {}, dgid: {}, carry: {}", raw, dgid, carry.load());
-
-        if (raw % _overflow == 0)
-            carry += 1;
+        // Subsequent packets start with a \x00 until the final one, that has first byte set to \x01.
+        const bool done = data[0] != std::byte{0};
 
         auto& info = dgram_data;
         bool need_more = info.n_received < info.n_expected;
@@ -132,12 +121,8 @@ int main(int argc, char* argv[])
                 return;
         }
 
-        log::debug(test_cat, "Received {} of {} datagrams expected", info.n_received, info.n_expected);
-
-        if (dgid >= info.n_expected - 1)
+        if (done)
         {
-            log::critical(test_cat, "Received datagram ID:{} of {} datagrams expected", dgid, info.n_expected);
-
             auto reception_rate = ((float)info.n_received / (float)info.n_expected) * 100;
 
             log::critical(
@@ -161,7 +146,4 @@ int main(int argc, char* argv[])
     t_fut.get();
 
     log::warning(test_cat, "Shutting down test server");
-#else
-    log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
-#endif
 }
