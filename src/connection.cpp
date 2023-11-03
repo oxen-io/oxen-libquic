@@ -979,6 +979,11 @@ namespace oxen::quic
 
         if (_packet_splitting)
         {
+            if (data.size() < 2)
+            {
+                log::warning(log_cat, "Ignoring invalid datagram: too short for packet splitting");
+                return 0;
+            }
             uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
 
 #ifndef ENABLE_PERF_TESTING
