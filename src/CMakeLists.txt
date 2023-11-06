@@ -1,3 +1,7 @@
+set(libquic_send_allowed "gso, sendmmsg, sendmsg")
+
+option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" OFF)
+
 add_library(quic
     address.cpp
     btstream.cpp
@@ -20,10 +24,10 @@ target_link_libraries(quic
     libevent::core libevent::threads
     gnutls::gnutls
     oxen::logging
-    common
+    libquic_external
     oxenc
     PRIVATE
-    internal
+    libquic_internal
 )
 
 if(WIN32)
@@ -39,9 +43,9 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     set(libquic_send_default "sendmmsg")
     set(libquic_recvmmsg_default ON)
 endif()
-set(libquic_send_allowed "gso, sendmmsg, sendmsg")
 
 set(LIBQUIC_SEND "${libquic_send_default}" CACHE STRING "Packet send implementation to use; one of: ${libquic_send_allowed}")
+set(LIBQUIC_RECVMMSG ${libquic_recvmmsg_default} CACHE BOOL "")
 
 if(LIBQUIC_SEND STREQUAL "gso")
     message(STATUS "Building with sendmmsg+GSO packet sender")
@@ -53,7 +57,6 @@ else()
     message(STATUS "Building without sendmmsg/GSO packet sending")
 endif()
 
-option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" ${libquic_recvmmsg_default})
 if(LIBQUIC_RECVMMSG)
     target_compile_definitions(quic PUBLIC OXEN_LIBQUIC_RECVMMSG)
     message(STATUS "Building with recvmmsg support")
