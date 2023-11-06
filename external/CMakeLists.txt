@@ -51,12 +51,14 @@ add_library(ngtcp2::crypto
 
 # oxen-logging
 if (NOT TARGET oxen::logging)
+    message(STATUS "Target oxen::logging not found; using submodule")
     if(BUILD_STATIC_DEPS)
         set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
     endif()
     set(OXEN_LOGGING_SOURCE_ROOT "${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
     add_subdirectory(oxen-logging)
 else()
+    message(STATUS "Target oxen::logging already found!")
     set(OXEN_LOGGING_SOURCE_ROOT "${OXEN_LOGGING_SOURCE_ROOT};${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
 endif()
 
