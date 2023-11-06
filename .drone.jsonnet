@@ -69,7 +69,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
           'cmake .. -DCMAKE_COLOR_DIAGNOSTICS=ON -DCMAKE_BUILD_TYPE=' + build_type + ' ' +
           (if werror then '-DWARNINGS_AS_ERRORS=ON ' else '') +
           '-DWITH_LTO=' + (if lto then 'ON ' else 'OFF ') +
-          '-DBUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
+          '-DLIBQUIC_BUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
           cmake_extra +
           ci_dep_mirror(local_mirror),
           'make -j' + jobs + ' VERBOSE=1',
@@ -169,7 +169,7 @@ local windows_cross_pipeline(name,
         '-DCMAKE_COLOR_DIAGNOSTICS=ON -DCMAKE_BUILD_TYPE=' + build_type + ' ' +
         (if werror then '-DWARNINGS_AS_ERRORS=ON ' else '') +
         '-DWITH_LTO=' + (if lto then 'ON ' else 'OFF ') +
-        '-DBUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
+        '-DLIBQUIC_BUILD_TESTS=' + (if tests then 'ON ' else 'OFF ') +
         ci_dep_mirror(local_mirror),
         'make -j' + jobs + ' VERBOSE=1',
         //'wine-stable tests/alltests.exe --log-level debug --colour-mode ansi', // doesn't work yet :(
