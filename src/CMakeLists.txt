@@ -53,8 +53,6 @@ else()
     message(STATUS "Building without sendmmsg/GSO packet sending")
 endif()
 
-target_compile_definitions(quic PUBLIC ENABLE_PERF_TESTING)
-
 option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" ${libquic_recvmmsg_default})
 if(LIBQUIC_RECVMMSG)
     target_compile_definitions(quic PUBLIC OXEN_LIBQUIC_RECVMMSG)

@@ -17,6 +17,9 @@
 
 using namespace oxen::quic;
 
+using ustring = std::basic_string<unsigned char>;
+using ustring_view = std::basic_string_view<unsigned char>;
+
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC test client"};
@@ -38,9 +41,6 @@ int main(int argc, char* argv[])
 
     uint64_t size = 1'000'000'000;
     cli.add_option("-S,--size", size, "Amount of data to transfer.");
-
-    bool pregenerate = true;
-    cli.add_flag("-g,--pregenerate", pregenerate, "Pregenerate all stream data to send into RAM before starting");
 
     size_t dgram_size = 0;
     cli.add_option("--dgram-size", dgram_size, "Datagram size to send");
@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
     {
         std::shared_ptr<Stream> stream;
         std::atomic<bool> active = false;
-        std::basic_string<uint8_t> msg{};
+        ustring msg{};
         uint64_t size;
         uint64_t dgram_size;
         uint64_t n_iter;
@@ -86,16 +86,15 @@ int main(int argc, char* argv[])
 
             log::warning(test_cat, "Preparing to send {} datagrams of max size {}", n_iter, size);
 
-            uint8_t v{0};
-
-            while (msg.size() < dgram_size)
-                msg += v++;
+            msg.resize(dgram_size);
+            // Byte 0 must be set to 0, except for the final packet where we set it to 1
+            for (int i = 0; i < dgram_size; i++)
+                msg[i] = static_cast<unsigned char>(i % 256);
         }
     };
 
     setup_logging(log_file, log_level);
 
-#ifdef ENABLE_PERF_TESTING
     Network client_net{};
 
     auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
@@ -158,8 +157,7 @@ int main(int argc, char* argv[])
 
     auto [server_a, server_p] = parse_addr(remote_addr);
     opt::remote_addr server_addr{server_a, server_p};
-    auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
-    // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
+    opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
     client_tls->set_client_tls_policy(outbound_tls_cb);
 
@@ -169,7 +167,8 @@ int main(int argc, char* argv[])
 
     tls_future.get();
 
-    uint64_t max_size = (dgram_size == 0) ? client_ci->get_max_datagram_size() : dgram_size;
+    uint64_t max_size =
+            std::max<uint64_t>((dgram_size == 0) ? client_ci->get_max_datagram_size() : dgram_size, sizeof(uint8_t));
 
     send_data dgram_data{size, max_size};
     d_ptr = &dgram_data;
@@ -191,8 +190,15 @@ int main(int argc, char* argv[])
 
         started_at = std::chrono::steady_clock::now();
 
-        for (uint64_t i = 0; i < d_ptr->n_iter; ++i)
-            client_ci->send_datagram(std::basic_string_view<uint8_t>{d_ptr->msg.data(), d_ptr->msg.size()});
+        for (uint64_t i = 1; i < d_ptr->n_iter; ++i)
+        {
+            // Just send these with the 0 at the beginning
+            client_ci->send_datagram(ustring_view{d_ptr->msg});
+        }
+        // Send a final one with the max value in the beginning so the server knows its done
+        ustring last_payload{d_ptr->msg};
+        last_payload[0] = 1;  // Signals that this is the last one
+        client_ci->send_datagram(std::move(last_payload));
 
         log::warning(test_cat, "Client done sending payload to remote!");
         d_ptr->is_sending = false;
@@ -208,7 +214,4 @@ int main(int argc, char* argv[])
     fmt::print("Speed: {:.5f}MB/s\n", size / 1'000'000.0 / elapsed);
 
     return 0;
-#else
-    log::error(log_cat, "Error: library must be compiled with cmake flag -DENABLE_PERF_TESTING=1 to enable test binaries");
-#endif
 }

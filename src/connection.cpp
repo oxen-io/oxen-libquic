@@ -32,10 +32,6 @@ extern "C"
 #include "stream.hpp"
 #include "utils.hpp"
 
-#ifdef ENABLE_PERF_TESTING
-std::atomic<bool> datagram_test_enabled = false;
-#endif
-
 namespace oxen::quic
 {
     using namespace std::literals;
@@ -979,14 +975,14 @@ namespace oxen::quic
 
         if (_packet_splitting)
         {
-            uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
+            if (data.size() < 2)
+            {
+                log::warning(log_cat, "Ignoring invalid datagram: too short for packet splitting");
+                return 0;
+            }
 
-#ifndef ENABLE_PERF_TESTING
-            if (!datagram_test_enabled)
-                data.remove_prefix(2);
-#else
+            uint16_t dgid = oxenc::load_big_to_host<uint16_t>(data.data());
             data.remove_prefix(2);
-#endif
 
             if (dgid % 4 == 0)
                 log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
