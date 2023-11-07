@@ -115,14 +115,14 @@ namespace oxen::quic
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
         virtual const ConnectionID& scid() const = 0;
+        virtual const Address& local() const = 0;
+        virtual const Address& remote() const = 0;
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
         //
-        //  datagrams_stored: returns the number of partial datagrams held waiting for their counterpart
         //  last_cleared: returns the index of the last cleared bucket in the recv_buffer
         //  datagram_bufsize: returns the total number of datagrams that the recv_buffer can hold
-        virtual int datagrams_stored() const = 0;
         virtual int last_cleared() const = 0;
         virtual int datagram_bufsize() const = 0;
 
@@ -187,8 +187,8 @@ namespace oxen::quic
         const ConnectionID& dcid() const { return _dest_cid; }
 
         const Path& path() const { return _path; }
-        const Address& local() const { return _path.local; }
-        const Address& remote() const { return _path.remote; }
+        const Address& local() const override { return _path.local; }
+        const Address& remote() const override { return _path.remote; }
 
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
@@ -202,7 +202,6 @@ namespace oxen::quic
         bool packet_splitting_enabled() const override { return _packet_splitting; }
 
         // public debug functions; to be removed with friend test fixture class
-        int datagrams_stored() const override;  // TOFIX: this one
         int last_cleared() const override;
         int datagram_bufsize() const override;
 
