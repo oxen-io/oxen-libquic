@@ -3,7 +3,7 @@
 namespace oxen::quic
 {
     message::message(BTRequestStream& bp, std::string req, bool is_error) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, timed_out{is_error}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 

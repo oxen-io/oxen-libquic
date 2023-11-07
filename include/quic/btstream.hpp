@@ -32,6 +32,7 @@ namespace oxen::quic
         std::string_view ep;
         std::string_view req_body;
         std::weak_ptr<BTRequestStream> return_sender;
+        ConnectionID cid;
 
       public:
         message(BTRequestStream& bp, std::string req, bool is_error = false);
@@ -61,6 +62,7 @@ namespace oxen::quic
         std::string_view body() const { return req_body; }
         std::string endpoint_str() const { return std::string{ep}; }
         std::string body_str() const { return std::string{req_body}; }
+        const ConnectionID& scid() const { return cid; }
     };
 
     struct sent_request
