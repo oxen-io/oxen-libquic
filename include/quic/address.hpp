@@ -21,12 +21,8 @@ namespace oxen::quic
         }
 
       public:
-        // Default constructor yields [::]:0
-        Address()
-        {
-            _sock_addr.ss_family = AF_INET6;
-            _addr.addrlen = sizeof(sockaddr_in6);
-        }
+        // Default constructor or single-port constructor yields [::]:port (or [::]:0 if port omitted)
+        explicit Address(uint16_t port = 0) : Address{"", port} {}
 
         Address(const sockaddr* s, socklen_t n)
         {
@@ -103,9 +99,16 @@ namespace oxen::quic
         /// Returns true if this is an addressable address, i.e. not the "any" address or port
         bool is_addressable() const { return !is_any_addr() && !is_any_port(); }
 
-        /// Returns true if this is an addressable, public IP (i.e. addressable and not in a private
-        /// range).
+        /// Returns true if this is an addressable, public IP and port (i.e. addressable and not in
+        /// a private range).
         bool is_public() const;
+
+        /// Returns true if this has an addressable public IP (but unlike `is_public()` this allows
+        /// port to be set to the 0 "any port").
+        bool is_public_ip() const;
+
+        /// Returns true if this address is a loopback address (IPv4 127.0.0.0/8 or IPv6 ::1)
+        bool is_loopback() const;
 
         inline bool is_ipv4() const
         {

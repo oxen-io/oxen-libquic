@@ -6,19 +6,16 @@ namespace oxen::quic
 {
     Address::Address(const std::string& addr, uint16_t port)
     {
-        if (addr.empty())
-        {
-            // Default to all-0 IPv6 address, which is good (it's `::`, the IPv6 any addr)
-            reinterpret_cast<sockaddr_in6&>(_sock_addr).sin6_port = oxenc::host_to_big(port);
-        }
-        int rv;
-        if (addr.find(':') != std::string_view::npos)
+        int rv = 1;
+        if (addr.empty() || addr.find(':') != std::string_view::npos)
         {
             _sock_addr.ss_family = AF_INET6;
             auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
             sin6.sin6_port = oxenc::host_to_big(port);
             _addr.addrlen = sizeof(sockaddr_in6);
-            rv = inet_pton(AF_INET6, addr.c_str(), &sin6.sin6_addr);
+            if (!addr.empty())
+                rv = inet_pton(AF_INET6, addr.c_str(), &sin6.sin6_addr);
+            // Otherwise default to all-0 IPv6 address, which is good (it's `::`, the IPv6 any addr)
         }
         else
         {
@@ -163,11 +160,14 @@ namespace oxen::quic
         static_assert((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
         static_assert((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
 
+        constexpr ipv4_net ipv4_loopback = ipv4(127, 0, 0, 1) / 8;
+        constexpr ipv6 ipv6_loopback(0, 0, 0, 0, 0, 0, 0, 1);
+
         const std::array ipv4_nonpublic = {
                 ipv4(0, 0, 0, 0) / 8,        // Special purpose for current/local/this network
                 ipv4(10, 0, 0, 0) / 8,       // Private range
                 ipv4(100, 64, 0, 0) / 10,    // Carrier grade NAT private range
-                ipv4(127, 0, 0, 0) / 8,      // Loopback
+                ipv4_loopback,               // Loopback
                 ipv4(169, 254, 0, 0) / 16,   // Link-local addresses
                 ipv4(172, 16, 0, 0) / 12,    // Private range
                 ipv4(192, 0, 0, 0) / 24,     // DS-Lite
@@ -182,27 +182,27 @@ namespace oxen::quic
         };
 
         const std::array ipv6_nonpublic = {
-                ipv6() / 128,                        // unspecified addr
-                ipv6(0, 0, 0, 0, 0, 0, 0, 1) / 128,  // lookback
-                ipv6(0, 0, 0, 0, 0, 0xffff) / 96,    // IPv4-mapped address
-                ipv6(0, 0, 0, 0, 0xffff) / 96,       // IPv4 translated addr
-                ipv6(0x64, 0xff9b) / 96,             // IPv4/IPv6 translation
-                ipv6(0x64, 0xff9b, 1) / 48,          // IPv4/IPv6 translation
-                ipv6(0x100) / 64,                    // Discard
-                ipv6(0x200) / 7,                     // Deprecated NSPA-mapped IPv6; Yggdrasil
-                ipv6(0x2001, 0x0) / 32,              // Toredo
-                ipv6(0x2001, 0x20) / 28,             // ORCHIDv2
-                ipv6(0x2001, 0xdb8) / 32,            // Documentation/example
-                ipv6(0x2002) / 16,                   // Deprecated 6to4 addressing scheme
-                ipv6(0xfc00) / 7,                    // Unique local address
-                ipv6(0xfe80) / 10,                   // link-local unicast addressing
-                ipv6(0xff00) / 8,                    // Multicast
+                ipv6() / 128,                      // unspecified addr
+                ipv6_loopback / 128,               // loopback
+                ipv6(0, 0, 0, 0, 0, 0xffff) / 96,  // IPv4-mapped address
+                ipv6(0, 0, 0, 0, 0xffff) / 96,     // IPv4 translated addr
+                ipv6(0x64, 0xff9b) / 96,           // IPv4/IPv6 translation
+                ipv6(0x64, 0xff9b, 1) / 48,        // IPv4/IPv6 translation
+                ipv6(0x100) / 64,                  // Discard
+                ipv6(0x200) / 7,                   // Deprecated NSPA-mapped IPv6; Yggdrasil
+                ipv6(0x2001, 0x0) / 32,            // Toredo
+                ipv6(0x2001, 0x20) / 28,           // ORCHIDv2
+                ipv6(0x2001, 0xdb8) / 32,          // Documentation/example
+                ipv6(0x2002) / 16,                 // Deprecated 6to4 addressing scheme
+                ipv6(0xfc00) / 7,                  // Unique local address
+                ipv6(0xfe80) / 10,                 // link-local unicast addressing
+                ipv6(0xff00) / 8,                  // Multicast
         };
     }  // namespace
 
-    bool Address::is_public() const
+    bool Address::is_public_ip() const
     {
-        if (!is_addressable())
+        if (is_any_addr())
             return false;
         if (is_ipv4())
         {
@@ -223,6 +223,24 @@ namespace oxen::quic
                     return false;
         }
         return true;
+    }
+
+    bool Address::is_public() const
+    {
+        return is_any_port() ? false : is_public_ip();
+    }
+
+    bool Address::is_loopback() const
+    {
+        if (!is_addressable())
+            return false;
+        if (is_ipv4())
+            return ipv4_loopback.contains(ipv4{oxenc::big_to_host<uint32_t>(in4().sin_addr.s_addr)});
+        if (is_ipv4_mapped_ipv6())
+            return unmapped_ipv4_from_ipv6().is_public();
+        if (is_ipv6())
+            return ipv6{in6().sin6_addr.s6_addr} == ipv6_loopback;
+        return false;
     }
 
     std::string Address::host() const
