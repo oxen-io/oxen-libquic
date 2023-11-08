@@ -3,18 +3,6 @@ cmake_minimum_required(VERSION 3.13...3.25)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set(libquic_IS_TOPLEVEL_PROJECT TRUE)
-else()
-    set(libquic_IS_TOPLEVEL_PROJECT FALSE)
-endif()
-
-option(BUILD_SHARED_LIBS "Build as shared library" OFF)
-option(BUILD_STATIC_DEPS "Download, build, and statically link against core dependencies" OFF)
-option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
-option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
-option(LIBQUIC_BUILD_TESTS "Build libquic test suite and programs" ${libquic_IS_TOPLEVEL_PROJECT})
-
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(LANGS C CXX)
@@ -28,10 +16,24 @@ if(CCACHE_PROGRAM)
   endforeach()
 endif()
 
-project(libquicinet 
+project(libquic
     VERSION 0.0.5
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
+
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set(libquic_IS_TOPLEVEL_PROJECT TRUE)
+else()
+    set(libquic_IS_TOPLEVEL_PROJECT FALSE)
+endif()
+
+option(BUILD_SHARED_LIBS "Build as shared library" OFF)
+option(BUILD_STATIC_DEPS "Download, build, and statically link against core dependencies" OFF)
+option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
+option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
+option(LIBQUIC_BUILD_TESTS "Build libquic test suite and programs" ${libquic_IS_TOPLEVEL_PROJECT})
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
