@@ -9,7 +9,7 @@ int main(int argc, char* argv[])
     Catch::Session session;
 
     using namespace Catch::Clara;
-    std::string log_level = "trace", log_file = "stderr";
+    std::string log_level = "critical", log_file = "stderr";
     oxen::quic::disable_ipv6 = false;
     oxen::quic::disable_rotating_buffer = false;
 

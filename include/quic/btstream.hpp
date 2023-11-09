@@ -63,6 +63,14 @@ namespace oxen::quic
         std::string endpoint_str() const { return std::string{ep}; }
         std::string body_str() const { return std::string{req_body}; }
         const ConnectionID& scid() const { return cid; }
+
+        std::shared_ptr<BTRequestStream> stream() const
+        {
+            if (return_sender.expired())
+                throw std::runtime_error{"Cannot access expired pointer to BT stream!"};
+
+            return return_sender.lock();
+        }
     };
 
     struct sent_request
@@ -178,6 +186,10 @@ namespace oxen::quic
         void closed(uint64_t app_code) override;
 
         void register_command(std::string endpoint, std::function<void(message)>);
+
+        const Address& local() const { return conn.local(); }
+
+        const Address& remote() const { return conn.remote(); }
 
       private:
         void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)

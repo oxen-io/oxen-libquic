@@ -119,7 +119,7 @@ namespace oxen::quic
         bool ready{false};
         int64_t _stream_id;
 
-        Connection& get_conn();
+        const Connection& get_conn() const { return conn; }
 
         bool is_empty() const override { return user_buffers.empty(); }
 

@@ -205,7 +205,7 @@ namespace oxen::quic
 
         void close_connection(ConnectionID cid, io_error code = io_error{0}, std::string_view msg = "NO_ERROR"sv);
 
-        const Address& local() { return _local; }
+        const Address& local() const { return _local; }
 
         bool is_accepting() const { return _accepting_inbound; }
 
@@ -297,9 +297,6 @@ namespace oxen::quic
         void check_timeouts();
 
         Connection* accept_initial_connection(const Packet& pkt);
-
-      public:
-        // _dgram_data_callback _dgram_recv_cb;
     };
 
 }  // namespace oxen::quic
