@@ -11,9 +11,6 @@ namespace oxen::quic::opt
     struct local_addr : public Address
     {
         using Address::Address;
-
-        // Constructing from just a port to bind to that port, any address
-        explicit local_addr(uint16_t port) : Address{"", port} {}
     };
 
     struct remote_addr : public Address

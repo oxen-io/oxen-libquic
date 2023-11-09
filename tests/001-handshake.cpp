@@ -20,13 +20,76 @@ namespace oxen::quic::test
         SECTION("Address objects")
         {
             opt::local_addr empty_addr{};
+            opt::local_addr empty_addr2{"", 0};
             opt::local_addr good_addr{"127.0.0.1", 4400};
+            opt::local_addr public_addr{"1.2.3.4", 56789};
+            opt::local_addr public_anyport{"4.5.6.7", 0};
+            opt::local_addr localnet_addr{"192.168.1.1", 80};
+            opt::local_addr ipv6_localhost{"::1", 123};
+            opt::local_addr localnet_ipv6{"fdab:1234:5::1", 123};
+            opt::local_addr public_ipv6{"2345::1", 45678};
 
-            REQUIRE(empty_addr.is_set());
-            REQUIRE_THROWS(opt::local_addr{"127.001", 4400});
-            REQUIRE_THROWS(opt::local_addr{""s, 0});
-            REQUIRE(empty_addr == opt::local_addr{"::", 0});
-            REQUIRE(good_addr.is_set());
+            CHECK(empty_addr.is_set());
+            CHECK_THROWS(opt::local_addr{"127.001", 4400});
+            CHECK_NOTHROW(opt::local_addr{"", 0});
+            CHECK(empty_addr == opt::local_addr{"::", 0});
+            CHECK(good_addr.is_set());
+
+            CHECK(empty_addr.is_any_addr());
+            CHECK(empty_addr.is_any_port());
+            CHECK_FALSE(empty_addr.is_addressable());
+            CHECK_FALSE(empty_addr.is_loopback());
+
+            CHECK(empty_addr == empty_addr2);
+
+            CHECK_FALSE(good_addr.is_public());
+            CHECK_FALSE(good_addr.is_public_ip());
+            CHECK_FALSE(good_addr.is_any_addr());
+            CHECK_FALSE(good_addr.is_any_port());
+            CHECK(good_addr.is_addressable());
+            CHECK(good_addr.is_loopback());
+
+            CHECK(public_addr.is_public());
+            CHECK(public_addr.is_public_ip());
+            CHECK_FALSE(public_addr.is_any_addr());
+            CHECK_FALSE(public_addr.is_any_port());
+            CHECK(public_addr.is_addressable());
+            CHECK_FALSE(public_addr.is_loopback());
+
+            CHECK_FALSE(public_anyport.is_public());
+            CHECK(public_anyport.is_public_ip());
+            CHECK_FALSE(public_anyport.is_any_addr());
+            CHECK(public_anyport.is_any_port());
+            CHECK_FALSE(public_anyport.is_addressable());
+            CHECK_FALSE(public_anyport.is_loopback());
+
+            CHECK_FALSE(localnet_addr.is_public());
+            CHECK_FALSE(localnet_addr.is_public_ip());
+            CHECK_FALSE(localnet_addr.is_any_addr());
+            CHECK_FALSE(localnet_addr.is_any_port());
+            CHECK(localnet_addr.is_addressable());
+            CHECK_FALSE(localnet_addr.is_loopback());
+
+            CHECK_FALSE(ipv6_localhost.is_public());
+            CHECK_FALSE(ipv6_localhost.is_public_ip());
+            CHECK_FALSE(ipv6_localhost.is_any_addr());
+            CHECK_FALSE(ipv6_localhost.is_any_port());
+            CHECK(ipv6_localhost.is_addressable());
+            CHECK(ipv6_localhost.is_loopback());
+
+            CHECK_FALSE(localnet_ipv6.is_public());
+            CHECK_FALSE(localnet_ipv6.is_public_ip());
+            CHECK_FALSE(localnet_ipv6.is_any_addr());
+            CHECK_FALSE(localnet_ipv6.is_any_port());
+            CHECK(localnet_ipv6.is_addressable());
+            CHECK_FALSE(localnet_ipv6.is_loopback());
+
+            CHECK(public_ipv6.is_public());
+            CHECK(public_ipv6.is_public_ip());
+            CHECK_FALSE(public_ipv6.is_any_addr());
+            CHECK_FALSE(public_ipv6.is_any_port());
+            CHECK(public_ipv6.is_addressable());
+            CHECK_FALSE(public_ipv6.is_loopback());
         };
 
         SECTION("Endpoint object creation - Default addressing")
