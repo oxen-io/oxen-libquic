@@ -25,7 +25,9 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
 
-    constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
+    inline constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
+    inline constexpr size_t GNUTLS_SECRET_KEY_SIZE = 64;
+
     using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
 
     // arguments: remote pubkey, ALPN
@@ -184,13 +186,12 @@ namespace oxen::quic
         GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg);
 
         // Construct from raw Ed25519 keys
-        GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode = false);
+        GNUTLSCreds(std::string ed_seed, std::string ed_pubkey);
 
       public:
         ~GNUTLSCreds();
 
         const bool using_raw_pk{false};
-        const bool is_snode{false};
 
         gnutls_certificate_credentials_t cred;
 
@@ -211,7 +212,8 @@ namespace oxen::quic
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
-        static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey, bool is_relay = false);
+        static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey);
+        static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string sk);
 
         std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) override;
     };

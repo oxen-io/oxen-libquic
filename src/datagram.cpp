@@ -46,7 +46,7 @@ namespace oxen::quic
         // we use >= instead of > for that just-in-case 1-byte cushion
         if (data.size() > max_size)
         {
-            log::critical(
+            log::warning(
                     log_cat,
                     "Data of length {} cannot be sent with {} datagrams of max size {}",
                     data.size(),

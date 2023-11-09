@@ -52,8 +52,8 @@ namespace oxen::quic::test
         Network test_net{};
 
         auto client_tls = GNUTLSCreds::make_from_ed_keys(client_seed, client_pubkey);
-        auto server_tls = GNUTLSCreds::make_from_ed_keys(server_seed, server_pubkey, /*snode = */ true);
-        auto server_tls2 = GNUTLSCreds::make_from_ed_keys(client_seed, client_pubkey, /*snode = */ true);
+        auto server_tls = GNUTLSCreds::make_from_ed_keys(server_seed, server_pubkey);
+        auto server_tls2 = GNUTLSCreds::make_from_ed_keys(client_seed, client_pubkey);
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};

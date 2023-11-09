@@ -211,16 +211,6 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::datagrams_stored() const
-    {
-        std::promise<int> p;
-        std::future<int> f = p.get_future();
-
-        _endpoint.call([&]() { p.set_value(datagrams->datagrams_stored()); });
-
-        return f.get();
-    }
-
     int Connection::last_cleared() const
     {
         return datagrams->recv_buffer.last_cleared;

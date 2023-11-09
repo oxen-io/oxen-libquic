@@ -44,11 +44,6 @@ namespace oxen::quic
             close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
     }
 
-    Connection& Stream::get_conn()
-    {
-        return conn;
-    }
-
     std::shared_ptr<Stream> Stream::get_stream()
     {
         return shared_from_this();

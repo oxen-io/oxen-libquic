@@ -119,7 +119,7 @@ namespace oxen::quic
     // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
     static const std::string ASN_ED25519_PUBKEY_PREFIX = oxenc::from_hex("302a300506032b6570032100"sv);
 
-    GNUTLSCreds::GNUTLSCreds(std::string ed_seed, std::string ed_pubkey, bool snode) : using_raw_pk{true}, is_snode{snode}
+    GNUTLSCreds::GNUTLSCreds(std::string ed_seed, std::string ed_pubkey) : using_raw_pk{true}
     {
         log::trace(log_cat, "Initializing GNUTLSCreds from Ed25519 keypair");
 
@@ -186,10 +186,22 @@ namespace oxen::quic
         return p;
     }
 
-    std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_keys(std::string seed, std::string pubkey, bool is_relay)
+    std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_keys(std::string seed, std::string pubkey)
     {
         // would use make_shared, but I want GNUTLSCreds' constructor to be private
-        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(seed, pubkey, is_relay)};
+        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(seed, pubkey)};
+        return p;
+    }
+
+    std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_seckey(std::string sk)
+    {
+        if (sk.size() != GNUTLS_SECRET_KEY_SIZE)
+            throw std::invalid_argument("Ed25519 secret key is invalid length!");
+
+        auto pk = sk.substr(GNUTLS_KEY_SIZE);
+        sk = sk.substr(0, GNUTLS_KEY_SIZE);
+
+        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(std::move(sk), std::move(pk))};
         return p;
     }
 
