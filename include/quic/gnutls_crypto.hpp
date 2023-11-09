@@ -9,6 +9,9 @@ extern "C"
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
+#include <oxenc/base64.h>
+#include <oxenc/hex.h>
+
 #include <optional>
 #include <variant>
 
@@ -16,6 +19,32 @@ extern "C"
 
 namespace oxen::quic
 {
+    extern "C"
+    {
+        int gnutls_callback_wrapper(
+                gnutls_session_t session,
+                unsigned int htype,
+                unsigned int when,
+                unsigned int incoming,
+                const gnutls_datum_t* msg);
+
+        int cert_verify_callback_gnutls(gnutls_session_t g_session);
+
+        inline void gnutls_log(int level, const char* str)
+        {
+            log::debug(log_cat, "GNUTLS Log (level {}): {}", level, str);
+        }
+
+        struct gnutls_log_setter
+        {
+            gnutls_log_setter()
+            {
+                gnutls_global_set_log_level(99);
+                gnutls_global_set_log_function(gnutls_log);
+            }
+        };
+    }
+
     namespace fs = std::filesystem;
 
     using gnutls_callback = std::function<int(
@@ -27,6 +56,11 @@ namespace oxen::quic
 
     inline constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
     inline constexpr size_t GNUTLS_SECRET_KEY_SIZE = 64;
+
+    // These bytes mean "this is a raw Ed25519 private key" in ASN.1 (or something like that)
+    inline const std::string ASN_ED25519_SEED_PREFIX = oxenc::from_hex("302e020100300506032b657004220420"sv);
+    // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
+    inline const std::string ASN_ED25519_PUBKEY_PREFIX = oxenc::from_hex("302a300506032b6570032100"sv);
 
     using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
 
@@ -195,8 +229,10 @@ namespace oxen::quic
 
         gnutls_certificate_credentials_t cred;
 
-        gnutls_callback_wrapper client_tls_policy{};
-        gnutls_callback_wrapper server_tls_policy{};
+        struct gnutls_callback_wrapper client_tls_policy
+        {};
+        struct gnutls_callback_wrapper server_tls_policy
+        {};
 
         gnutls_key_verify_callback key_verify{};
 
@@ -253,5 +289,7 @@ namespace oxen::quic
 
         bool validate_remote_key();
     };
+
+    GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session);
 
 }  // namespace oxen::quic

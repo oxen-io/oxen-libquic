@@ -13,7 +13,6 @@
 
 #include "context.hpp"
 #include "format.hpp"
-#include "gnutls_crypto.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -163,7 +162,7 @@ namespace oxen::quic
 
         void packet_io_ready();
 
-        TLSSession* get_session() const { return tls_session.get(); };
+        TLSSession* get_session() const;
 
         std::shared_ptr<Stream> queue_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;

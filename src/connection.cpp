@@ -28,6 +28,7 @@ extern "C"
 
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
@@ -211,16 +212,6 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::last_cleared() const
-    {
-        return datagrams->recv_buffer.last_cleared;
-    }
-
-    int Connection::datagram_bufsize() const
-    {
-        return datagrams->recv_buffer.bufsize;
-    }
-
     ConnectionID::ConnectionID(const uint8_t* cid, size_t length)
     {
         assert(length <= NGTCP2_MAX_CIDLEN);
@@ -239,6 +230,21 @@ namespace oxen::quic
     std::string ConnectionID::to_string() const
     {
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
+    }
+
+    int Connection::last_cleared() const
+    {
+        return datagrams->recv_buffer.last_cleared;
+    }
+
+    TLSSession* Connection::get_session() const
+    {
+        return tls_session.get();
+    }
+
+    int Connection::datagram_bufsize() const
+    {
+        return datagrams->recv_buffer.bufsize;
     }
 
     void Connection::halt_events()

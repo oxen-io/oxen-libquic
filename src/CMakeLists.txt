@@ -10,7 +10,8 @@ add_library(quic
     datagram.cpp
     endpoint.cpp
     format.cpp
-    gnutls_crypto.cpp
+    gnutls_creds.cpp
+    gnutls_session.cpp
     messages.cpp
     network.cpp
     stream.cpp
