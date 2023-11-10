@@ -13,9 +13,25 @@ namespace oxen::quic
                 const gnutls_datum_t* msg)
         {
             auto* tls_session = get_session_from_gnutls(session);
+            // No need to assert the ptr is set here, it's checked in the function before returning.
+            // Instead, check that the return matches expected
             assert(tls_session->get_session() == session);
 
             return tls_session->do_tls_callback(session, htype, when, incoming, msg);
+        }
+
+        int gnutls_post_handshake(gnutls_session_t session)
+        {
+            auto* tls_session = get_session_from_gnutls(session);
+            // Same notes on the assert as in gnutls_callback_wrapper above
+            assert(tls_session->get_session() == session);
+            (void)tls_session;
+
+            // DISCUSS: currently, servers request certificates from all clients. If we wanted to
+            // request based on some initial connection information (alpns, etc), we could call
+            // gnutls_certificate_server_set_request here instead on the gnutls_session_t object
+
+            return 0;
         }
     }
 
@@ -30,6 +46,15 @@ namespace oxen::quic
         return tls_session;
     }
 
+    Connection* get_connection_from_gnutls(gnutls_session_t g_session)
+    {
+        auto* conn_ref = static_cast<ngtcp2_crypto_conn_ref*>(gnutls_session_get_ptr(g_session));
+        assert(conn_ref);
+        auto* conn = static_cast<Connection*>(conn_ref->user_data);
+        assert(conn);
+        return conn;
+    }
+
     GNUTLSSession::~GNUTLSSession()
     {
         log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
@@ -39,6 +64,7 @@ namespace oxen::quic
     void GNUTLSSession::set_tls_hook_functions()
     {
         log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+        // gnutls_handshake_set_post_client_hello_function(session, gnutls_post_handshake);
         gnutls_handshake_set_hook_function(session, GNUTLS_HANDSHAKE_FINISHED, GNUTLS_HOOK_POST, gnutls_callback_wrapper);
     }
 
@@ -47,7 +73,7 @@ namespace oxen::quic
             bool is_client,
             const std::vector<std::string>& alpns,
             std::optional<gnutls_key> expected_key) :
-            creds{creds}, is_client{is_client}, expected_remote_key{expected_key}
+            creds{creds}, is_client{is_client}, expected_remote_key{std::move(expected_key)}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
 
@@ -55,9 +81,12 @@ namespace oxen::quic
         log::trace(log_cat, "Creating {} GNUTLSSession", direction_string);
 
         uint32_t init_flags = is_client ? GNUTLS_CLIENT : GNUTLS_SERVER;
+
+        // DISCUSS: we actually don't want to do this if the requested certificate is expecting
+        // x509 (see gnutls_creds.cpp::cert_retrieve_callback_gnutls function body)
         if (creds.using_raw_pk)
         {
-            log::trace(log_cat, "Setting GNUTLS_ENABLE_RAWPK flag on gnutls_init");
+            log::critical(log_cat, "Setting GNUTLS_ENABLE_RAWPK flag on gnutls_init");
             init_flags |= GNUTLS_ENABLE_RAWPK;
         }
 
@@ -108,13 +137,18 @@ namespace oxen::quic
             }
         }
 
-        if (creds.using_raw_pk)
+        // server always requests cert from client
+        // NOTE: I had removed the check on creds.using_raw_pk to test the server requesting certs every time,
+        // but not requiring them
+        log::critical(
+                log_cat,
+                "[GNUTLS SESSION] Local ({}) cert type:{} \t Peer expecting cert type:{}",
+                is_client ? "CLIENT" : "SERVER",
+                get_cert_type(session, GNUTLS_CTYPE_OURS),
+                get_cert_type(session, GNUTLS_CTYPE_PEERS));
+        if (not is_client)
         {
-            // server always requests cert from client in raw public key mode
-            if (not is_client)
-            {
-                gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUIRE);
-            }
+            gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUIRE);
         }
 
         if (is_client)
@@ -177,78 +211,121 @@ namespace oxen::quic
             const gnutls_datum_t* msg) const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        auto& policy = (is_client) ? creds.client_tls_policy : creds.server_tls_policy;
+        auto& hook = (is_client) ? creds.client_tls_hook : creds.server_tls_hook;
 
-        if (policy)
+        if (hook)
         {
-            if (policy.htype == htype && policy.when == when && policy.incoming == incoming)
+            if (hook.htype == htype && hook.when == when && hook.incoming == incoming)
             {
                 log::debug(log_cat, "Calling {} tls policy cb", (is_client) ? "client" : "server");
-                return policy(session, htype, when, incoming, msg);
+                return hook(session, htype, when, incoming, msg);
             }
         }
+
+        log::trace(log_cat, "No TLS hook to call!");
         return 0;
     }
 
-    bool GNUTLSSession::validate_remote_key()
+    int GNUTLSSession::do_post_handshake(gnutls_session_t session)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        (void)session;
+        return 0;
+    }
+
+    //  In our new cert verification scheme, the logic proceeds as follows.
+    //
+    //  - Upon every connection, the server will request certificates from ALL clients
+    //  - IF: the server provides a key_verify callback
+    //      - IF: the client provides a certificate:
+    //          - If the certificate is accepted, then the connection is allowed and the
+    //            connection is marked as "validated"
+    //          - If the certificate is rejected, then the connection is refused
+    //      ELSE:
+    //          - The connection is allowed, but it is not marked as "validated"
+    //  ELSE:
+    //      - The connection is allowed, but it is not marked as "validated"
+    //
+    //  Return values:
+    //      -1: The connection is refused
+    //       0: The connection is accepted, but not marked "validated"
+    //       1: The connection is accepted and marked "validated"
+    //
+    int GNUTLSSession::validate_remote_key()
+    {
+        // This should only ever be called by the server using raw pks
+        // assert(not is_client);
+        assert(creds.using_raw_pk);
+        const auto local_name = is_client ? "CLIENT" : "SERVER";
+
         log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        gnutls_certificate_type_t cert_type;
+        log::critical(
+                log_cat,
+                "Local ({}) cert type:{} \t Peer expecting cert type:{}",
+                local_name,
+                get_cert_type(session, GNUTLS_CTYPE_OURS),
+                get_cert_type(session, GNUTLS_CTYPE_PEERS));
 
-        cert_type = gnutls_certificate_type_get2(session, GNUTLS_CTYPE_PEERS);
-        uint32_t cert_list_size = 0;
-        const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
-        if (cert_list_size == 0)
-        {
-            log::error(log_cat, "{} called, but peers cert list is empty.", __PRETTY_FUNCTION__);
-            return false;
-        }
+        auto cert_type = gnutls_certificate_type_get2(session, GNUTLS_CTYPE_PEERS);
 
         // this function is only for raw pubkey mode, and should not be called otherwise
         if (cert_type != GNUTLS_CRT_RAWPK)
         {
-            log::error(log_cat, "{} called, but remote cert type is not raw pubkey.", __PRETTY_FUNCTION__);
-            return false;
+            log::error(
+                    log_cat,
+                    "{} called, but remote cert type is not raw pubkey (type: {}).",
+                    __PRETTY_FUNCTION__,
+                    translate_cert_type(cert_type));
+            // NOTE: commenting this out for debugging purposes
+            // return -1;
         }
 
+        uint32_t cert_list_size = 0;
+        const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
+
+        // The client did not return a certificate
+        if (cert_list_size == 0)
+        {
+            log::error(log_cat, "{} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
+            return 0;
+        }
+
+        // DISCUSS: Should we reject in this case? Or select the first one of the list and proceed?
         if (cert_list_size != 1)
         {
-            log::error(log_cat, "{} called, but peers cert list has more than one entry.", __PRETTY_FUNCTION__);
-            return false;
+            log::error(
+                    log_cat, "{} called {}, but peers cert list has more than one entry.", local_name, __PRETTY_FUNCTION__);
+            return -1;
         }
 
-        auto* cert_data = cert_list[0].data;
-        auto cert_size = cert_list[0].size;
-        log::warning(
+        const auto* cert_data = cert_list[0].data + CERT_HEADER_SIZE;
+        auto cert_size = cert_list[0].size - CERT_HEADER_SIZE;
+
+        log::critical(
                 log_cat,
-                "Validating pubkey \"cert\" of len {}:\n\n{}\n\n",
+                "{} validating pubkey \"cert\" of len {}:\n\n{}\n\n",
+                local_name,
                 cert_size,
-                oxenc::to_hex(cert_data, cert_data + cert_size));
+                buffer_printer{cert_data, cert_size});
 
         // pubkey comes as 12 bytes header + 32 bytes key
-        std::copy(cert_data + 12, cert_data + 44, remote_key.data());
+        remote_key.write(cert_data, cert_size);
 
         auto alpn = selected_alpn();
 
-        if (is_client and expected_remote_key)
+        if (creds.key_verify)
         {
-            if (remote_key != *expected_remote_key)
-            {
-                log::error(log_cat, "Outbound connection received wrong public key from other end!");
-                return false;
-            }
-            log::trace(log_cat, "Outbound connection received expected public key from other end.");
-        }
-        else if ((not is_client) and creds.key_verify)
-        {
-            log::trace(log_cat, "{}: Calling key verify callback", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{}: Calling key verify callback", local_name);
+
+            // Key verify cb will return true on success, false on fail. Since this is only called if a client has
+            // provided a certificate and is only called by the server, we can assume the following returns:
+            //      true: the certificate was verified, and the connection is marked as validated
+            //      false: the certificate was not verified, and the connection is rejected
             return creds.key_verify(remote_key, alpn);
         }
 
-        log::trace(log_cat, "{} reached end, defaulting to return true", __PRETTY_FUNCTION__);
-
-        return true;
+        return 0;
     }
 
 }  // namespace oxen::quic

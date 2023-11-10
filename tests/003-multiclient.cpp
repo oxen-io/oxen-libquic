@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
 #include <thread>
+
+#include "utils.hpp"
 
 namespace oxen::quic::test
 {
@@ -55,8 +55,9 @@ namespace oxen::quic::test
             ++p_itr;
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto tls = defaults::tls_creds_from_ed_keys();
+        const auto& client_tls = tls.first;
+        const auto& server_tls = tls.second;
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_data_cb));

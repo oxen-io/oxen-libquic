@@ -26,7 +26,7 @@ namespace oxen::quic::test
                 bsize_dgram{Splitting::ACTIVE, bsize};  // bufsize = 256
         opt::local_addr default_addr{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto [_, server_tls] = defaults::tls_creds_from_ed_keys();
 
         // datagrams = false, packet_splitting = false, splitting_policy = ::NONE
         auto vanilla_ep = test_net.endpoint(default_addr);
@@ -71,8 +71,7 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -100,8 +99,7 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local, default_gram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -130,8 +128,7 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local, split_dgram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -172,8 +169,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, default_gram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -223,8 +219,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -304,8 +299,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -389,8 +383,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -481,8 +474,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
@@ -574,8 +566,7 @@ namespace oxen::quic::test
             opt::local_addr server_local{};
             opt::local_addr client_local{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));

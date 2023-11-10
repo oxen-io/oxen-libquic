@@ -2,6 +2,7 @@
 
 extern "C"
 {
+#include <gnutls/abstract.h>
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
@@ -16,9 +17,45 @@ extern "C"
 #include <variant>
 
 #include "crypto.hpp"
+#include "utils.hpp"
 
 namespace oxen::quic
 {
+    class Connection;
+
+    inline std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
+    {
+        if (crt == GNUTLS_X509_FMT_DER)
+            return "<< DER >>";
+        if (crt == GNUTLS_X509_FMT_PEM)
+            return "<< PEM >>";
+
+        return "<< UNKNOWN >>";
+    }
+
+    inline std::string translate_cert_type(gnutls_certificate_type_t type)
+    {
+        auto t = static_cast<int>(type);
+
+        switch (t)
+        {
+            case 1:
+                return "<< X509 Cert >>";
+            case 2:
+                return "<< OpenPGP Cert >>";
+            case 3:
+                return "<< Raw PK Cert >>";
+            case 0:
+            default:
+                return "<< Unknown Type >>";
+        }
+    }
+
+    inline std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
+    {
+        return translate_cert_type(gnutls_certificate_type_get2(session, type));
+    }
+
     extern "C"
     {
         int gnutls_callback_wrapper(
@@ -29,6 +66,17 @@ namespace oxen::quic
                 const gnutls_datum_t* msg);
 
         int cert_verify_callback_gnutls(gnutls_session_t g_session);
+
+        // parametrized to match gnutls_certificate_retrieve_function2
+        int cert_retrieve_callback_gnutls(
+                gnutls_session_t,
+                const gnutls_datum_t*,
+                int,
+                const gnutls_pk_algorithm_t*,
+                int,
+                gnutls_pcert_st**,
+                unsigned int*,
+                gnutls_privkey_t*);
 
         inline void gnutls_log(int level, const char* str)
         {
@@ -54,6 +102,7 @@ namespace oxen::quic
             unsigned int incoming,
             const gnutls_datum_t* msg)>;
 
+    inline constexpr size_t CERT_HEADER_SIZE = 12;
     inline constexpr size_t GNUTLS_KEY_SIZE = 32;  // for now, only supporting Ed25519 keys (32 bytes)
     inline constexpr size_t GNUTLS_SECRET_KEY_SIZE = 64;
 
@@ -62,7 +111,61 @@ namespace oxen::quic
     // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
     inline const std::string ASN_ED25519_PUBKEY_PREFIX = oxenc::from_hex("302a300506032b6570032100"sv);
 
-    using gnutls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
+    struct gnutls_key
+    {
+      private:
+        std::array<unsigned char, GNUTLS_KEY_SIZE> buf;
+
+        gnutls_key(const unsigned char* data, size_t size)
+        {
+            if (size != GNUTLS_KEY_SIZE)
+                throw std::invalid_argument{"GNUTLS key must be 32 bytes!"};
+
+            std::memcpy(buf.data(), data, size);
+        }
+
+      public:
+        gnutls_key() = default;
+        gnutls_key(std::string_view data) : gnutls_key{convert_sv<unsigned char>(data)} {}
+        gnutls_key(ustring_view data) : gnutls_key{data.data(), data.size()} {}
+
+        void write(std::string_view data) { return write(convert_sv<unsigned char>(data)); }
+
+        void write(ustring_view data) { return write(data.data(), data.size()); }
+
+        //  Writes to the internal buffer holding the gnutls key
+        //  NOTE: can likely replace with operator overload that takes string_view
+        void write(const unsigned char* data, size_t size)
+        {
+            if (size != GNUTLS_KEY_SIZE)
+                throw std::invalid_argument{"GNUTLS key must be 32 bytes!"};
+
+            std::array<unsigned char, GNUTLS_KEY_SIZE> temp;
+            std::memcpy(temp.data(), data, size);
+            buf.swap(temp);
+        }
+
+        // NOTE: testing out making these no-copy, move only
+        gnutls_key(const gnutls_key& other) = delete;
+        // { *this = other; }
+        gnutls_key& operator=(const gnutls_key& other) = delete;
+        // {
+        //     buf = other.buf;
+        //     return *this;
+        // }
+
+        gnutls_key(gnutls_key&& other) { *this = std::move(other); }
+        gnutls_key& operator=(gnutls_key&& other)
+        {
+            // NOTE: this is basically assignment now since arrays cant be moved
+            buf.swap(other.buf);
+            return *this;
+        }
+
+        explicit operator bool() const { return not buf.empty(); }
+
+        bool operator==(const gnutls_key& other) const { return buf == other.buf; }
+    };
 
     // arguments: remote pubkey, ALPN
     using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, const std::string_view& alpn)>;
@@ -73,22 +176,22 @@ namespace oxen::quic
 
     struct gnutls_callback_wrapper
     {
-        gnutls_callback f = nullptr;
+        gnutls_callback cb = nullptr;
         unsigned int htype = 20;
         unsigned int when = 1;
         unsigned int incoming = 0;
 
         bool applies(unsigned int h, unsigned int w, unsigned int i) const
         {
-            return f && htype == h && when == w && incoming == i;
+            return cb && htype == h && when == w && incoming == i;
         }
 
-        operator bool() const { return f != nullptr; }
+        operator bool() const { return cb != nullptr; }
 
         template <typename... Args>
         auto operator()(Args&&... args) const
         {
-            return f(std::forward<Args>(args)...);
+            return cb(std::forward<Args>(args)...);
         }
     };
 
@@ -154,7 +257,7 @@ namespace oxen::quic
         {
             source = std::move(other.source);
             update_datum();
-            format = other.format;
+            format = std::move(other.format);
             return *this;
         }
 
@@ -180,6 +283,8 @@ namespace oxen::quic
         {
             return &mem;
         }
+
+        // operator const gnutls_datum_t*() const { return &mem; }
 
 #ifdef _WIN32
       private:
@@ -222,25 +327,31 @@ namespace oxen::quic
         // Construct from raw Ed25519 keys
         GNUTLSCreds(std::string ed_seed, std::string ed_pubkey);
 
+      protected:
       public:
+        gnutls_pcert_st pcrt;
+        gnutls_privkey_t pkey;
+
         ~GNUTLSCreds();
 
         const bool using_raw_pk{false};
 
         gnutls_certificate_credentials_t cred;
 
-        struct gnutls_callback_wrapper client_tls_policy
+        struct gnutls_callback_wrapper client_tls_hook
         {};
-        struct gnutls_callback_wrapper server_tls_policy
+        struct gnutls_callback_wrapper server_tls_hook
         {};
 
         gnutls_key_verify_callback key_verify{};
 
         gnutls_priority_t priority_cache;
 
-        void set_client_tls_policy(
+        void load_keys(x509_loader& seed, x509_loader& pk);
+
+        void set_client_tls_hook(
                 gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
-        void set_server_tls_policy(
+        void set_server_tls_hook(
                 gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
         void set_key_verify_callback(gnutls_key_verify_callback cb) { key_verify = std::move(cb); }
@@ -249,6 +360,7 @@ namespace oxen::quic
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
         static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey);
+
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string sk);
 
         std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) override;
@@ -256,10 +368,12 @@ namespace oxen::quic
 
     class GNUTLSSession : public TLSSession
     {
+      public:
+        const GNUTLSCreds& creds;
+
       private:
         gnutls_session_t session;
 
-        const GNUTLSCreds& creds;
         bool is_client;
 
         std::optional<gnutls_key> expected_remote_key;
@@ -287,9 +401,12 @@ namespace oxen::quic
                 unsigned int incoming,
                 const gnutls_datum_t* msg) const;
 
-        bool validate_remote_key();
+        int do_post_handshake(gnutls_session_t session);
+
+        int validate_remote_key();
     };
 
     GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session);
+    Connection* get_connection_from_gnutls(gnutls_session_t g_session);
 
 }  // namespace oxen::quic

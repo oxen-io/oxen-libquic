@@ -116,6 +116,7 @@ namespace oxen::quic
         virtual const ConnectionID& scid() const = 0;
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
+        virtual bool is_validated() const = 0;
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -208,6 +209,11 @@ namespace oxen::quic
 
         void close_connection(uint64_t error_code = 0) override;
 
+        // This mutator is called from the gnutls code after cert verification (if it is successful)
+        void set_validated() { _is_validated = true; }
+
+        bool is_validated() const override { return _is_validated; }
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -231,6 +237,7 @@ namespace oxen::quic
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         std::atomic<bool> _congested{false};
+        bool _is_validated{false};
 
         struct connection_deleter
         {
@@ -289,7 +296,13 @@ namespace oxen::quic
 
         dgram_interface di;
 
+        std::shared_ptr<void> user_data;
+
       public:
+        void set_user_data(void* data);
+
+        std::shared_ptr<void> get_user_data() { return user_data; }
+
         // public to be called by endpoint handing this connection a packet
         void handle_conn_packet(const Packet& pkt);
         // these are public so ngtcp2 can access them from callbacks

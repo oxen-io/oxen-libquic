@@ -52,7 +52,9 @@ namespace oxen::quic
     using namespace std::literals;
     using namespace oxen::log::literals;
     using bstring = std::basic_string<std::byte>;
+    using ustring = std::basic_string<unsigned char>;
     using bstring_view = std::basic_string_view<std::byte>;
+    using ustring_view = std::basic_string_view<unsigned char>;
     using stream_buffer = std::deque<std::pair<bstring_view, std::shared_ptr<void>>>;
     namespace log = oxen::log;
 

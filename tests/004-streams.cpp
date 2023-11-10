@@ -20,8 +20,7 @@ namespace oxen::quic::test
         opt::local_addr server_local{};
         opt::local_addr client_local{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams));
@@ -52,8 +51,7 @@ namespace oxen::quic::test
             data_promise.set_value(true);
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
@@ -91,8 +89,7 @@ namespace oxen::quic::test
             data_promise.set_value(true);
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_config, server_data_cb));
@@ -168,8 +165,7 @@ namespace oxen::quic::test
             }
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, max_streams, server_data_cb));
@@ -282,8 +278,7 @@ namespace oxen::quic::test
             s.send(msg);
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};
@@ -328,8 +323,7 @@ namespace oxen::quic::test
             return std::make_shared<ClientStream>(c, e, std::move(server_promise));
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};
@@ -432,8 +426,7 @@ namespace oxen::quic::test
                 server_c = ci.queue_stream<CustomStreamC>(std::move(sp3));
             }};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
@@ -492,8 +485,7 @@ namespace oxen::quic::test
                 return std::make_shared<Stream>(c, e);
             };
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};

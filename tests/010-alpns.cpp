@@ -13,8 +13,7 @@ namespace oxen::quic::test
 
     TEST_CASE("010 - ALPNs", "[010][alpns][execute]")
     {
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};

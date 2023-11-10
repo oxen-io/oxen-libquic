@@ -159,7 +159,7 @@ int main(int argc, char* argv[])
     opt::remote_addr server_addr{server_a, server_p};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
-    client_tls->set_client_tls_policy(outbound_tls_cb);
+    client_tls->set_client_tls_hook(outbound_tls_cb);
 
     log::critical(test_cat, "Calling 'client_connect'...");
     auto client = client_net.endpoint(client_local, recv_dgram_cb, split_dgram);

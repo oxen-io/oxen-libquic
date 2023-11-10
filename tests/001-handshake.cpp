@@ -108,13 +108,12 @@ namespace oxen::quic::test
             test_net.set_shutdown_immediate();
 
             opt::local_addr default_addr{}, local_addr{};
-            auto local_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+
+            auto [local_tls, _] = defaults::tls_creds_from_ed_keys();
 
             auto ep_notls = test_net.endpoint(default_addr);
             auto ep_tls = test_net.endpoint(local_addr);
 
-            // ep_notls->listen();  // Shouldn't compile if uncommented!
-            // ep_notls->listen(local_tls, local_tls);  // Nor this
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
         };
 
@@ -122,7 +121,7 @@ namespace oxen::quic::test
         {
             Network test_net{};
             opt::local_addr default_addr{};
-            auto local_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+            auto [local_tls, _] = defaults::tls_creds_from_ed_keys();
 
             auto ep = test_net.endpoint(default_addr);
 
@@ -134,8 +133,8 @@ namespace oxen::quic::test
         {
             Network test_net{};
             test_net.set_shutdown_immediate();
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
@@ -152,8 +151,8 @@ namespace oxen::quic::test
         SECTION("Endpoint::connect() - Graceful network shutdown")
         {
             Network test_net{};
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
@@ -182,8 +181,7 @@ namespace oxen::quic::test
 
             Network test_net{};
 
-            auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-            auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
             opt::local_addr server_local{};
             opt::local_addr client_local{};
@@ -209,8 +207,7 @@ namespace oxen::quic::test
 
         Network test_net{};
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         opt::local_addr server_local{};
         opt::local_addr client_local{};

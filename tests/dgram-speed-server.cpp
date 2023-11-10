@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
                 return 0;
             };
 
-    server_tls->set_server_tls_policy(outbound_tls_cb);
+    server_tls->set_server_tls_hook(outbound_tls_cb);
 
     dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring_view data) {
         if (dgram_data.n_expected == 0)
