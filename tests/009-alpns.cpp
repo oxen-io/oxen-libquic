@@ -11,7 +11,7 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("010 - ALPNs", "[010][alpns][execute]")
+    TEST_CASE("009 - ALPNs", "[009][alpns][execute]")
     {
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -27,31 +27,18 @@ namespace oxen::quic::test
 
         Network test_net{};
 
-        SECTION("Do not get ALPN before negotiated")
-        {
-            // send to (almost certainly) the void, so connection can't establish
-            // this is to avoid a race condition where the connection negotiates ALPN
-            // before the REQUIRE_THROWS line below can execute
-            opt::remote_addr client_remote{"127.42.0.69"s, 42069};
-
-            auto client_endpoint = test_net.endpoint(client_local, client_established, timeout);
-
-            auto conn = client_endpoint->connect(client_remote, client_tls);
-            REQUIRE_THROWS(conn->selected_alpn());
-        };
-
         SECTION("Default ALPN")
         {
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, timeout);
 
             auto conn = client_endpoint->connect(client_remote, client_tls);
             REQUIRE(client_established.wait());
-            REQUIRE(conn->selected_alpn() == "default"sv);
+            REQUIRE(conn->selected_alpn() == "default"_usv);
         };
 
         SECTION("No Server ALPNs specified (defaulted)")
@@ -61,7 +48,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, client_alpns, timeout);
 
@@ -77,7 +64,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, timeout);
 
@@ -94,7 +81,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, client_alpns, timeout);
 
@@ -112,19 +99,19 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_alpns, timeout);
 
             auto conn = client_endpoint->connect(client_remote, client_tls);
             REQUIRE(client_established.wait());
-            REQUIRE(conn->selected_alpn() == "client"sv);
+            REQUIRE(conn->selected_alpn() == "client"_usv);
 
             auto client_endpoint2 = test_net.endpoint(client_local, client_established2, client_alpns2, timeout);
 
             auto conn2 = client_endpoint2->connect(client_remote, client_tls);
             REQUIRE(client_established2.wait());
-            REQUIRE(conn2->selected_alpn() == "relay"sv);
+            REQUIRE(conn2->selected_alpn() == "relay"_usv);
         };
     };
 

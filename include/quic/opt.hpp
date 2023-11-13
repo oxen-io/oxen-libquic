@@ -13,9 +13,9 @@ namespace oxen::quic::opt
         using Address::Address;
     };
 
-    struct remote_addr : public Address
+    struct remote_addr : public RemoteAddress
     {
-        using Address::Address;
+        using RemoteAddress::RemoteAddress;
     };
 
     struct max_streams

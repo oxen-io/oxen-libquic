@@ -149,7 +149,12 @@ namespace oxen::quic
     // Error code we send to a stream close callback if the stream's connection expires
     inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
-    // bstring_view literals baby
+    // strang literals
+    inline std::basic_string_view<unsigned char> operator""_usv(const char* __str, size_t __len) noexcept
+    {
+        return std::basic_string_view<unsigned char>(reinterpret_cast<const unsigned char*>(__str), __len);
+    }
+
     inline std::basic_string_view<std::byte> operator""_bsv(const char* __str, size_t __len) noexcept
     {
         return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
@@ -203,6 +208,11 @@ namespace oxen::quic
         }
     };
     using event_ptr = std::unique_ptr<::event, event_deleter>;
+
+    inline ustring_view to_usv(std::string_view sv)
+    {
+        return {reinterpret_cast<const unsigned char*>(sv.data()), sv.size()};
+    }
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type

@@ -73,9 +73,12 @@ namespace oxen::quic
             bool is_client,
             const std::vector<std::string>& alpns,
             std::optional<gnutls_key> expected_key) :
-            creds{creds}, is_client{is_client}, expected_remote_key{std::move(expected_key)}
+            creds{creds}, is_client{is_client}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+
+        if (expected_key)
+            expected_remote_key = *expected_key;
 
         auto direction_string = (is_client) ? "Client"s : "Server"s;
         log::trace(log_cat, "Creating {} GNUTLSSession", direction_string);
@@ -191,16 +194,17 @@ namespace oxen::quic
         set_tls_hook_functions();
     }
 
-    std::string_view GNUTLSSession::selected_alpn()
+    ustring_view GNUTLSSession::selected_alpn()
     {
         gnutls_datum_t proto;
+
         if (auto rv = gnutls_alpn_get_selected_protocol(session, &proto); rv < 0)
         {
             auto err = fmt::format("{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
             throw std::logic_error(err);
         }
 
-        return proto.size ? std::string_view{(const char*)proto.data, proto.size} : ""sv;
+        return proto.size ? ustring_view{proto.data, proto.size} : ""_usv;
     }
 
     int GNUTLSSession::do_tls_callback(
@@ -304,7 +308,7 @@ namespace oxen::quic
 
         log::critical(
                 log_cat,
-                "{} validating pubkey \"cert\" of len {}:\n\n{}\n\n",
+                "{} validating pubkey \"cert\" of len {}B:\n{}\n",
                 local_name,
                 cert_size,
                 buffer_printer{cert_data, cert_size});
@@ -312,20 +316,35 @@ namespace oxen::quic
         // pubkey comes as 12 bytes header + 32 bytes key
         remote_key.write(cert_data, cert_size);
 
-        auto alpn = selected_alpn();
+        if (is_client)
+        {  // Client does validation through a remote pubkey provided when calling endpoint::connect
+            if (remote_key == expected_remote_key)
+            {
+                log::critical(log_cat, "Client successfully validated remote key!");
+                return 1;
+            }
 
-        if (creds.key_verify)
-        {
-            log::trace(log_cat, "{}: Calling key verify callback", local_name);
-
-            // Key verify cb will return true on success, false on fail. Since this is only called if a client has
-            // provided a certificate and is only called by the server, we can assume the following returns:
-            //      true: the certificate was verified, and the connection is marked as validated
-            //      false: the certificate was not verified, and the connection is rejected
-            return creds.key_verify(remote_key, alpn);
+            log::critical(log_cat, "Client could not validate remote key! Rejecting connection");
+            return -1;
         }
+        else
+        {  // Server does validation through callback
+            auto alpn = selected_alpn();
 
-        return 0;
+            if (creds.key_verify)
+            {
+                log::critical(log_cat, "{}: Calling key verify callback", local_name);
+
+                // Key verify cb will return true on success, false on fail. Since this is only called if a client has
+                // provided a certificate and is only called by the server, we can assume the following returns:
+                //      true: the certificate was verified, and the connection is marked as validated
+                //      false: the certificate was not verified, and the connection is rejected
+                return creds.key_verify(remote_key.view(), alpn);
+            }
+
+            log::critical(log_cat, "Server did not provide key verify callback! Allowing connection");
+            return 0;
+        }
     }
 
 }  // namespace oxen::quic

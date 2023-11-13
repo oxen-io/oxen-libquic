@@ -76,7 +76,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -104,7 +104,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, default_gram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, default_gram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -133,7 +133,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, split_dgram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, split_dgram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -174,7 +174,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, default_gram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, default_gram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -224,7 +224,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -304,7 +304,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -388,7 +388,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -479,7 +479,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -571,7 +571,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);

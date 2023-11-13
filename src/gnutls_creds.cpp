@@ -69,22 +69,27 @@ namespace oxen::quic
             log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
             auto* conn = get_connection_from_gnutls(session);
 
-            // Clients do not verify! We should NOT be here
-            // assert(conn->is_inbound());
-
             GNUTLSSession* tls_session = dynamic_cast<GNUTLSSession*>(conn->get_session());
             assert(tls_session);
 
-            //  1: Client provided a valid cert, connection accepted and marked validated
-            //  0: Client did not provide a cert, connection accepted but not marked validated
-            //  -1: Client provided an invalid cert, connection rejected
+            auto local_name = (conn->is_outbound()) ? "CLIENT" : "SERVER";
+
+            //  1: Peer provided a valid cert, connection accepted and marked validated
+            //  0: Peer did not provide a cert, connection accepted but not marked validated
+            //  -1: Peer provided an invalid cert, connection rejected
             auto rv = tls_session->validate_remote_key();
 
             if (rv < 0)
+            {
+                log::critical(log_cat, "{} was unable to validate peer certificate: rejecting connection!", local_name);
                 return -1;
+            }
 
             if (rv > 0)
+            {
+                log::critical(log_cat, "{} was able to validate peer certificate!", local_name);
                 conn->set_validated();
+            }
 
             return 0;
         }
@@ -179,9 +184,6 @@ namespace oxen::quic
                                                       GNUTLS_KEY_KEY_AGREEMENT | GNUTLS_KEY_KEY_CERT_SIGN;
 
         if (auto rv = gnutls_certificate_set_key(cred, NULL, 0, &pcrt, 1, pkey); rv < 0)
-        // if (auto rv = gnutls_certificate_set_rawpk_key_mem(
-        //             cred, pubkey, seed, seed.format, nullptr, usage_flags, nullptr, 0, 0);
-        //     rv < 0)
         {
             log::warning(log_cat, "gnutls import of raw Ed keys failed: {}", gnutls_strerror(rv));
             throw std::runtime_error("gnutls import of raw Ed keys failed");

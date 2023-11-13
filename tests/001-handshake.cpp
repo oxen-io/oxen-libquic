@@ -13,8 +13,9 @@ namespace oxen::quic::test
     {
         SECTION("TLS Credentials")
         {
-            REQUIRE_NOTHROW(GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s));
-            REQUIRE_THROWS(GNUTLSCreds::make(""s, ""s, ""s));
+            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+            REQUIRE_NOTHROW(GNUTLSCreds::make_from_ed_keys(defaults::CLIENT_SEED, defaults::CLIENT_PUBKEY));
+            REQUIRE_THROWS(GNUTLSCreds::make_from_ed_keys(""s, ""s));
         };
 
         SECTION("Address objects")
@@ -116,57 +117,106 @@ namespace oxen::quic::test
 
             REQUIRE_NOTHROW(ep_tls->listen(local_tls));
         };
+    };
 
-        SECTION("Endpoint::listen() + Endpoint::Connect() - Default addressing")
+    TEST_CASE("001 - Handshaking: Client Validation", "[001][client]")
+    {
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[](connection_interface&) {}};
+
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        REQUIRE(server_endpoint->listen(server_tls));
+
+        SECTION("Endpoint::listen() + Endpoint::Connect() - Incorrect pubkey in remote")
         {
-            Network test_net{};
-            opt::local_addr default_addr{};
-            auto [local_tls, _] = defaults::tls_creds_from_ed_keys();
+            uint64_t client_error{0};
 
-            auto ep = test_net.endpoint(default_addr);
+            auto client_closed = callback_waiter{[&client_error](connection_interface&, uint64_t) { client_error = 1000; }};
+            opt::remote_addr client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
-            REQUIRE_NOTHROW(ep->listen(local_tls));
-            REQUIRE_THROWS(ep->connect(default_addr, local_tls));
+            auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+            REQUIRE(not client_established.wait());
+            REQUIRE(client_error == 1000);
+        };
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+
+        SECTION("Endpoint::listen() + Endpoint::Connect() - No pubkey in remote")
+        {
+            // If uncommented, this line will not compile! Remote addresses must pass a remote pubkey to be
+            // verified upon the client successfully establishing connection with a remote.
+
+            // opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            REQUIRE(true);
+        };
+
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        SECTION("Endpoint::listen() + Endpoint::Connect() - Correct pubkey in remote")
+        {
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+            // This will return false until the connection has had time to establish and validate
+            REQUIRE_FALSE(client_ci->is_validated());
+            REQUIRE(client_established.wait());
+            REQUIRE(server_established.wait());
+            REQUIRE(client_ci->is_validated());
+        };
+
+        SECTION("Endpoint::connect() - No TLS passed")
+        {
+            REQUIRE_THROWS(client_endpoint->connect(client_remote));
         };
 
         SECTION("Endpoint::connect() - Immediate network shutdown")
         {
-            Network test_net{};
             test_net.set_shutdown_immediate();
 
-            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
-
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
-
-            auto server_endpoint = test_net.endpoint(server_local);
-            REQUIRE(server_endpoint->listen(server_tls));
-
-            opt::local_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
-
-            auto client_endpoint = test_net.endpoint(client_local);
             REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
         };
+    };
 
-        SECTION("Endpoint::connect() - Graceful network shutdown")
-        {
-            Network test_net{};
+    TEST_CASE("001 - Handshaking: Server Validation", "[001][server]")
+    {
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[](connection_interface&) {}};
 
-            auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+        Network test_net{};
 
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-            auto server_endpoint = test_net.endpoint(server_local);
-            REQUIRE(server_endpoint->listen(server_tls));
+        server_tls->set_key_verify_callback([](const ustring_view& key, const ustring_view&) {
+            auto rv = key == convert_sv<unsigned char>(std::string_view{defaults::CLIENT_PUBKEY});
+            REQUIRE(rv);
+            return rv;
+        });
 
-            opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
 
-            auto client_endpoint = test_net.endpoint(client_local);
-            // no client TLS passed
-            REQUIRE_THROWS(client_endpoint->connect(client_remote));
-            REQUIRE_NOTHROW(client_endpoint->connect(client_remote, client_tls));
-        };
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        REQUIRE(server_endpoint->listen(server_tls));
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
+
+        auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+        REQUIRE(client_ci->is_validated());
+        REQUIRE(server_ci->is_validated());
     };
 
     TEST_CASE("001 - Handshaking: Types - IPv6", "[001][ipv6]")
@@ -189,7 +239,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{"::1"s, server_endpoint->local().port()};
+            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "::1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established);
 
@@ -215,12 +265,13 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         REQUIRE(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
-        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
         REQUIRE(client_established.wait());
         REQUIRE(server_established.wait());
+        REQUIRE(client_ci->is_validated());
     };
 }  // namespace oxen::quic::test

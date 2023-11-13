@@ -114,9 +114,17 @@ namespace oxen::quic
     struct gnutls_key
     {
       private:
-        std::array<unsigned char, GNUTLS_KEY_SIZE> buf;
+        std::array<unsigned char, GNUTLS_KEY_SIZE> buf{};
 
-        gnutls_key(const unsigned char* data, size_t size)
+        gnutls_key(const unsigned char* data, size_t size) { write(data, size); }
+
+      public:
+        gnutls_key() = default;
+        gnutls_key(std::string_view data) : gnutls_key{convert_sv<unsigned char>(data)} {}
+        gnutls_key(ustring_view data) : gnutls_key{data.data(), data.size()} {}
+
+        //  Writes to the internal buffer holding the gnutls key
+        void write(const unsigned char* data, size_t size)
         {
             if (size != GNUTLS_KEY_SIZE)
                 throw std::invalid_argument{"GNUTLS key must be 32 bytes!"};
@@ -124,51 +132,25 @@ namespace oxen::quic
             std::memcpy(buf.data(), data, size);
         }
 
-      public:
-        gnutls_key() = default;
-        gnutls_key(std::string_view data) : gnutls_key{convert_sv<unsigned char>(data)} {}
-        gnutls_key(ustring_view data) : gnutls_key{data.data(), data.size()} {}
+        ustring_view view() const { return {buf.data(), buf.size()}; }
 
-        void write(std::string_view data) { return write(convert_sv<unsigned char>(data)); }
+        gnutls_key(const gnutls_key& other) { *this = other; }
 
-        void write(ustring_view data) { return write(data.data(), data.size()); }
-
-        //  Writes to the internal buffer holding the gnutls key
-        //  NOTE: can likely replace with operator overload that takes string_view
-        void write(const unsigned char* data, size_t size)
+        gnutls_key& operator=(const gnutls_key& other)
         {
-            if (size != GNUTLS_KEY_SIZE)
-                throw std::invalid_argument{"GNUTLS key must be 32 bytes!"};
-
-            std::array<unsigned char, GNUTLS_KEY_SIZE> temp;
-            std::memcpy(temp.data(), data, size);
-            buf.swap(temp);
-        }
-
-        // NOTE: testing out making these no-copy, move only
-        gnutls_key(const gnutls_key& other) = delete;
-        // { *this = other; }
-        gnutls_key& operator=(const gnutls_key& other) = delete;
-        // {
-        //     buf = other.buf;
-        //     return *this;
-        // }
-
-        gnutls_key(gnutls_key&& other) { *this = std::move(other); }
-        gnutls_key& operator=(gnutls_key&& other)
-        {
-            // NOTE: this is basically assignment now since arrays cant be moved
-            buf.swap(other.buf);
+            buf = other.buf;
             return *this;
         }
+
+        void operator()(ustring_view data) { write(data.data(), data.size()); }
 
         explicit operator bool() const { return not buf.empty(); }
 
         bool operator==(const gnutls_key& other) const { return buf == other.buf; }
     };
 
-    // arguments: remote pubkey, ALPN
-    using gnutls_key_verify_callback = std::function<bool(const gnutls_key&, const std::string_view& alpn)>;
+    // key: remote key to verify, alpn: negotiated alpn's
+    using key_verify_callback = std::function<bool(const ustring_view& key, const ustring_view& alpn)>;
 
     inline const gnutls_datum_t gnutls_default_alpn{
             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(default_alpn_str.data())),
@@ -343,7 +325,7 @@ namespace oxen::quic
         struct gnutls_callback_wrapper server_tls_hook
         {};
 
-        gnutls_key_verify_callback key_verify{};
+        key_verify_callback key_verify;
 
         gnutls_priority_t priority_cache;
 
@@ -354,7 +336,7 @@ namespace oxen::quic
         void set_server_tls_hook(
                 gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
-        void set_key_verify_callback(gnutls_key_verify_callback cb) { key_verify = std::move(cb); }
+        void set_key_verify_callback(key_verify_callback cb) { key_verify = std::move(cb); }
 
         static std::shared_ptr<GNUTLSCreds> make(
                 std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
@@ -376,9 +358,9 @@ namespace oxen::quic
 
         bool is_client;
 
-        std::optional<gnutls_key> expected_remote_key;
+        gnutls_key expected_remote_key{};
 
-        gnutls_key remote_key;
+        gnutls_key remote_key{};
 
         void set_tls_hook_functions();  // TODO: which and when?
       public:
@@ -392,7 +374,7 @@ namespace oxen::quic
 
         void* get_session() override { return session; };
 
-        std::string_view selected_alpn() override;
+        ustring_view selected_alpn() override;
 
         int do_tls_callback(
                 gnutls_session_t session,
@@ -404,6 +386,8 @@ namespace oxen::quic
         int do_post_handshake(gnutls_session_t session);
 
         int validate_remote_key();
+
+        void set_expected_remote_key(ustring key) override { expected_remote_key(key); }
     };
 
     GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session);

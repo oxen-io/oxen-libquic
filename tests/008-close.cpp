@@ -1,6 +1,4 @@
 #include <catch2/catch_test_macros.hpp>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
 #include <thread>
 
 #include "utils.hpp"
@@ -9,7 +7,7 @@ namespace oxen::quic::test
 {
     using namespace std::literals;
 
-    TEST_CASE("009 - Close", "[009][close][callbacks]")
+    TEST_CASE("008 - Close", "[008][close][callbacks]")
     {
         uint64_t client_error{0};
         uint64_t server_error{0};
@@ -29,7 +27,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established, server_closed);
         REQUIRE(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);

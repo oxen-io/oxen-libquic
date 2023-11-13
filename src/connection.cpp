@@ -1043,7 +1043,7 @@ namespace oxen::quic
         return 0;
     }
 
-    std::string_view Connection::selected_alpn() const
+    ustring_view Connection::selected_alpn() const
     {
         return _endpoint.call_get([this]() { return get_session()->selected_alpn(); });
     }
@@ -1193,6 +1193,7 @@ namespace oxen::quic
             std::shared_ptr<IOContext> ctx,
             const std::vector<std::string>& alpns,
             std::chrono::nanoseconds handshake_timeout,
+            std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr) :
             _endpoint{ep},
             context{std::move(ctx)},
@@ -1267,6 +1268,25 @@ namespace oxen::quic
         }
 
         tls_session = tls_creds->make_session(is_outbound, alpns);
+
+        if (remote_pk)
+        {
+            // Clients should be the ones providing a remote pubkey here. This way we can emplace it into
+            // the gnutlssession object to be verified. Servers should be verifying via callback
+            assert(is_outbound);
+            tls_session->set_expected_remote_key(*remote_pk);
+            // if (auto gtls = dynamic_cast<GNUTLSSession*>(tls_session.get()))
+            // {
+
+            // }
+            // else
+            // {
+            //     throw std::logic_error("Internal error: not a GNUTLSSession~");
+            // }
+            // GNUTLSSession* gtls = dynamic_cast<GNUTLSSession*>(tls_session.get());
+            // gtls->set_expected_remote_key(*remote_pk);
+        }
+
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
@@ -1290,11 +1310,12 @@ namespace oxen::quic
             std::shared_ptr<IOContext> ctx,
             const std::vector<std::string>& alpns,
             std::chrono::nanoseconds handshake_timeout,
+            std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{
-                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, hdr}};
+                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, remote_pk, hdr}};
 
         conn->packet_io_ready();
 

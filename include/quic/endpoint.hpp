@@ -106,7 +106,7 @@ namespace oxen::quic
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
-        std::shared_ptr<connection_interface> connect(Address remote, Opt&&... opts)
+        std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
         {
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
@@ -119,7 +119,7 @@ namespace oxen::quic
 
             Path _path = Path{_local, remote};
 
-            net.call([&opts..., &p, path = _path, this]() mutable {
+            net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote.get_remote_key())]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
@@ -137,7 +137,8 @@ namespace oxen::quic
                                     std::move(path),
                                     outbound_ctx,
                                     outbound_alpns,
-                                    handshake_timeout);
+                                    handshake_timeout,
+                                    remote_pk);
 
                             p.set_value(itr->second);
                             return;

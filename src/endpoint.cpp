@@ -388,7 +388,15 @@ namespace oxen::quic
             if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
                 itr->second = Connection::make_conn(
-                        *this, itr->first, hdr.scid, pkt.path, inbound_ctx, inbound_alpns, handshake_timeout, &hdr);
+                        *this,
+                        itr->first,
+                        hdr.scid,
+                        pkt.path,
+                        inbound_ctx,
+                        inbound_alpns,
+                        handshake_timeout,
+                        std::nullopt,
+                        &hdr);
                 return itr->second.get();
             }
         }

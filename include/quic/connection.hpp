@@ -62,7 +62,7 @@ namespace oxen::quic
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
 
       public:
-        virtual std::string_view selected_alpn() const = 0;
+        virtual ustring_view selected_alpn() const = 0;
 
         bool established{false};
 
@@ -159,6 +159,7 @@ namespace oxen::quic
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<std::string>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
+                std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         void packet_io_ready();
@@ -193,7 +194,7 @@ namespace oxen::quic
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
-        std::string_view selected_alpn() const override;
+        ustring_view selected_alpn() const override;
 
         int get_streams_available() const override;
         size_t get_max_datagram_size() const override;
@@ -225,6 +226,7 @@ namespace oxen::quic
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<std::string>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
+                std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         Endpoint& _endpoint;

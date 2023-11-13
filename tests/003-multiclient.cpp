@@ -19,7 +19,9 @@ namespace oxen::quic::test
 
             auto client_a = test_net.endpoint(default_addr);
 
-            REQUIRE_THROWS(client_b = test_net.endpoint(opt::remote_addr{"127.0.0.1"s, client_a->local().port()}));
+            REQUIRE_THROWS(
+                    client_b = test_net.endpoint(
+                            opt::remote_addr{defaults::SERVER_PUBKEY, "127.0.0.1"s, client_a->local().port()}));
 
             auto client_c = test_net.endpoint(default_addr);
 
@@ -62,7 +64,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
             log::debug(log_cat, "Async thread A called");
