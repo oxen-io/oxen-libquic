@@ -333,7 +333,7 @@ namespace oxen::quic::test
                 good_msg += v++;
 
             for (int i = 0; i < n; ++i)
-                conn_interface->send_datagram(std::basic_string_view<uint8_t>{good_msg});
+                conn_interface->send_datagram(good_msg);
 
             for (auto& f : data_futures)
                 REQUIRE(f.get());
@@ -638,4 +638,83 @@ namespace oxen::quic::test
         };
 #endif
     };
+
+    TEST_CASE("007 - Datagram support: packet post-receive triggers", "[007][datagrams][packet-post-receive]")
+    {
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+
+        Network test_net{};
+
+        std::basic_string<std::byte> big_msg{};
+
+        for (int v = 0; big_msg.size() < 1000; v++)
+            big_msg += static_cast<std::byte>(v % 256);
+
+        std::atomic<int> recv_counter{0};
+        std::atomic<int> data_counter{0};
+
+        std::promise<void> got_first, acked_first;
+        std::promise<int> got_all_n_recvs;
+
+        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring value) {
+            auto count = ++data_counter;
+            CHECK(value == big_msg);
+            if (count == 1)
+            {
+                // We get one datagram, then stall the quic thread so that the test can fire
+                // multiple packets that we should then receive in one go.
+                got_first.set_value();
+                REQUIRE(acked_first.get_future().wait_for(1s) == std::future_status::ready);
+            }
+            else if (count == 31)
+            {
+                got_all_n_recvs.set_value(recv_counter);
+            }
+        };
+
+        auto recv_notifier = [&] { recv_counter++; };
+
+        opt::local_addr server_local{};
+        opt::local_addr client_local{};
+
+        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
+        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+
+        auto server_endpoint = test_net.endpoint(server_local, recv_dgram_cb, recv_notifier, opt::enable_datagrams{});
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client = test_net.endpoint(client_local, client_established, opt::enable_datagrams{});
+        auto conn = client->connect(client_remote, client_tls);
+
+        REQUIRE(client_established.wait());
+
+        // Start off with *one* datagram; the first one the server receives will stall the
+        // server until we signal it via the acked_first promise, during which we'll send a
+        // bunch more that ought to be processed in a single batch.
+        conn->send_datagram(big_msg);
+
+        REQUIRE(got_first.get_future().wait_for(1s) == std::future_status::ready);
+
+        int batches_before_flood = recv_counter;
+
+        for (int i = 0; i < 30; i++)
+            conn->send_datagram(big_msg);
+
+        acked_first.set_value();
+
+        auto f = got_all_n_recvs.get_future();
+        REQUIRE(f.wait_for(1s) == std::future_status::ready);
+        auto recv_counter_before_final = f.get();
+        REQUIRE(data_counter == 31);
+        REQUIRE(recv_counter_before_final > batches_before_flood);
+        // There should be a recv callback fired *immediately* after the data callback that
+        // fulfilled the above proimise, so a miniscule wait here should guarantee that it has been
+        // set.
+        std::this_thread::sleep_for(1ms);
+        auto final_recv_counter = recv_counter.load();
+        REQUIRE(final_recv_counter > recv_counter_before_final);
+    };
+
 }  // namespace oxen::quic::test

@@ -56,6 +56,12 @@ namespace oxen::quic
         dgram_recv_cb = std::move(func);
     }
 
+    void Endpoint::handle_ep_opt(post_receive_callback func)
+    {
+        log::trace(log_cat, "Endpoint given post-receive callback");
+        _post_receive = std::move(func);
+    }
+
     void Endpoint::handle_ep_opt(connection_established_callback conn_established_cb)
     {
         log::trace(log_cat, "Endpoint given connection established callback");
@@ -71,8 +77,14 @@ namespace oxen::quic
     void Endpoint::_init_internals()
     {
         log::debug(log_cat, "Starting new UDP socket on {}", _local);
-        socket =
-                std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
+        socket = std::make_unique<UDPSocket>(
+                get_loop().get(),
+                _local,
+                [this](const auto& packet) { handle_packet(packet); },
+                [this] {
+                    if (_post_receive)
+                        _post_receive();
+                });
 
         _local = socket->address();
 

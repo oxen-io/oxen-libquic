@@ -274,6 +274,7 @@ namespace oxen::quic
         if (is_draining())
         {
             log::debug(log_cat, "Note: connection is already draining; dropping");
+            return;
         }
 
         if (read_packet(pkt).success())

@@ -85,8 +85,9 @@ namespace oxen::quic
     }
 #endif
 
-    UDPSocket::UDPSocket(event_base* ev_loop, const Address& addr, receive_callback_t on_receive) :
-            ev_{ev_loop}, receive_callback_{std::move(on_receive)}
+    UDPSocket::UDPSocket(
+            event_base* ev_loop, const Address& addr, receive_callback_t on_receive, post_receive_callback_t post_receive) :
+            ev_{ev_loop}, receive_callback_{std::move(on_receive)}, post_receive_{std::move(post_receive)}
     {
         assert(ev_);
 
@@ -125,7 +126,16 @@ namespace oxen::quic
                 ev_,
                 sock_,
                 EV_READ | EV_PERSIST,
-                [](evutil_socket_t, short, void* self) { static_cast<UDPSocket*>(self)->receive(); },
+                [](evutil_socket_t, short, void* self_) {
+                    auto& self = *static_cast<UDPSocket*>(self_);
+                    self.receive();
+                    if (self.have_received_)
+                    {
+                        self.have_received_ = false;
+                        if (self.post_receive_)
+                            self.post_receive_();
+                    }
+                },
                 this));
         event_add(rev_.get(), nullptr);
 
@@ -190,6 +200,7 @@ namespace oxen::quic
             return;
         }
 
+        have_received_ = true;
         receive_callback_(Packet{bound_, payload, hdr});
     }
 

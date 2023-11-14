@@ -42,6 +42,13 @@ namespace oxen::quic
     // called when a connection closes or times out before the handshake completes
     using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
 
+    // Called after we are done reading currently-available UDP packets to allow batch processing of
+    // incoming data (or any other just-before-potentially-blocking needed handling).  First we fire
+    // off any available callbacks triggered for incoming packets, then just before we go back to
+    // potentially block waiting for more packets, we fire this to let the application know that
+    // there might not be more callbacks immediately arriving and so it should process what it has.
+    using post_receive_callback = std::function<void()>;
+
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
       private:
@@ -50,6 +57,7 @@ namespace oxen::quic
         void handle_ep_opt(opt::inbound_alpns alpns);
         void handle_ep_opt(opt::handshake_timeout timeout);
         void handle_ep_opt(dgram_data_callback dgram_cb);
+        void handle_ep_opt(post_receive_callback post_recv_cb);
         void handle_ep_opt(connection_established_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
@@ -237,6 +245,8 @@ namespace oxen::quic
         bool _datagrams{false};
         bool _packet_splitting{false};
         Splitting _policy{Splitting::NONE};
+
+        post_receive_callback _post_receive{nullptr};
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;

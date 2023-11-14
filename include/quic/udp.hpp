@@ -38,6 +38,7 @@ namespace oxen::quic
                 ;
 
         using receive_callback_t = std::function<void(const Packet& pkt)>;
+        using post_receive_callback_t = std::function<void()>;
 
         UDPSocket() = delete;
 
@@ -45,10 +46,23 @@ namespace oxen::quic
         /// binding to an any address (or any port) you can retrieve the realized address via
         /// address() after construction.
         ///
-        /// When packets are received they will be fed into the given callback.
+        /// When packets are received they will be fed into the given `on_receive` callback.
+        ///
+        /// The optional `post_receive` callback will be invoked after processing available incoming
+        /// packets but before returning to polling the socket for additional incoming packets.
+        /// This is meant to allow the caller to bundle incoming packets into batches without
+        /// introducing delays: each time one or more packets are read from the socket there will be
+        /// a sequence of `on_receive(...)` calls for each packet, followed by a `post_receive()`
+        /// call immediately before the socket returns to waiting for additional packets.  Thus a
+        /// caller can use the `on_receive` callback to collect packets and the `post_receive`
+        /// callback to process the collected packets all at once.
         ///
         /// ev_loop must outlive this object.
-        UDPSocket(event_base* ev_loop, const Address& addr, receive_callback_t cb);
+        UDPSocket(
+                event_base* ev_loop,
+                const Address& addr,
+                receive_callback_t on_receive,
+                post_receive_callback_t post_receive = nullptr);
 
         /// Non-copyable and non-moveable
         UDPSocket(const UDPSocket& s) = delete;
@@ -103,6 +117,8 @@ namespace oxen::quic
 
         event_ptr rev_ = nullptr;
         receive_callback_t receive_callback_;
+        post_receive_callback_t post_receive_;
+        bool have_received_ = false;
         event_ptr wev_ = nullptr;
         std::vector<std::function<void()>> writeable_callbacks_;
     };
