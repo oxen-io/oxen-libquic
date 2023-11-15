@@ -316,6 +316,9 @@ local mac_builder(name,
   windows_cross_pipeline('Windows (amd64)', docker_base + 'debian-win32-cross-wine'),
 
   // Macos builds:
+  mac_builder('macOS (Static)',
+              cmake_extra='-DBUILD_STATIC_DEPS=ON',
+              lto=true),
   mac_builder('macOS (Release)'),
   mac_builder('macOS (Debug)', build_type='Debug'),
 ]
