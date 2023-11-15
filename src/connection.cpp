@@ -142,36 +142,42 @@ namespace oxen::quic
         return 0;
     }
 
-    int on_handshake_completed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    int on_handshake_completed(ngtcp2_conn*, void* user_data)
     {
-        auto* conn_ptr = static_cast<Connection*>(user_data);
-        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+        auto* conn = static_cast<Connection*>(user_data);
+        auto dir_str = conn->is_inbound() ? "server"s : "client"s;
 
         log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
 
         // server considers handshake complete and confirmed, and connection established at this point
-        if (conn_ptr->is_inbound())
+        if (conn->is_inbound())
         {
-            conn_ptr->established = true;
-            conn_ptr->endpoint().connection_established(*conn_ptr);
+            conn->established = true;
+            if (conn->conn_established_cb)
+                conn->conn_established_cb(*conn);
+            else
+                conn->endpoint().connection_established(*conn);
         }
 
         return 0;
     }
 
-    int on_handshake_confirmed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    int on_handshake_confirmed(ngtcp2_conn*, void* user_data)
     {
-        auto* conn_ptr = static_cast<Connection*>(user_data);
-        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+        auto* conn = static_cast<Connection*>(user_data);
+        auto dir_str = conn->is_inbound() ? "server"s : "client"s;
 
         log::trace(log_cat, "HANDSHAKE CONFIRMED on {} connection", dir_str);
 
         // server should never call this, as it "confirms" on handshake completed
-        assert(conn_ptr->is_outbound());
+        assert(conn->is_outbound());
 
         // client considers handshake complete and confirmed, and connection established at this point
-        conn_ptr->established = true;
-        conn_ptr->endpoint().connection_established(*conn_ptr);
+        conn->established = true;
+        if (conn->conn_established_cb)
+            conn->conn_established_cb(*conn);
+        else
+            conn->endpoint().connection_established(*conn);
 
         return 0;
     }
@@ -1207,6 +1213,9 @@ namespace oxen::quic
             tls_creds{context->tls_creds},
             di{*this}
     {
+        conn_established_cb = (context->conn_established_cb) ? std::move(context->conn_established_cb) : nullptr;
+        conn_closed_cb = (context->conn_closed_cb) ? std::move(context->conn_closed_cb) : nullptr;
+
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
@@ -1275,16 +1284,6 @@ namespace oxen::quic
             // the gnutlssession object to be verified. Servers should be verifying via callback
             assert(is_outbound);
             tls_session->set_expected_remote_key(*remote_pk);
-            // if (auto gtls = dynamic_cast<GNUTLSSession*>(tls_session.get()))
-            // {
-
-            // }
-            // else
-            // {
-            //     throw std::logic_error("Internal error: not a GNUTLSSession~");
-            // }
-            // GNUTLSSession* gtls = dynamic_cast<GNUTLSSession*>(tls_session.get());
-            // gtls->set_expected_remote_key(*remote_pk);
         }
 
         tls_session->conn_ref.get_conn = get_conn;

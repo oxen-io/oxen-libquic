@@ -38,4 +38,16 @@ namespace oxen::quic
         log::trace(log_cat, "IO context stored stream constructor callback");
         stream_construct_cb = std::move(func);
     }
+
+    void IOContext::handle_ioctx_opt(connection_established_callback func)
+    {
+        log::trace(log_cat, "IO context stored connection established callback");
+        conn_established_cb = std::move(func);
+    }
+
+    void IOContext::handle_ioctx_opt(connection_closed_callback func)
+    {
+        log::trace(log_cat, "IO context stored connection closed callback");
+        conn_closed_cb = std::move(func);
+    }
 }  // namespace oxen::quic

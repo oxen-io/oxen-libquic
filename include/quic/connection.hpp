@@ -150,6 +150,9 @@ namespace oxen::quic
         //		dcid: remote CID used for this connection
         //      path: network path used to reach remote client
         //      ctx: IO session dedicated for this connection context
+        //      alpns: passed directly to TLS session for handshake negotiation
+        //      remote_pk: optional parameter used by clients to verify the pubkey of the remote
+        //          endpoint during handshake negotiation
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
@@ -214,6 +217,11 @@ namespace oxen::quic
         void set_validated() { _is_validated = true; }
 
         bool is_validated() const override { return _is_validated; }
+
+        // These are public so we can access them from the ngtcp free floating functions
+        // (on_handshake_completed and on_handshake_confirmed) and when the connection is closed
+        connection_established_callback conn_established_cb;
+        connection_closed_callback conn_closed_cb;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly

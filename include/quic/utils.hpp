@@ -49,6 +49,16 @@ namespace oxen::quic
 {
     inline auto log_cat = oxen::log::Cat("quic");
 
+    class connection_interface;
+
+    // called when a connection's handshake completes
+    // the server will call this when it sends the final handshake packet
+    // the client will call this when it receives that final handshake packet
+    using connection_established_callback = std::function<void(connection_interface& conn)>;
+
+    // called when a connection closes or times out before the handshake completes
+    using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
+
     using namespace std::literals;
     using namespace oxen::log::literals;
     using bstring = std::basic_string<std::byte>;
