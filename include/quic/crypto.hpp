@@ -2,7 +2,10 @@
 
 extern "C"
 {
+#include <gnutls/abstract.h>
+#include <gnutls/crypto.h>
 #include <ngtcp2/ngtcp2_crypto.h>
+#include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
 #include <memory>

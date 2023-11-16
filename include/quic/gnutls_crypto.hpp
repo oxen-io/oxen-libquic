@@ -1,15 +1,5 @@
 #pragma once
 
-extern "C"
-{
-#include <gnutls/abstract.h>
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
-}
-
 #include <oxenc/base64.h>
 #include <oxenc/hex.h>
 
@@ -23,7 +13,7 @@ namespace oxen::quic
 {
     class Connection;
 
-    inline std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
+    inline const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
     {
         if (crt == GNUTLS_X509_FMT_DER)
             return "<< DER >>";
@@ -33,7 +23,7 @@ namespace oxen::quic
         return "<< UNKNOWN >>";
     }
 
-    inline std::string translate_cert_type(gnutls_certificate_type_t type)
+    inline const std::string translate_cert_type(gnutls_certificate_type_t type)
     {
         auto t = static_cast<int>(type);
 
@@ -51,7 +41,7 @@ namespace oxen::quic
         }
     }
 
-    inline std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
+    inline const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
     {
         return translate_cert_type(gnutls_certificate_type_get2(session, type));
     }
@@ -66,17 +56,6 @@ namespace oxen::quic
                 const gnutls_datum_t* msg);
 
         int cert_verify_callback_gnutls(gnutls_session_t g_session);
-
-        // parametrized to match gnutls_certificate_retrieve_function2
-        int cert_retrieve_callback_gnutls(
-                gnutls_session_t,
-                const gnutls_datum_t*,
-                int,
-                const gnutls_pk_algorithm_t*,
-                int,
-                gnutls_pcert_st**,
-                unsigned int*,
-                gnutls_privkey_t*);
 
         inline void gnutls_log(int level, const char* str)
         {
@@ -147,12 +126,13 @@ namespace oxen::quic
         explicit operator bool() const { return not buf.empty(); }
 
         bool operator==(const gnutls_key& other) const { return buf == other.buf; }
+        bool operator!=(const gnutls_key& other) const { return !(*this == other); }
     };
 
     // key: remote key to verify, alpn: negotiated alpn's
     using key_verify_callback = std::function<bool(const ustring_view& key, const ustring_view& alpn)>;
 
-    inline const gnutls_datum_t gnutls_default_alpn{
+    inline const gnutls_datum_t GNUTLS_DEFAULT_ALPN{
             const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(default_alpn_str.data())),
             static_cast<uint32_t>(default_alpn_str.size())};
 
@@ -266,8 +246,6 @@ namespace oxen::quic
             return &mem;
         }
 
-        // operator const gnutls_datum_t*() const { return &mem; }
-
 #ifdef _WIN32
       private:
         // On windows we can't return a c string directly from a path (because paths are
@@ -309,7 +287,6 @@ namespace oxen::quic
         // Construct from raw Ed25519 keys
         GNUTLSCreds(std::string ed_seed, std::string ed_pubkey);
 
-      protected:
       public:
         gnutls_pcert_st pcrt;
         gnutls_privkey_t pkey;

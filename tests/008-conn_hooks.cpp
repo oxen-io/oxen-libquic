@@ -22,15 +22,15 @@ namespace oxen::quic::test
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-        opt::local_addr server_local{};
-        opt::local_addr client_local{};
+        Address server_local{};
+        Address client_local{};
 
         SECTION("via Network::endpoint(...)")
         {
             auto server_endpoint = test_net.endpoint(server_local, server_established, server_closed);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -46,7 +46,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE(server_endpoint->listen(server_tls, server_established, server_closed));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_established, client_closed);

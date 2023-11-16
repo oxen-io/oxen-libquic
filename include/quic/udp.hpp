@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ngtcp2_pkt.h"
 extern "C"
 {
 #ifdef _WIN32
@@ -10,6 +9,7 @@ extern "C"
 #else
 #include <netinet/in.h>
 #endif
+#include <ngtcp2_pkt.h>
 }
 
 #include <event2/event.h>
@@ -17,7 +17,6 @@ extern "C"
 #include <cstdint>
 
 #include "address.hpp"
-#include "event2/event.h"
 #include "messages.hpp"
 #include "types.hpp"
 #include "utils.hpp"

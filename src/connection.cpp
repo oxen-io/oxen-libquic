@@ -1,22 +1,5 @@
 #include "connection.hpp"
 
-#include "format.hpp"
-
-extern "C"
-{
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/ip.h>
-#endif
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
-}
-
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -28,6 +11,7 @@ extern "C"
 
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "format.hpp"
 #include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
@@ -152,7 +136,6 @@ namespace oxen::quic
         // server considers handshake complete and confirmed, and connection established at this point
         if (conn->is_inbound())
         {
-            conn->established = true;
             if (conn->conn_established_cb)
                 conn->conn_established_cb(*conn);
             else
@@ -173,7 +156,6 @@ namespace oxen::quic
         assert(conn->is_outbound());
 
         // client considers handshake complete and confirmed, and connection established at this point
-        conn->established = true;
         if (conn->conn_established_cb)
             conn->conn_established_cb(*conn);
         else
@@ -246,11 +228,6 @@ namespace oxen::quic
     TLSSession* Connection::get_session() const
     {
         return tls_session.get();
-    }
-
-    int Connection::datagram_bufsize() const
-    {
-        return datagrams->recv_buffer.bufsize;
     }
 
     void Connection::halt_events()
@@ -1213,8 +1190,17 @@ namespace oxen::quic
             tls_creds{context->tls_creds},
             di{*this}
     {
-        conn_established_cb = (context->conn_established_cb) ? std::move(context->conn_established_cb) : nullptr;
-        conn_closed_cb = (context->conn_closed_cb) ? std::move(context->conn_closed_cb) : nullptr;
+        // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
+        //  - If this is an outbound, steal the callback to be used once. Outbound connections
+        //    generate a new IOContext for each call to `::connect(...)`
+        //  - If this is an inbound, do not steal the callback. Inbound connections all share
+        //    the same IOContext, so we want to re-use the same callback
+        conn_established_cb = (context->conn_established_cb)
+                                    ? is_outbound() ? std::move(context->conn_established_cb) : context->conn_established_cb
+                                    : nullptr;
+        conn_closed_cb = (context->conn_closed_cb)
+                               ? is_outbound() ? std::move(context->conn_closed_cb) : context->conn_closed_cb
+                               : nullptr;
 
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
@@ -1314,7 +1300,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{
-                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, remote_pk, hdr}};
+                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, std::move(remote_pk), hdr}};
 
         conn->packet_io_ready();
 

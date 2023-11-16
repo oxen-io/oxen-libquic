@@ -210,15 +210,15 @@ int main(int argc, char* argv[])
         sd.run_prom.set_value();
     };
 
-    opt::local_addr client_local{};
+    Address client_local{};
     if (!local_addr.empty())
     {
         auto [a, p] = parse_addr(local_addr);
-        client_local = opt::local_addr{a, p};
+        client_local = Address{a, p};
     }
 
     auto [server_a, server_p] = parse_addr(remote_addr);
-    opt::remote_addr server_addr{server_a, server_p};
+    RemoteAddress server_addr{server_a, server_p};
 
     log::debug(test_cat, "Calling 'client_connect'...");
     auto client = client_net.endpoint(client_local);

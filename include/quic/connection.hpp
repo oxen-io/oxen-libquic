@@ -1,7 +1,5 @@
 #pragma once
 
-#include <ngtcp2/ngtcp2.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -64,8 +62,6 @@ namespace oxen::quic
       public:
         virtual ustring_view selected_alpn() const = 0;
 
-        bool established{false};
-
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {
@@ -122,9 +118,7 @@ namespace oxen::quic
         // and the datagram IO object for debugging and application (user) utilization.
         //
         //  last_cleared: returns the index of the last cleared bucket in the recv_buffer
-        //  datagram_bufsize: returns the total number of datagrams that the recv_buffer can hold
         virtual int last_cleared() const = 0;
-        virtual int datagram_bufsize() const = 0;
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
@@ -150,9 +144,13 @@ namespace oxen::quic
         //		dcid: remote CID used for this connection
         //      path: network path used to reach remote client
         //      ctx: IO session dedicated for this connection context
-        //      alpns: passed directly to TLS session for handshake negotiation
+        //      alpns: passed directly to TLS session for handshake negotiation. The server
+        //          will select the first in the client's list it also supports, so the user
+        //          should list them in decreasing priority. If the user does not specify alpns,
+        //          the default will be set
         //      remote_pk: optional parameter used by clients to verify the pubkey of the remote
-        //          endpoint during handshake negotiation
+        //          endpoint during handshake negotiation. For servers, omit this parameter or
+        //          pass std::nullopt
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
@@ -207,7 +205,6 @@ namespace oxen::quic
 
         // public debug functions; to be removed with friend test fixture class
         int last_cleared() const override;
-        int datagram_bufsize() const override;
 
         void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
@@ -306,13 +303,7 @@ namespace oxen::quic
 
         dgram_interface di;
 
-        std::shared_ptr<void> user_data;
-
       public:
-        void set_user_data(void* data);
-
-        std::shared_ptr<void> get_user_data() { return user_data; }
-
         // public to be called by endpoint handing this connection a packet
         void handle_conn_packet(const Packet& pkt);
         // these are public so ngtcp2 can access them from callbacks

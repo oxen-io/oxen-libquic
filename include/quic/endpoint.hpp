@@ -111,7 +111,7 @@ namespace oxen::quic
 
             Path _path = Path{_local, remote};
 
-            net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote.get_remote_key())]() mutable {
+            net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote).get_remote_key()]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously

@@ -15,8 +15,8 @@ namespace oxen::quic::test
     {
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-        opt::local_addr server_local{};
-        opt::local_addr client_local{};
+        Address server_local{};
+        Address client_local{};
         opt::handshake_timeout timeout{500ms};
 
         auto client_established = callback_waiter{[](connection_interface&) {}};
@@ -32,7 +32,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, timeout);
 
@@ -48,7 +48,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, client_alpns, timeout);
 
@@ -64,7 +64,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, timeout);
 
@@ -81,7 +81,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed, client_alpns, timeout);
 
@@ -99,7 +99,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established, client_alpns, timeout);
 

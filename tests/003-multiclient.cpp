@@ -13,7 +13,7 @@ namespace oxen::quic::test
         {
             Network test_net{};
 
-            opt::local_addr default_addr{};
+            Address default_addr{};
 
             std::shared_ptr<Endpoint> client_b;
 
@@ -21,7 +21,7 @@ namespace oxen::quic::test
 
             REQUIRE_THROWS(
                     client_b = test_net.endpoint(
-                            opt::remote_addr{defaults::SERVER_PUBKEY, "127.0.0.1"s, client_a->local().port()}));
+                            RemoteAddress{defaults::SERVER_PUBKEY, "127.0.0.1"s, client_a->local().port()}));
 
             auto client_c = test_net.endpoint(default_addr);
 
@@ -41,12 +41,12 @@ namespace oxen::quic::test
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
 
-        opt::local_addr server_local{};
+        Address server_local{};
 
-        opt::local_addr client_a_local{};
-        opt::local_addr client_b_local{};
-        opt::local_addr client_c_local{};
-        opt::local_addr client_d_local{};
+        Address client_a_local{};
+        Address client_b_local{};
+        Address client_c_local{};
+        Address client_d_local{};
 
         auto p_itr = stream_promises.begin();
 
@@ -64,7 +64,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
-        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
             log::debug(log_cat, "Async thread A called");

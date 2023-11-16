@@ -89,7 +89,7 @@ namespace oxen::quic
         // x509 (see gnutls_creds.cpp::cert_retrieve_callback_gnutls function body)
         if (creds.using_raw_pk)
         {
-            log::critical(log_cat, "Setting GNUTLS_ENABLE_RAWPK flag on gnutls_init");
+            log::debug(log_cat, "Setting GNUTLS_ENABLE_RAWPK flag on gnutls_init");
             init_flags |= GNUTLS_ENABLE_RAWPK;
         }
 
@@ -133,7 +133,7 @@ namespace oxen::quic
         }
         else  // set default, mandatory ALPN string
         {
-            if (auto rv = gnutls_alpn_set_protocols(session, &gnutls_default_alpn, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
+            if (auto rv = gnutls_alpn_set_protocols(session, &GNUTLS_DEFAULT_ALPN, 1, GNUTLS_ALPN_MANDATORY); rv < 0)
             {
                 log::error(log_cat, "gnutls_alpn_set_protocols failed: {}", gnutls_strerror(rv));
                 throw std::runtime_error("gnutls_alpn_set_protocols failed");
@@ -143,7 +143,7 @@ namespace oxen::quic
         // server always requests cert from client
         // NOTE: I had removed the check on creds.using_raw_pk to test the server requesting certs every time,
         // but not requiring them
-        log::critical(
+        log::debug(
                 log_cat,
                 "[GNUTLS SESSION] Local ({}) cert type:{} \t Peer expecting cert type:{}",
                 is_client ? "CLIENT" : "SERVER",
@@ -239,9 +239,9 @@ namespace oxen::quic
 
     //  In our new cert verification scheme, the logic proceeds as follows.
     //
-    //  - Upon every connection, the server will request certificates from ALL clients
-    //  - IF: the server provides a key_verify callback
-    //      - IF: the client provides a certificate:
+    //  - Upon every connection, the local endpointwill request certificates from ALL peers
+    //  - IF: the local endpoint provided a key_verify callback (therefore a server)
+    //      - IF: the peer provides a certificate:
     //          - If the certificate is accepted, then the connection is allowed and the
     //            connection is marked as "validated"
     //          - If the certificate is rejected, then the connection is refused
@@ -257,14 +257,12 @@ namespace oxen::quic
     //
     int GNUTLSSession::validate_remote_key()
     {
-        // This should only ever be called by the server using raw pks
-        // assert(not is_client);
         assert(creds.using_raw_pk);
         const auto local_name = is_client ? "CLIENT" : "SERVER";
 
         log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        log::critical(
+        log::debug(
                 log_cat,
                 "Local ({}) cert type:{} \t Peer expecting cert type:{}",
                 local_name,
@@ -281,17 +279,16 @@ namespace oxen::quic
                     "{} called, but remote cert type is not raw pubkey (type: {}).",
                     __PRETTY_FUNCTION__,
                     translate_cert_type(cert_type));
-            // NOTE: commenting this out for debugging purposes
-            // return -1;
+            return -1;
         }
 
         uint32_t cert_list_size = 0;
         const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
 
-        // The client did not return a certificate
+        // The peer did not return a certificate
         if (cert_list_size == 0)
         {
-            log::error(log_cat, "{} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
+            log::warning(log_cat, "{} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
             return 0;
         }
 
@@ -306,7 +303,7 @@ namespace oxen::quic
         const auto* cert_data = cert_list[0].data + CERT_HEADER_SIZE;
         auto cert_size = cert_list[0].size - CERT_HEADER_SIZE;
 
-        log::critical(
+        log::debug(
                 log_cat,
                 "{} validating pubkey \"cert\" of len {}B:\n{}\n",
                 local_name,
@@ -320,11 +317,11 @@ namespace oxen::quic
         {  // Client does validation through a remote pubkey provided when calling endpoint::connect
             if (remote_key == expected_remote_key)
             {
-                log::critical(log_cat, "Client successfully validated remote key!");
+                log::debug(log_cat, "Client successfully validated remote key!");
                 return 1;
             }
 
-            log::critical(log_cat, "Client could not validate remote key! Rejecting connection");
+            log::debug(log_cat, "Client could not validate remote key! Rejecting connection");
             return -1;
         }
         else
@@ -333,7 +330,7 @@ namespace oxen::quic
 
             if (creds.key_verify)
             {
-                log::critical(log_cat, "{}: Calling key verify callback", local_name);
+                log::debug(log_cat, "{}: Calling key verify callback", local_name);
 
                 // Key verify cb will return true on success, false on fail. Since this is only called if a client has
                 // provided a certificate and is only called by the server, we can assume the following returns:
@@ -342,7 +339,7 @@ namespace oxen::quic
                 return creds.key_verify(remote_key.view(), alpn);
             }
 
-            log::critical(log_cat, "Server did not provide key verify callback! Allowing connection");
+            log::debug(log_cat, "Server did not provide key verify callback! Allowing connection");
             return 0;
         }
     }

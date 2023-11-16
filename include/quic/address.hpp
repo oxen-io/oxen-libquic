@@ -268,12 +268,14 @@ namespace oxen::quic
         {}
 
         ustring_view view_remote_key() const { return remote_pubkey; }
-        const ustring& get_remote_key() const { return remote_pubkey; }
+        const ustring& get_remote_key() const& { return remote_pubkey; }
+        ustring&& get_remote_key() && { return std::move(remote_pubkey); }
 
-        RemoteAddress(const RemoteAddress& obj) : Address{*this}, remote_pubkey{obj.remote_pubkey} { _copy_internals(obj); }
+        RemoteAddress(const RemoteAddress& obj) : Address{obj}, remote_pubkey{obj.remote_pubkey} {}
         RemoteAddress& operator=(const RemoteAddress& obj)
         {
             remote_pubkey = obj.remote_pubkey;
+            Address::operator=(obj);
             _copy_internals(obj);
             return *this;
         }
@@ -293,7 +295,7 @@ namespace oxen::quic
         ngtcp2_path _path{local, remote, nullptr};
 
       public:
-        // Path() = default;
+        Path() = default;
         Path(const Address& l, const Address& r) : local{l}, remote{r} {}
         Path(const Path& p) : Path{p.local, p.remote} {}
 

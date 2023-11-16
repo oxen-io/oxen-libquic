@@ -13,15 +13,11 @@ extern "C"
 #include <netinet/in.h>
 #include <sys/socket.h>
 #endif
-#include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
 #include <event2/event.h>
-#include <fmt/core.h>
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
 
@@ -37,8 +33,6 @@ extern "C"
 #include <list>
 #include <map>
 #include <optional>
-#include <oxen/log.hpp>
-#include <oxen/log/format.hpp>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -160,22 +154,29 @@ namespace oxen::quic
     inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
     // strang literals
-    inline std::basic_string_view<unsigned char> operator""_usv(const char* __str, size_t __len) noexcept
+    inline ustring operator""_us(const char* __str, size_t __len) noexcept
     {
-        return std::basic_string_view<unsigned char>(reinterpret_cast<const unsigned char*>(__str), __len);
+        return ustring(reinterpret_cast<const unsigned char*>(__str), __len);
+    }
+    inline ustring_view operator""_usv(const char* __str, size_t __len) noexcept
+    {
+        return ustring_view(reinterpret_cast<const unsigned char*>(__str), __len);
     }
 
-    inline std::basic_string_view<std::byte> operator""_bsv(const char* __str, size_t __len) noexcept
+    inline bstring_view operator""_bsv(const char* __str, size_t __len) noexcept
     {
-        return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
+        return bstring_view(reinterpret_cast<const std::byte*>(__str), __len);
     }
 
-    inline std::basic_string<std::byte> operator""_bs(const char* _str, size_t _len) noexcept
+    inline bstring operator""_bs(const char* _str, size_t _len) noexcept
     {
-        return std::basic_string<std::byte>(reinterpret_cast<const std::byte*>(_str), _len);
+        return bstring(reinterpret_cast<const std::byte*>(_str), _len);
     }
 
-    inline std::string_view to_sv(bstring_view x)
+    template <
+            typename sv_t,
+            std::enable_if_t<std::is_same_v<sv_t, ustring_view> || std::is_same_v<sv_t, bstring_view>, int> = 0>
+    inline std::string_view to_sv(sv_t x)
     {
         return {reinterpret_cast<const char*>(x.data()), x.size()};
     }

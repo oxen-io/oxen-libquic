@@ -20,20 +20,20 @@ namespace oxen::quic::test
 
         SECTION("Address objects")
         {
-            opt::local_addr empty_addr{};
-            opt::local_addr empty_addr2{"", 0};
-            opt::local_addr good_addr{"127.0.0.1", 4400};
-            opt::local_addr public_addr{"1.2.3.4", 56789};
-            opt::local_addr public_anyport{"4.5.6.7", 0};
-            opt::local_addr localnet_addr{"192.168.1.1", 80};
-            opt::local_addr ipv6_localhost{"::1", 123};
-            opt::local_addr localnet_ipv6{"fdab:1234:5::1", 123};
-            opt::local_addr public_ipv6{"2345::1", 45678};
+            Address empty_addr{};
+            Address empty_addr2{"", 0};
+            Address good_addr{"127.0.0.1", 4400};
+            Address public_addr{"1.2.3.4", 56789};
+            Address public_anyport{"4.5.6.7", 0};
+            Address localnet_addr{"192.168.1.1", 80};
+            Address ipv6_localhost{"::1", 123};
+            Address localnet_ipv6{"fdab:1234:5::1", 123};
+            Address public_ipv6{"2345::1", 45678};
 
             CHECK(empty_addr.is_set());
-            CHECK_THROWS(opt::local_addr{"127.001", 4400});
-            CHECK_NOTHROW(opt::local_addr{"", 0});
-            CHECK(empty_addr == opt::local_addr{"::", 0});
+            CHECK_THROWS(Address{"127.001", 4400});
+            CHECK_NOTHROW(Address{"", 0});
+            CHECK(empty_addr == Address{"::", 0});
             CHECK(good_addr.is_set());
 
             CHECK(empty_addr.is_any_addr());
@@ -96,7 +96,7 @@ namespace oxen::quic::test
         SECTION("Endpoint object creation - Default addressing")
         {
             Network test_net{};
-            opt::local_addr default_addr{};
+            Address default_addr{};
 
             auto ep = test_net.endpoint(default_addr);
             // Note: kernel chooses a random port after being passed default addr
@@ -108,7 +108,7 @@ namespace oxen::quic::test
             Network test_net{};
             test_net.set_shutdown_immediate();
 
-            opt::local_addr default_addr{}, local_addr{};
+            Address default_addr{}, local_addr{};
 
             auto [local_tls, _] = defaults::tls_creds_from_ed_keys();
 
@@ -128,23 +128,26 @@ namespace oxen::quic::test
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-        opt::local_addr server_local{};
-        opt::local_addr client_local{};
+        Address server_local{};
+        Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         REQUIRE(server_endpoint->listen(server_tls));
 
         SECTION("Endpoint::listen() + Endpoint::Connect() - Incorrect pubkey in remote")
         {
-            uint64_t client_error{0};
+            uint64_t client_error{0}, client_attempt{0};
+
+            auto client_established_2 = callback_waiter{[&client_attempt](connection_interface&) { client_attempt = 1000; }};
 
             auto client_closed = callback_waiter{[&client_error](connection_interface&, uint64_t) { client_error = 1000; }};
-            opt::remote_addr client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
-            auto client_endpoint = test_net.endpoint(client_local, client_established, client_closed);
+            auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(not client_established.wait());
+            REQUIRE(client_attempt != 1000);
             REQUIRE(client_error == 1000);
         };
 
@@ -155,11 +158,11 @@ namespace oxen::quic::test
             // If uncommented, this line will not compile! Remote addresses must pass a remote pubkey to be
             // verified upon the client successfully establishing connection with a remote.
 
-            // opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+            // RemoteAddress client_remote{"127.0.0.1"s, server_endpoint->local().port()};
             REQUIRE(true);
         };
 
-        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         SECTION("Endpoint::listen() + Endpoint::Connect() - Correct pubkey in remote")
         {
@@ -200,14 +203,14 @@ namespace oxen::quic::test
             return rv;
         });
 
-        opt::local_addr server_local{};
-        opt::local_addr client_local{};
+        Address server_local{};
+        Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         REQUIRE(server_endpoint->listen(server_tls));
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
-        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
@@ -233,13 +236,13 @@ namespace oxen::quic::test
 
             auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-            opt::local_addr server_local{};
-            opt::local_addr client_local{};
+            Address server_local{};
+            Address client_local{};
 
             auto server_endpoint = test_net.endpoint(server_local, server_established);
             REQUIRE(server_endpoint->listen(server_tls));
 
-            opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "::1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "::1"s, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established);
 
@@ -259,13 +262,13 @@ namespace oxen::quic::test
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-        opt::local_addr server_local{};
-        opt::local_addr client_local{};
+        Address server_local{};
+        Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         REQUIRE(server_endpoint->listen(server_tls));
 
-        opt::remote_addr client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
