@@ -1,10 +1,5 @@
 #pragma once
 
-extern "C"
-{
-#include <ngtcp2/ngtcp2.h>
-}
-
 #include <cassert>
 #include <cstddef>
 #include <cstdint>

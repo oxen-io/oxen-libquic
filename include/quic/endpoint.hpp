@@ -34,14 +34,6 @@ extern "C"
 
 namespace oxen::quic
 {
-    // called when a connection's handshake completes
-    // the server will call this when it sends the final handshake packet
-    // the client will call this when it receives that final handshake packet
-    using connection_established_callback = std::function<void(connection_interface& conn)>;
-
-    // called when a connection closes or times out before the handshake completes
-    using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
-
     class Endpoint : std::enable_shared_from_this<Endpoint>
     {
       private:
@@ -54,14 +46,14 @@ namespace oxen::quic
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
       public:
-        connection_established_callback connection_established_cb;
-        connection_closed_callback connection_close_cb;
-
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
         Endpoint(const Endpoint&) = delete;
         Endpoint& operator=(const Endpoint&) = delete;
         Endpoint(Endpoint&&) = delete;
         Endpoint& operator=(Endpoint&&) = delete;
+
+        connection_established_callback connection_established_cb;
+        connection_closed_callback connection_close_cb;
 
         std::string local_addr() { return _local.to_string(); }
 
@@ -106,7 +98,7 @@ namespace oxen::quic
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
-        std::shared_ptr<connection_interface> connect(Address remote, Opt&&... opts)
+        std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
         {
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
@@ -119,7 +111,7 @@ namespace oxen::quic
 
             Path _path = Path{_local, remote};
 
-            net.call([&opts..., &p, path = _path, this]() mutable {
+            net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote).get_remote_key()]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
@@ -137,7 +129,8 @@ namespace oxen::quic
                                     std::move(path),
                                     outbound_ctx,
                                     outbound_alpns,
-                                    handshake_timeout);
+                                    handshake_timeout,
+                                    remote_pk);
 
                             p.set_value(itr->second);
                             return;

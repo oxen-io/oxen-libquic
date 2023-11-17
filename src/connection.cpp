@@ -1,22 +1,5 @@
 #include "connection.hpp"
 
-#include "format.hpp"
-
-extern "C"
-{
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/ip.h>
-#endif
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
-}
-
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -28,6 +11,8 @@ extern "C"
 
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "format.hpp"
+#include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
@@ -141,36 +126,40 @@ namespace oxen::quic
         return 0;
     }
 
-    int on_handshake_completed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    int on_handshake_completed(ngtcp2_conn*, void* user_data)
     {
-        auto* conn_ptr = static_cast<Connection*>(user_data);
-        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+        auto* conn = static_cast<Connection*>(user_data);
+        auto dir_str = conn->is_inbound() ? "server"s : "client"s;
 
         log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
 
         // server considers handshake complete and confirmed, and connection established at this point
-        if (conn_ptr->is_inbound())
+        if (conn->is_inbound())
         {
-            conn_ptr->established = true;
-            conn_ptr->endpoint().connection_established(*conn_ptr);
+            if (conn->conn_established_cb)
+                conn->conn_established_cb(*conn);
+            else
+                conn->endpoint().connection_established(*conn);
         }
 
         return 0;
     }
 
-    int on_handshake_confirmed([[maybe_unused]] ngtcp2_conn* conn, void* user_data)
+    int on_handshake_confirmed(ngtcp2_conn*, void* user_data)
     {
-        auto* conn_ptr = static_cast<Connection*>(user_data);
-        auto dir_str = conn_ptr->is_inbound() ? "server"s : "client"s;
+        auto* conn = static_cast<Connection*>(user_data);
+        auto dir_str = conn->is_inbound() ? "server"s : "client"s;
 
         log::trace(log_cat, "HANDSHAKE CONFIRMED on {} connection", dir_str);
 
         // server should never call this, as it "confirms" on handshake completed
-        assert(conn_ptr->is_outbound());
+        assert(conn->is_outbound());
 
         // client considers handshake complete and confirmed, and connection established at this point
-        conn_ptr->established = true;
-        conn_ptr->endpoint().connection_established(*conn_ptr);
+        if (conn->conn_established_cb)
+            conn->conn_established_cb(*conn);
+        else
+            conn->endpoint().connection_established(*conn);
 
         return 0;
     }
@@ -211,16 +200,6 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::last_cleared() const
-    {
-        return datagrams->recv_buffer.last_cleared;
-    }
-
-    int Connection::datagram_bufsize() const
-    {
-        return datagrams->recv_buffer.bufsize;
-    }
-
     ConnectionID::ConnectionID(const uint8_t* cid, size_t length)
     {
         assert(length <= NGTCP2_MAX_CIDLEN);
@@ -239,6 +218,16 @@ namespace oxen::quic
     std::string ConnectionID::to_string() const
     {
         return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
+    }
+
+    int Connection::last_cleared() const
+    {
+        return datagrams->recv_buffer.last_cleared;
+    }
+
+    TLSSession* Connection::get_session() const
+    {
+        return tls_session.get();
     }
 
     void Connection::halt_events()
@@ -1037,7 +1026,7 @@ namespace oxen::quic
         return 0;
     }
 
-    std::string_view Connection::selected_alpn() const
+    ustring_view Connection::selected_alpn() const
     {
         return _endpoint.call_get([this]() { return get_session()->selected_alpn(); });
     }
@@ -1187,6 +1176,7 @@ namespace oxen::quic
             std::shared_ptr<IOContext> ctx,
             const std::vector<std::string>& alpns,
             std::chrono::nanoseconds handshake_timeout,
+            std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr) :
             _endpoint{ep},
             context{std::move(ctx)},
@@ -1200,6 +1190,18 @@ namespace oxen::quic
             tls_creds{context->tls_creds},
             di{*this}
     {
+        // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
+        //  - If this is an outbound, steal the callback to be used once. Outbound connections
+        //    generate a new IOContext for each call to `::connect(...)`
+        //  - If this is an inbound, do not steal the callback. Inbound connections all share
+        //    the same IOContext, so we want to re-use the same callback
+        conn_established_cb = (context->conn_established_cb)
+                                    ? is_outbound() ? std::move(context->conn_established_cb) : context->conn_established_cb
+                                    : nullptr;
+        conn_closed_cb = (context->conn_closed_cb)
+                               ? is_outbound() ? std::move(context->conn_closed_cb) : context->conn_closed_cb
+                               : nullptr;
+
         datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
         pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
@@ -1261,6 +1263,15 @@ namespace oxen::quic
         }
 
         tls_session = tls_creds->make_session(is_outbound, alpns);
+
+        if (remote_pk)
+        {
+            // Clients should be the ones providing a remote pubkey here. This way we can emplace it into
+            // the gnutlssession object to be verified. Servers should be verifying via callback
+            assert(is_outbound);
+            tls_session->set_expected_remote_key(*remote_pk);
+        }
+
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
@@ -1284,11 +1295,12 @@ namespace oxen::quic
             std::shared_ptr<IOContext> ctx,
             const std::vector<std::string>& alpns,
             std::chrono::nanoseconds handshake_timeout,
+            std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{
-                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, hdr}};
+                new Connection{ep, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, std::move(remote_pk), hdr}};
 
         conn->packet_io_ready();
 

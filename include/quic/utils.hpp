@@ -13,15 +13,11 @@ extern "C"
 #include <netinet/in.h>
 #include <sys/socket.h>
 #endif
-#include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
 
 #include <event2/event.h>
-#include <fmt/core.h>
 #include <oxenc/endian.h>
 #include <oxenc/hex.h>
 
@@ -37,8 +33,6 @@ extern "C"
 #include <list>
 #include <map>
 #include <optional>
-#include <oxen/log.hpp>
-#include <oxen/log/format.hpp>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -49,10 +43,22 @@ namespace oxen::quic
 {
     inline auto log_cat = oxen::log::Cat("quic");
 
+    class connection_interface;
+
+    // called when a connection's handshake completes
+    // the server will call this when it sends the final handshake packet
+    // the client will call this when it receives that final handshake packet
+    using connection_established_callback = std::function<void(connection_interface& conn)>;
+
+    // called when a connection closes or times out before the handshake completes
+    using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
+
     using namespace std::literals;
     using namespace oxen::log::literals;
     using bstring = std::basic_string<std::byte>;
+    using ustring = std::basic_string<unsigned char>;
     using bstring_view = std::basic_string_view<std::byte>;
+    using ustring_view = std::basic_string_view<unsigned char>;
     using stream_buffer = std::deque<std::pair<bstring_view, std::shared_ptr<void>>>;
     namespace log = oxen::log;
 
@@ -147,18 +153,30 @@ namespace oxen::quic
     // Error code we send to a stream close callback if the stream's connection expires
     inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
 
-    // bstring_view literals baby
-    inline std::basic_string_view<std::byte> operator""_bsv(const char* __str, size_t __len) noexcept
+    // strang literals
+    inline ustring operator""_us(const char* __str, size_t __len) noexcept
     {
-        return std::basic_string_view<std::byte>(reinterpret_cast<const std::byte*>(__str), __len);
+        return ustring(reinterpret_cast<const unsigned char*>(__str), __len);
+    }
+    inline ustring_view operator""_usv(const char* __str, size_t __len) noexcept
+    {
+        return ustring_view(reinterpret_cast<const unsigned char*>(__str), __len);
     }
 
-    inline std::basic_string<std::byte> operator""_bs(const char* _str, size_t _len) noexcept
+    inline bstring_view operator""_bsv(const char* __str, size_t __len) noexcept
     {
-        return std::basic_string<std::byte>(reinterpret_cast<const std::byte*>(_str), _len);
+        return bstring_view(reinterpret_cast<const std::byte*>(__str), __len);
     }
 
-    inline std::string_view to_sv(bstring_view x)
+    inline bstring operator""_bs(const char* _str, size_t _len) noexcept
+    {
+        return bstring(reinterpret_cast<const std::byte*>(_str), _len);
+    }
+
+    template <
+            typename sv_t,
+            std::enable_if_t<std::is_same_v<sv_t, ustring_view> || std::is_same_v<sv_t, bstring_view>, int> = 0>
+    inline std::string_view to_sv(sv_t x)
     {
         return {reinterpret_cast<const char*>(x.data()), x.size()};
     }
@@ -201,6 +219,11 @@ namespace oxen::quic
         }
     };
     using event_ptr = std::unique_ptr<::event, event_deleter>;
+
+    inline ustring_view to_usv(std::string_view sv)
+    {
+        return {reinterpret_cast<const unsigned char*>(sv.data()), sv.size()};
+    }
 
     // Stringview conversion function to interoperate between bstring_views and any other potential
     // user supplied type

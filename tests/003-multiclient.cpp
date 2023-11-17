@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
 #include <thread>
+
+#include "utils.hpp"
 
 namespace oxen::quic::test
 {
@@ -13,13 +13,15 @@ namespace oxen::quic::test
         {
             Network test_net{};
 
-            opt::local_addr default_addr{};
+            Address default_addr{};
 
             std::shared_ptr<Endpoint> client_b;
 
             auto client_a = test_net.endpoint(default_addr);
 
-            REQUIRE_THROWS(client_b = test_net.endpoint(opt::remote_addr{"127.0.0.1"s, client_a->local().port()}));
+            REQUIRE_THROWS(
+                    client_b = test_net.endpoint(
+                            RemoteAddress{defaults::SERVER_PUBKEY, "127.0.0.1"s, client_a->local().port()}));
 
             auto client_c = test_net.endpoint(default_addr);
 
@@ -39,12 +41,12 @@ namespace oxen::quic::test
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
 
-        opt::local_addr server_local{};
+        Address server_local{};
 
-        opt::local_addr client_a_local{};
-        opt::local_addr client_b_local{};
-        opt::local_addr client_c_local{};
-        opt::local_addr client_d_local{};
+        Address client_a_local{};
+        Address client_b_local{};
+        Address client_c_local{};
+        Address client_d_local{};
 
         auto p_itr = stream_promises.begin();
 
@@ -55,13 +57,14 @@ namespace oxen::quic::test
             ++p_itr;
         };
 
-        auto server_tls = GNUTLSCreds::make("./serverkey.pem"s, "./servercert.pem"s, "./clientcert.pem"s);
-        auto client_tls = GNUTLSCreds::make("./clientkey.pem"s, "./clientcert.pem"s, "./servercert.pem"s);
+        auto tls = defaults::tls_creds_from_ed_keys();
+        const auto& client_tls = tls.first;
+        const auto& server_tls = tls.second;
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
 
-        opt::remote_addr client_remote{"127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
             log::debug(log_cat, "Async thread A called");

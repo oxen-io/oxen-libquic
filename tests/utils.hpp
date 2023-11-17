@@ -7,6 +7,7 @@
 #include <optional>
 #include <oxen/log.hpp>
 #include <quic/endpoint.hpp>
+#include <quic/gnutls_crypto.hpp>
 #include <quic/network.hpp>
 #include <quic/utils.hpp>
 #include <string>
@@ -16,6 +17,24 @@ namespace oxen::quic
     extern bool disable_ipv6, disable_rotating_buffer;
 
     inline auto test_cat = oxen::log::Cat("test");
+
+    using namespace oxenc::literals;
+
+    namespace test::defaults
+    {
+        inline const std::string CLIENT_SEED = "468e7ed2cd914ca44568e7189245c7b8e5488404fc88a4019c73b51d9dbc48a5"_hex;
+        inline const std::string CLIENT_PUBKEY = "626136fe40c8860ee5bdc57fd9f15a03ef6777bb9237c18fc4d7ef2aacfe4f88"_hex;
+        inline const std::string SERVER_SEED = "fefbb50cdd4cde3be0ae75042c44ff42b026def4fd6be4fb1dc6e81ea0480c9b"_hex;
+        inline const std::string SERVER_PUBKEY = "d580d5c68937095ea997f6a88f07a86cdd26dfa0d7d268e80ea9bbb5f3ca0304"_hex;
+
+        inline auto tls_creds_from_ed_keys()
+        {
+            auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);
+            auto server = GNUTLSCreds::make_from_ed_keys(SERVER_SEED, SERVER_PUBKEY);
+
+            return std::make_pair(std::move(client), std::move(server));
+        }
+    }  // namespace test::defaults
 
     inline void add_log_opts(CLI::App& cli, std::string& file, std::string& level)
     {

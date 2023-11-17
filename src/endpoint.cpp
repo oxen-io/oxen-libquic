@@ -143,10 +143,15 @@ namespace oxen::quic
                 conn.scid(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
-        // call close callback
-        if (connection_close_cb)
+        // prioritize connection level callback over endpoint level
+        if (conn.conn_closed_cb)
         {
-            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
+            conn.conn_closed_cb(conn, err->error_code);
+        }
+        else if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
             connection_close_cb(conn, err->error_code);
         }
 
@@ -216,9 +221,15 @@ namespace oxen::quic
                 conn.scid(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
-        if (connection_close_cb)
+        // prioritize connection level callback over endpoint level
+        if (conn.conn_closed_cb)
         {
-            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
+            conn.conn_closed_cb(conn, err->error_code);
+        }
+        else if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
             connection_close_cb(conn, err->error_code);
         }
 
@@ -258,9 +269,15 @@ namespace oxen::quic
         conn.halt_events();
         conn.set_closing();
 
-        if (connection_close_cb)
+        // prioritize connection level callback over endpoint level
+        if (conn.conn_closed_cb)
         {
-            log::trace(log_cat, "{} Calling Connection closed callback", conn.is_inbound() ? "server" : "client");
+            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
+            conn.conn_closed_cb(conn, ec.code());
+        }
+        else if (connection_close_cb)
+        {
+            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
             connection_close_cb(conn, ec.code());
         }
 
@@ -319,6 +336,7 @@ namespace oxen::quic
     void Endpoint::connection_established(connection_interface& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
+
         if (connection_established_cb)
             connection_established_cb(conn);
     }
@@ -388,7 +406,15 @@ namespace oxen::quic
             if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
             {
                 itr->second = Connection::make_conn(
-                        *this, itr->first, hdr.scid, pkt.path, inbound_ctx, inbound_alpns, handshake_timeout, &hdr);
+                        *this,
+                        itr->first,
+                        hdr.scid,
+                        pkt.path,
+                        inbound_ctx,
+                        inbound_alpns,
+                        handshake_timeout,
+                        std::nullopt,
+                        &hdr);
                 return itr->second.get();
             }
         }

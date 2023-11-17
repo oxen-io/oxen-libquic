@@ -62,7 +62,7 @@ int main(int argc, char* argv[])
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
 
     auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
-    opt::local_addr server_local{listen_addr, listen_port};
+    Address server_local{listen_addr, listen_port};
 
     stream_open_callback stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id());
@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
                 return 0;
             };
 
-    server_tls->set_server_tls_policy(outbound_tls_cb);
+    server_tls->set_server_tls_hook(outbound_tls_cb);
 
     dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring_view data) {
         if (dgram_data.n_expected == 0)

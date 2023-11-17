@@ -14,6 +14,7 @@ namespace oxen::quic
         sockaddr_storage _sock_addr{};
         ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), 0};
 
+      protected:
         void _copy_internals(const Address& obj)
         {
             std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
@@ -248,6 +249,39 @@ namespace oxen::quic
     };
     template <>
     inline constexpr bool IsToStringFormattable<Address> = true;
+
+    struct RemoteAddress : public Address
+    {
+      private:
+        ustring remote_pubkey;
+
+      public:
+        RemoteAddress() = delete;
+
+        template <typename... Opt>
+        RemoteAddress(std::string_view remote_pk, Opt&&... opts) :
+                Address{std::forward<Opt>(opts)...}, remote_pubkey{to_usv(remote_pk)}
+        {}
+
+        template <typename... Opt>
+        RemoteAddress(ustring_view remote_pk, Opt&&... opts) : Address{std::forward<Opt>(opts)...}, remote_pubkey{remote_pk}
+        {}
+
+        ustring_view view_remote_key() const { return remote_pubkey; }
+        const ustring& get_remote_key() const& { return remote_pubkey; }
+        ustring&& get_remote_key() && { return std::move(remote_pubkey); }
+
+        RemoteAddress(const RemoteAddress& obj) : Address{obj}, remote_pubkey{obj.remote_pubkey} {}
+        RemoteAddress& operator=(const RemoteAddress& obj)
+        {
+            remote_pubkey = obj.remote_pubkey;
+            Address::operator=(obj);
+            _copy_internals(obj);
+            return *this;
+        }
+    };
+    template <>
+    inline constexpr bool IsToStringFormattable<RemoteAddress> = true;
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
     // to ngtcp2_path*

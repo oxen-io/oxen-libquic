@@ -8,16 +8,6 @@
 
 namespace oxen::quic::opt
 {
-    struct local_addr : public Address
-    {
-        using Address::Address;
-    };
-
-    struct remote_addr : public Address
-    {
-        using Address::Address;
-    };
-
     struct max_streams
     {
         int stream_count = DEFAULT_MAX_BIDI_STREAMS;

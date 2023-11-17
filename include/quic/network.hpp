@@ -1,10 +1,5 @@
 #pragma once
 
-extern "C"
-{
-#include <gnutls/gnutls.h>
-}
-
 #include <event2/event.h>
 
 #include <atomic>

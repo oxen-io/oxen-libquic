@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
     auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
 
     auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
-    opt::local_addr server_local{listen_addr, listen_port};
+    Address server_local{listen_addr, listen_port};
 
     stream_open_callback stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id());

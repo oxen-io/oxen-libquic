@@ -1,7 +1,5 @@
 #pragma once
 
-#include <ngtcp2/ngtcp2.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -13,7 +11,6 @@
 
 #include "context.hpp"
 #include "format.hpp"
-#include "gnutls_crypto.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -63,9 +60,7 @@ namespace oxen::quic
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
 
       public:
-        virtual std::string_view selected_alpn() const = 0;
-
-        bool established{false};
+        virtual ustring_view selected_alpn() const = 0;
 
         template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> queue_stream(Args&&... args)
@@ -117,14 +112,13 @@ namespace oxen::quic
         virtual const ConnectionID& scid() const = 0;
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
+        virtual bool is_validated() const = 0;
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
         //
         //  last_cleared: returns the index of the last cleared bucket in the recv_buffer
-        //  datagram_bufsize: returns the total number of datagrams that the recv_buffer can hold
         virtual int last_cleared() const = 0;
-        virtual int datagram_bufsize() const = 0;
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
@@ -150,6 +144,13 @@ namespace oxen::quic
         //		dcid: remote CID used for this connection
         //      path: network path used to reach remote client
         //      ctx: IO session dedicated for this connection context
+        //      alpns: passed directly to TLS session for handshake negotiation. The server
+        //          will select the first in the client's list it also supports, so the user
+        //          should list them in decreasing priority. If the user does not specify alpns,
+        //          the default will be set
+        //      remote_pk: optional parameter used by clients to verify the pubkey of the remote
+        //          endpoint during handshake negotiation. For servers, omit this parameter or
+        //          pass std::nullopt
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
@@ -159,11 +160,12 @@ namespace oxen::quic
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<std::string>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
+                std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         void packet_io_ready();
 
-        TLSSession* get_session() const { return tls_session.get(); };
+        TLSSession* get_session() const;
 
         std::shared_ptr<Stream> queue_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
@@ -193,7 +195,7 @@ namespace oxen::quic
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
-        std::string_view selected_alpn() const override;
+        ustring_view selected_alpn() const override;
 
         int get_streams_available() const override;
         size_t get_max_datagram_size() const override;
@@ -203,11 +205,20 @@ namespace oxen::quic
 
         // public debug functions; to be removed with friend test fixture class
         int last_cleared() const override;
-        int datagram_bufsize() const override;
 
         void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
         void close_connection(uint64_t error_code = 0) override;
+
+        // This mutator is called from the gnutls code after cert verification (if it is successful)
+        void set_validated() { _is_validated = true; }
+
+        bool is_validated() const override { return _is_validated; }
+
+        // These are public so we can access them from the ngtcp free floating functions
+        // (on_handshake_completed and on_handshake_confirmed) and when the connection is closed
+        connection_established_callback conn_established_cb;
+        connection_closed_callback conn_closed_cb;
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
@@ -220,6 +231,7 @@ namespace oxen::quic
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<std::string>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
+                std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
 
         Endpoint& _endpoint;
@@ -232,6 +244,7 @@ namespace oxen::quic
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         std::atomic<bool> _congested{false};
+        bool _is_validated{false};
 
         struct connection_deleter
         {
