@@ -1,7 +1,5 @@
 set(libquic_send_allowed "gso, sendmmsg, sendmsg")
 
-option(LIBQUIC_RECVMMSG "Use recvmmsg when receiving UDP packets" OFF)
-
 add_library(quic
     address.cpp
     btstream.cpp
@@ -46,7 +44,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
 endif()
 
 set(LIBQUIC_SEND "${libquic_send_default}" CACHE STRING "Packet send implementation to use; one of: ${libquic_send_allowed}")
-set(LIBQUIC_RECVMMSG ${libquic_recvmmsg_default} CACHE BOOL "")
+set(LIBQUIC_RECVMMSG ${libquic_recvmmsg_default} CACHE BOOL "Use recvmmsg when receiving UDP packets")
 
 if(LIBQUIC_SEND STREQUAL "gso")
     message(STATUS "Building with sendmmsg+GSO packet sender")
