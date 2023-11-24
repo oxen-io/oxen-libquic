@@ -45,6 +45,16 @@ namespace oxen::quic
         void handle_ep_opt(connection_established_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
 
+        // Takes a std::optional-wrapped option that does nothing if the optional is empty,
+        // otherwise passes it through to the above.  This is here to allow runtime-dependent
+        // options (i.e. where whether or not the option is required is not known at compile time).
+        template <typename Opt>
+        void handle_ep_opt(std::optional<Opt> option)
+        {
+            if (option)
+                handle_ep_opt(std::move(*option));
+        }
+
       public:
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
         Endpoint(const Endpoint&) = delete;

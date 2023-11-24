@@ -112,6 +112,13 @@ namespace oxen::quic
       private:
         void handle_req_opts(std::function<void(message)> func) { cb = std::move(func); }
         void handle_req_opts(std::chrono::milliseconds exp) { timeout = exp; }
+
+        template <typename Opt>
+        void handle_req_opts(std::optional<Opt> option)
+        {
+            if (option)
+                handle_req_opts(std::move(*option));
+        }
     };
 
     class BTRequestStream : public Stream

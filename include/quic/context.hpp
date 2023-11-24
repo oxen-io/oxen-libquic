@@ -66,6 +66,16 @@ namespace oxen::quic
         void handle_ioctx_opt(stream_constructor_callback func);
         void handle_ioctx_opt(connection_established_callback func);
         void handle_ioctx_opt(connection_closed_callback func);
+
+        /// Unwraps an optional option: does nothing if nullopt, otherwise applies the option.  This
+        /// is here to make runtime-dependent options (i.e. options whose presence depends on a
+        /// condition not knowable at compile time) easier to manage.
+        template <typename Opt>
+        void handle_ioctx_opt(std::optional<Opt> option)
+        {
+            if (option)
+                handle_ioctx_opt(std::move(*option));
+        }
     };
 
 }  // namespace oxen::quic
