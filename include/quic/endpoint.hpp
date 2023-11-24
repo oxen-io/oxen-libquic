@@ -55,8 +55,6 @@ namespace oxen::quic
         connection_established_callback connection_established_cb;
         connection_closed_callback connection_close_cb;
 
-        std::string local_addr() { return _local.to_string(); }
-
         template <typename... Opt>
         Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
         {
