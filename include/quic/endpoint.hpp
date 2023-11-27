@@ -34,7 +34,7 @@ extern "C"
 
 namespace oxen::quic
 {
-    class Endpoint : std::enable_shared_from_this<Endpoint>
+    class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
