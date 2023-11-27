@@ -47,7 +47,7 @@ namespace oxen::quic
 
     void Endpoint::handle_ep_opt(opt::handshake_timeout timeout)
     {
-        handshake_timeout = timeout;
+        handshake_timeout = timeout.timeout;
     }
 
     void Endpoint::handle_ep_opt(dgram_data_callback func)

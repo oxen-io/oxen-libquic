@@ -43,7 +43,7 @@ namespace oxen::quic::test
 
         SECTION("No Server ALPNs specified (defaulted)")
         {
-            opt::outbound_alpns client_alpns{.alpns{"client"}};
+            opt::outbound_alpns client_alpns{{"client"}};
 
             auto server_endpoint = test_net.endpoint(server_local, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
@@ -59,7 +59,7 @@ namespace oxen::quic::test
 
         SECTION("No Client ALPNs specified (defaulted)")
         {
-            opt::inbound_alpns server_alpns{.alpns{"client", "relay"}};
+            opt::inbound_alpns server_alpns{{"client", "relay"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
@@ -75,8 +75,8 @@ namespace oxen::quic::test
 
         SECTION("Client ALPNs not supported")
         {
-            opt::inbound_alpns server_alpns{.alpns{"client", "relay"}};
-            opt::outbound_alpns client_alpns{.alpns{"foobar"}};
+            opt::inbound_alpns server_alpns{{"client", "relay"}};
+            opt::outbound_alpns client_alpns{{"foobar"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));
@@ -92,9 +92,9 @@ namespace oxen::quic::test
 
         SECTION("Select first ALPN both sides support")
         {
-            opt::inbound_alpns server_alpns{.alpns{"client", "relay"}};
-            opt::outbound_alpns client_alpns{.alpns{"client"}};
-            opt::outbound_alpns client_alpns2{.alpns{"relay"}};
+            opt::inbound_alpns server_alpns{{"client", "relay"}};
+            opt::outbound_alpns client_alpns{{"client"}};
+            opt::outbound_alpns client_alpns2{{"relay"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
             REQUIRE(server_endpoint->listen(server_tls));

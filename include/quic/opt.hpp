@@ -59,17 +59,20 @@ namespace oxen::quic::opt
     struct outbound_alpns
     {
         std::vector<std::string> alpns;
+        explicit outbound_alpns(std::vector<std::string> alpns = {}) : alpns{std::move(alpns)} {}
     };
 
     // supported ALPNs for inbound connections
     struct inbound_alpns
     {
         std::vector<std::string> alpns;
+        explicit inbound_alpns(std::vector<std::string> alpns = {}) : alpns{std::move(alpns)} {}
     };
 
-    struct handshake_timeout : public std::chrono::nanoseconds
+    struct handshake_timeout
     {
-        using std::chrono::nanoseconds::nanoseconds;
+        std::chrono::nanoseconds timeout;
+        explicit handshake_timeout(std::chrono::nanoseconds ns = 0ns) : timeout{ns} {}
     };
 
 }  // namespace oxen::quic::opt
