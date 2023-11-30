@@ -62,7 +62,7 @@ namespace oxen::quic::test
         const auto& server_tls = tls.second;
 
         auto server_endpoint = test_net.endpoint(server_local);
-        REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 

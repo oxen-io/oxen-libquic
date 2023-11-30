@@ -73,14 +73,14 @@ namespace oxen::quic
         }
 
         template <typename... Opt>
-        bool listen(Opt&&... opts)
+        void listen(Opt&&... opts)
         {
 
             static_assert(
                     (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
                     "Endpoint listen requires exactly one std::shared_ptr<TLSCreds> argument");
 
-            std::promise<bool> p;
+            std::promise<void> p;
             auto f = p.get_future();
 
             net.call([&opts..., &p, this]() mutable {
@@ -93,7 +93,7 @@ namespace oxen::quic
 
                     log::debug(log_cat, "Inbound context ready for incoming connections");
 
-                    p.set_value(true);
+                    p.set_value();
                 }
                 catch (...)
                 {
@@ -101,7 +101,7 @@ namespace oxen::quic
                 }
             });
 
-            return f.get();
+            f.get();
         }
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map

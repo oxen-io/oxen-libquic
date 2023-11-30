@@ -132,7 +132,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         SECTION("Endpoint::listen() + Endpoint::Connect() - Incorrect pubkey in remote")
         {
@@ -207,7 +207,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
@@ -240,7 +240,7 @@ namespace oxen::quic::test
             Address client_local{};
 
             auto server_endpoint = test_net.endpoint(server_local, server_established);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "::1"s, server_endpoint->local().port()};
 
@@ -266,7 +266,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
