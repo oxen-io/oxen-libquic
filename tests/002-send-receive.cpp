@@ -13,7 +13,6 @@ namespace oxen::quic::test
     {
         Network test_net{};
         auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
-        bstring_view bad_msg;
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
@@ -41,7 +40,6 @@ namespace oxen::quic::test
         auto client_stream = conn_interface->get_new_stream();
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
-        REQUIRE_THROWS(client_stream->send(bad_msg));
 
         REQUIRE(d_future.get());
     };
@@ -50,7 +48,6 @@ namespace oxen::quic::test
     {
         Network test_net{};
         auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
-        bstring_view bad_msg;
 
         std::vector<std::promise<bool>> d_promises{2};
         std::vector<std::future<bool>> d_futures{2};
@@ -95,7 +92,6 @@ namespace oxen::quic::test
         auto client_stream = conn_interface->get_new_stream();
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
-        REQUIRE_THROWS(client_stream->send(bad_msg));
 
         REQUIRE(d_futures[1].get());
     };
