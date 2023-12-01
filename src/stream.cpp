@@ -158,7 +158,7 @@ namespace oxen::quic
         return nbufs;
     }
 
-    void Stream::send(bstring_view data, std::shared_ptr<void> keep_alive)
+    void Stream::send_impl(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         if (data.empty())
             throw std::invalid_argument{"Cannot send empty byte string"};

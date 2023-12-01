@@ -58,30 +58,6 @@ namespace oxen::quic
 
         void close(io_error ec = io_error{});
 
-        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
-
-        template <
-                typename CharType,
-                std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
-        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
-        {
-            send(convert_sv<std::byte>(data), std::move(keep_alive));
-        }
-
-        template <typename CharType>
-        void send(std::basic_string<CharType>&& data)
-        {
-            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
-            std::basic_string_view<CharType> view{*keep_alive};
-            send(view, std::move(keep_alive));
-        }
-
-        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
-        void send(std::vector<Char>&& buf)
-        {
-            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
-        }
-
         void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
 
         void set_stream_close_cb(stream_close_callback cb) { close_callback = std::move(cb); }
@@ -101,6 +77,8 @@ namespace oxen::quic
             if (close_callback)
                 close_callback(*this, app_code);
         }
+
+        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
       private:
         stream_buffer user_buffers;

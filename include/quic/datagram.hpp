@@ -70,7 +70,6 @@ namespace oxen::quic
         virtual bool is_stream() const = 0;
         virtual bool is_empty() const = 0;
         virtual std::shared_ptr<Stream> get_stream() = 0;
-        virtual void send(bstring_view, std::shared_ptr<void> keep_alive = nullptr) = 0;
         virtual std::vector<ngtcp2_vec> pending() = 0;
         virtual prepared_datagram pending_datagram(bool) = 0;
         virtual int64_t stream_id() const = 0;
@@ -80,6 +79,32 @@ namespace oxen::quic
         virtual size_t unsent() const = 0;
         virtual void wrote(size_t) = 0;
         virtual bool has_unsent() const = 0;
+
+        template <typename CharType, std::enable_if_t<sizeof(CharType) == 1, int> = 0>
+        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        {
+            send_impl(convert_sv<std::byte>(data), std::move(keep_alive));
+        }
+
+        template <typename CharType>
+        void send(std::basic_string<CharType>&& data)
+        {
+            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
+            std::basic_string_view<CharType> view{*keep_alive};
+            send(view, std::move(keep_alive));
+        }
+
+        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
+        void send(std::vector<Char>&& buf)
+        {
+            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
+        }
+
+
+      protected:
+        // This is the (single) send implementation that implementing classes must provide; other
+        // calls to send are converted into calls to this.
+        virtual void send_impl(bstring_view, std::shared_ptr<void> keep_alive) = 0;
     };
 
     class DatagramIO : public IOChannel
@@ -164,8 +189,6 @@ namespace oxen::quic
 
         bool is_empty() const override { return send_buffer.empty(); }
 
-        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
-
         prepared_datagram pending_datagram(bool r) override;
 
         bool is_stream() const override { return false; }
@@ -173,6 +196,9 @@ namespace oxen::quic
         std::optional<bstring> to_buffer(bstring_view data, uint16_t dgid);
 
         int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
+
+      protected:
+        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
 
       private:
         const bool _packet_splitting{false};
