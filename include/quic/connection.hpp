@@ -133,7 +133,7 @@ namespace oxen::quic
 #endif
     };
 
-    class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
+    class Connection : public connection_interface
     {
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
