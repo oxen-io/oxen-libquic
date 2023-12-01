@@ -113,6 +113,10 @@ namespace oxen::quic
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
+        virtual Direction direction() const = 0;
+        bool is_inbound() const { return direction() == Direction::INBOUND; }
+        bool is_outbound() const { return direction() == Direction::OUTBOUND; }
+        std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -173,10 +177,7 @@ namespace oxen::quic
         std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
-        Direction direction() const { return dir; }
-        bool is_inbound() const { return dir == Direction::INBOUND; }
-        bool is_outbound() const { return dir == Direction::OUTBOUND; }
-        std::string_view direction_str() const { return dir == Direction::INBOUND ? "server"sv : "client"sv; }
+        Direction direction() const override { return dir; }
 
         void halt_events();
         bool is_closing() const { return closing; }
