@@ -100,7 +100,6 @@ namespace oxen::quic
             send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
         }
 
-
       protected:
         // This is the (single) send implementation that implementing classes must provide; other
         // calls to send are converted into calls to this.
