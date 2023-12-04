@@ -72,7 +72,7 @@ namespace oxen::quic::test
         auto server_endpoint_a = test_net.endpoint(server_a_local);
         REQUIRE_NOTHROW(server_endpoint_a->listen(server_tls, server_data_cb));
 
-        auto server_endpoint_b = test_net.endpoint(server_a_local);
+        auto server_endpoint_b = test_net.endpoint(server_b_local);
         REQUIRE_NOTHROW(server_endpoint_b->listen(server_tls, server_data_cb));
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
@@ -123,7 +123,7 @@ namespace oxen::quic::test
         auto server_endpoint_a = test_net.endpoint(server_a_local);
         REQUIRE_NOTHROW(server_endpoint_a->listen(server_tls, server_data_cb));
 
-        auto server_endpoint_b = test_net.endpoint(server_a_local);
+        auto server_endpoint_b = test_net.endpoint(server_b_local);
         REQUIRE_NOTHROW(server_endpoint_b->listen(server_tls, server_data_cb));
 
         RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
@@ -143,6 +143,84 @@ namespace oxen::quic::test
         server_b_stream->send(good_msg);
 
         REQUIRE(d_futures[1].get());
+    };
+
+    TEST_CASE("002 - Client to server transmission, larger string ownership", "[002][simple][larger][ownership]")
+    {
+        Network test_net{};
+        bstring good_msg;
+        good_msg.reserve(2600);
+        for (int i = 0; i < 100; i++)
+            for (char c = 'a'; c <= 'z'; c++)
+                good_msg.push_back(static_cast<std::byte>(c));
+
+        constexpr int tests = 10;
+        std::mutex received_mut;
+        int good = 0, bad = 0;
+        std::promise<void> done_receiving;
+
+        stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
+            log::debug(log_cat, "Server stream data callback -- data received (len {})", dat.size());
+            static bstring partial;
+            partial.append(dat);
+            if (partial.size() < good_msg.size())
+                return;
+            std::lock_guard lock{received_mut};
+            if (bstring_view{partial}.substr(0, good_msg.size()) == good_msg)
+                good++;
+            else
+                bad++;
+            partial = partial.substr(good_msg.size());
+            if (good + bad >= tests)
+                done_receiving.set_value();
+        };
+
+        auto [_, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_a_local{}, server_b_local{};
+
+        auto server_endpoint_a = test_net.endpoint(server_a_local);
+        REQUIRE_NOTHROW(server_endpoint_a->listen(server_tls, server_data_cb));
+
+        auto server_endpoint_b = test_net.endpoint(server_b_local);
+
+        RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
+        RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
+
+        auto conn_to_a = server_endpoint_b->connect(server_remote_a, server_tls);
+        auto stream_to_a = conn_to_a->get_new_stream();
+
+        SECTION("Sending bstring_view of long-lived buffer") {
+            for (int i = 0; i < tests; i++) {
+                // There is no ownership issue here: we're just viewing into our `good_msg` which we
+                // are keeping alive already for the duration of this test.
+                stream_to_a->send(bstring_view{good_msg});
+            }
+        }
+        SECTION("Sending bstring buffer with transferred ownership") {
+            for (int i = 0; i < tests; i++) {
+                // Deliberately construct a new temporary string here, and move it into `send()` to
+                // transfer ownership of it off to the stream to manage:
+                bstring copy{good_msg};
+                stream_to_a->send(std::move(copy));
+            }
+        }
+        SECTION("Sending bstring_view buffer with managed keep-alive") {
+            for (int i = 0; i < tests; i++) {
+                // Similar to the above, but keep the data alive via a manual shared_ptr keep-alive
+                // object.
+                auto ptr = std::make_shared<bstring>(good_msg);
+                stream_to_a->send(bstring_view{*ptr}, ptr);
+            }
+        }
+
+        auto wait_result = done_receiving.get_future().wait_for(5s);
+        REQUIRE(wait_result == std::future_status::ready);
+        {
+            std::lock_guard lock{received_mut};
+            CHECK(good == tests);
+            CHECK(bad == 0);
+        }
     };
 
     TEST_CASE("002 - BParser Testing", "[002][bparser]")
