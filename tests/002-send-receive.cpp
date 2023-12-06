@@ -190,23 +190,29 @@ namespace oxen::quic::test
         auto conn_to_a = server_endpoint_b->connect(server_remote_a, server_tls);
         auto stream_to_a = conn_to_a->get_new_stream();
 
-        SECTION("Sending bstring_view of long-lived buffer") {
-            for (int i = 0; i < tests; i++) {
+        SECTION("Sending bstring_view of long-lived buffer")
+        {
+            for (int i = 0; i < tests; i++)
+            {
                 // There is no ownership issue here: we're just viewing into our `good_msg` which we
                 // are keeping alive already for the duration of this test.
                 stream_to_a->send(bstring_view{good_msg});
             }
         }
-        SECTION("Sending bstring buffer with transferred ownership") {
-            for (int i = 0; i < tests; i++) {
+        SECTION("Sending bstring buffer with transferred ownership")
+        {
+            for (int i = 0; i < tests; i++)
+            {
                 // Deliberately construct a new temporary string here, and move it into `send()` to
                 // transfer ownership of it off to the stream to manage:
                 bstring copy{good_msg};
                 stream_to_a->send(std::move(copy));
             }
         }
-        SECTION("Sending bstring_view buffer with managed keep-alive") {
-            for (int i = 0; i < tests; i++) {
+        SECTION("Sending bstring_view buffer with managed keep-alive")
+        {
+            for (int i = 0; i < tests; i++)
+            {
                 // Similar to the above, but keep the data alive via a manual shared_ptr keep-alive
                 // object.
                 auto ptr = std::make_shared<bstring>(good_msg);
