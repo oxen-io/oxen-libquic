@@ -40,7 +40,7 @@ namespace oxen::quic
                Endpoint& ep,
                stream_data_callback data_cb = nullptr,
                stream_close_callback close_cb = nullptr);
-        ~Stream();
+        ~Stream() override;
 
         bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
         bool is_stream() const override { return true; }

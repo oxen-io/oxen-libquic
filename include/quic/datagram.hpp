@@ -12,7 +12,7 @@ namespace oxen::quic
     class connection_interface;
     struct ConnectionID;
 
-    struct dgram_interface
+    struct dgram_interface : public std::enable_shared_from_this<dgram_interface>
     {
         dgram_interface(Connection& c);
         connection_interface& ci;

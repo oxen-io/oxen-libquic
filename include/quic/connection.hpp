@@ -302,7 +302,7 @@ namespace oxen::quic
 
         io_result read_packet(const Packet& pkt);
 
-        dgram_interface di;
+        std::shared_ptr<dgram_interface> di;
 
       public:
         // public to be called by endpoint handing this connection a packet
