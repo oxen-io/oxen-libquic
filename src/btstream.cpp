@@ -2,7 +2,7 @@
 
 namespace oxen::quic
 {
-    message::message(BTRequestStream& bp, std::string req, bool is_error) :
+    message::message(BTRequestStream& bp, bstring req, bool is_error) :
             data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
@@ -18,19 +18,19 @@ namespace oxen::quic
         req_body = btlc.consume_string_view();
     }
 
-    void message::respond(std::string body, bool error)
+    void message::respond(bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (auto ptr = return_sender.lock())
-            ptr->respond(req_id, std::move(body), error);
+            ptr->respond(req_id, body, error);
     }
 
-    void BTRequestStream::respond(int64_t rid, std::string body, bool error)
+    void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        auto req = make_response(rid, std::move(body), error);
+        auto req = make_response(rid, body, error);
 
         if (req)
             send(std::move(*req).payload());
@@ -48,7 +48,7 @@ namespace oxen::quic
 
             if (f->is_expired(now))
             {
-                f->cb(f->to_message(true));
+                f->cb(std::move(*f).to_timeout());
                 sent_reqs.pop_front();
             }
             else
@@ -141,7 +141,7 @@ namespace oxen::quic
                 }
                 else
                 {
-                    consumed = parse_length(req);
+                    consumed = parse_length(convert_sv<char>(req));
                     if (consumed == 0)
                     {
                         size_buf += req;
@@ -182,7 +182,7 @@ namespace oxen::quic
         }
     }
 
-    std::optional<sent_request> BTRequestStream::make_response(int64_t rid, std::string body, bool error)
+    std::optional<sent_request> BTRequestStream::make_response(int64_t rid, bstring_view body, bool error)
     {
         oxenc::bt_list_producer btlp;
 

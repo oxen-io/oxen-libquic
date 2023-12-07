@@ -28,20 +28,22 @@ namespace oxen::quic
     struct message
     {
         friend class BTRequestStream;
+        friend class sent_request;
 
       private:
         int64_t req_id;
-        std::string data;
+        bstring data;
         std::string_view req_type;
         std::string_view ep;
         std::string_view req_body;
         std::weak_ptr<BTRequestStream> return_sender;
         ConnectionID cid;
 
-      public:
-        message(BTRequestStream& bp, std::string req, bool is_error = false);
+        message(BTRequestStream& bp, bstring req, bool is_error = false);
 
-        void respond(std::string body, bool error = false);
+      public:
+        void respond(bstring_view body, bool error = false);
+        void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
         bool timed_out{false};
         bool is_error{false};
@@ -58,14 +60,29 @@ namespace oxen::quic
         //  }
         operator bool() const { return not timed_out && not is_error; }
 
-        std::string_view view() const { return {data}; }
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string_view<Char> view() const
+        {
+            return {reinterpret_cast<const Char*>(data.data()), data.size()};
+        }
 
         int64_t rid() const { return req_id; }
         std::string_view type() const { return req_type; }
         std::string_view endpoint() const { return ep; }
-        std::string_view body() const { return req_body; }
         std::string endpoint_str() const { return std::string{ep}; }
-        std::string body_str() const { return std::string{req_body}; }
+
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string_view<Char> body() const
+        {
+            return convert_sv<Char>(req_body);
+        }
+
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string<Char> body_str() const
+        {
+            return std::basic_string<Char>{body<Char>()};
+        }
+
         const ConnectionID& scid() const { return cid; }
 
         std::shared_ptr<BTRequestStream> stream() const
@@ -108,7 +125,7 @@ namespace oxen::quic
 
         bool is_expired(std::chrono::steady_clock::time_point tp) const { return expiry < tp; }
 
-        message to_message(bool timed_out = false) { return {return_sender, data, timed_out}; }
+        message to_timeout() && { return {return_sender, ""_bs, true}; }
 
         std::string_view view() { return {data}; }
         std::string payload() && { return std::move(data); }
@@ -134,7 +151,7 @@ namespace oxen::quic
 
         std::unordered_map<std::string, std::function<void(message)>> func_map;
 
-        std::string buf;
+        bstring buf;
         std::string size_buf;
 
         size_t current_len{0};
@@ -171,11 +188,11 @@ namespace oxen::quic
                     std::chrono::milliseconds timeout - request timeout (defaults to 10 seconds)
         */
         template <typename... Opt>
-        void command(std::string ep, std::string body, Opt&&... opts)
+        void command(std::string ep, bstring_view body, Opt&&... opts)
         {
             log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-            auto req = make_command(std::move(ep), std::move(body), std::forward<Opt>(opts)...);
+            auto req = make_command(std::move(ep), body, std::forward<Opt>(opts)...);
 
             if (req->cb)
             {
@@ -187,8 +204,14 @@ namespace oxen::quic
             else
                 send(std::move(*req).payload());
         }
+        // Same as above, but takes a regular string_view
+        template <typename... Opt>
+        void command(std::string ep, std::string_view body, Opt&&... opts)
+        {
+            command(std::move(ep), convert_sv<std::byte>(body), std::forward<Opt>(opts)...);
+        }
 
-        void respond(int64_t rid, std::string body, bool error = false);
+        void respond(int64_t rid, bstring_view body, bool error = false);
 
         void check_timeouts();
 
@@ -214,7 +237,7 @@ namespace oxen::quic
         void process_incoming(std::string_view req);
 
         template <typename... Opt>
-        std::shared_ptr<sent_request> make_command(std::string endpoint, std::string body, Opt&&... opts)
+        std::shared_ptr<sent_request> make_command(std::string_view endpoint, bstring_view body, Opt&&... opts)
         {
             oxenc::bt_list_producer btlp;
             auto rid = ++next_rid;
@@ -235,7 +258,7 @@ namespace oxen::quic
             }
         }
 
-        std::optional<sent_request> make_response(int64_t rid, std::string body, bool error = false);
+        std::optional<sent_request> make_response(int64_t rid, bstring_view body, bool error = false);
 
         size_t parse_length(std::string_view req);
     };
