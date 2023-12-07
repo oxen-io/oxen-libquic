@@ -16,6 +16,10 @@ namespace oxen::quic
     // request sizes
     inline constexpr long long MAX_REQ_LEN = 10_M;
 
+    // maximum length of the bencoded request length string, including the `:`.  This must be large
+    // enough to hold `MAX_REQ_LEN` followed by a `:`.
+    inline constexpr size_t MAX_REQ_LEN_ENCODED = 9;  // "10000000:"
+
     // Application error
     inline constexpr uint64_t BPARSER_EXCEPTION = (1ULL << 60) + 69;
 

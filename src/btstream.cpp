@@ -129,7 +129,7 @@ namespace oxen::quic
                 if (not size_buf.empty())
                 {
                     size_t prev_len = size_buf.size();
-                    size_buf += req.substr(0, 15);
+                    size_buf += req.substr(0, MAX_REQ_LEN_ENCODED);
 
                     consumed = parse_length(size_buf);
 
@@ -214,8 +214,15 @@ namespace oxen::quic
         auto pos = req.find_first_of(':');
 
         // request is incomplete with no readable request length
-        if (req.at(pos) == req.back())
+        if (pos == std::string_view::npos)
+        {
+            if (req.size() >= MAX_REQ_LEN_ENCODED)
+                // we didn't find a valid length, but do have enough consumed for the maximum valid
+                // length, so something is clearly wrong with this input.
+                throw std::invalid_argument{"Invalid incoming request; invalid encoding or request too large"};
+
             return 0;
+        }
 
         auto [ptr, ec] = std::from_chars(req.data(), req.data() + pos, current_len);
 
