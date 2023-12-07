@@ -66,10 +66,10 @@ namespace oxen::quic
 
         std::shared_ptr<BTRequestStream> stream() const
         {
-            if (return_sender.expired())
-                throw std::runtime_error{"Cannot access expired pointer to BT stream!"};
+            if (auto ptr = return_sender.lock())
+                return ptr;
 
-            return return_sender.lock();
+            throw std::runtime_error{"Cannot access expired pointer to BT stream!"};
         }
     };
 
