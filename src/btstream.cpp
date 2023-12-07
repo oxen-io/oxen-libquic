@@ -1,5 +1,7 @@
 #include "btstream.hpp"
 
+#include <stdexcept>
+
 namespace oxen::quic
 {
     message::message(BTRequestStream& bp, bstring req, bool is_error) :
@@ -88,19 +90,20 @@ namespace oxen::quic
 
     void BTRequestStream::handle_input(message msg)
     {
-        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+        log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.req_type);
 
         if (msg.req_type == "R" || msg.req_type == "E")
         {
+            log::trace(log_cat, "Looking for request with req_id={}", msg.req_id);
             // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
             // As a result, our comparator checks if the sent request ID is greater thanthan the target rid
             auto itr = std::lower_bound(
                     sent_reqs.begin(),
                     sent_reqs.end(),
                     msg.req_id,
-                    [](const std::shared_ptr<sent_request>& sr, int64_t rid) { return sr->req_id > rid; });
+                    [](const std::shared_ptr<sent_request>& sr, int64_t rid) { return sr->req_id < rid; });
 
-            if (itr != sent_reqs.end() and itr->get()->req_id == msg.req_id)
+            if (itr != sent_reqs.end())
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
                 itr->get()->cb(std::move(msg));
@@ -150,34 +153,34 @@ namespace oxen::quic
 
                     req.remove_prefix(consumed);
                 }
-
-                if (req.size() >= current_len)
-                {
-                    buf += req.substr(0, current_len);
-                    handle_input(message{*this, std::move(buf)});
-                    req.remove_prefix(current_len);
-
-                    current_len = 0;
-                    continue;
-                }
-
-                buf.reserve(current_len);
-                buf += req;
-                return;
             }
 
-            auto r_size = req.size() + buf.size();
+            assert(current_len > 0);  // We shouldn't get out of the above without knowing this
 
-            if (r_size >= current_len)
+            if (auto r_size = req.size() + buf.size(); r_size >= current_len)
             {
-                buf += req.substr(0, r_size);
-                req.remove_prefix(r_size);
+                // We have enough data for a complete request, so copy whatever we need to
+                // complete the current request into buf and process it, leaving behind the
+                // potential start of the next request:
+                if (buf.size() < current_len)
+                {
+                    size_t need = current_len - buf.size();
+                    buf += convert_sv<std::byte>(req.substr(0, need));
+                    req.remove_prefix(need);
+                }
+
                 handle_input(message{*this, std::move(buf)});
+
+                // Back to the top to try processing another request that might have arrived in
+                // the same stream buffer
                 current_len = 0;
                 continue;
             }
 
-            buf += req;
+            // Otherwise we don't have enough data on hand for a complete request, so move what we
+            // got to the buffer to be processed when the next incoming chunk of data arrives.
+            buf.reserve(current_len);
+            buf += convert_sv<std::byte>(req);
             return;
         }
     }
@@ -226,16 +229,18 @@ namespace oxen::quic
 
         auto [ptr, ec] = std::from_chars(req.data(), req.data() + pos, current_len);
 
+        const char* bad = nullptr;
         if (ec != std::errc())
-        {
-            close(io_error{BPARSER_EXCEPTION});
-            throw std::invalid_argument{"Invalid incoming request encoding!"};
-        }
+            bad = "Invalid incoming request encoding!";
+        else if (current_len == 0)
+            bad = "Invalid empty bt request!";
+        else if (current_len > MAX_REQ_LEN)
+            bad = "Request exceeds maximum size!";
 
-        if (current_len > MAX_REQ_LEN)
+        if (bad)
         {
             close(io_error{BPARSER_EXCEPTION});
-            throw std::invalid_argument{"Request exceeds maximum size!"};
+            throw std::invalid_argument{bad};
         }
 
         return pos + 1;

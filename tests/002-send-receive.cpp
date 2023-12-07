@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <future>
 #include <quic.hpp>
 #include <quic/gnutls_crypto.hpp>
 #include <thread>
@@ -349,6 +350,80 @@ namespace oxen::quic::test
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
         }
-    };
+    }
+
+    TEST_CASE("002 - BParser multi-request testing", "[002][bparser][multi]")
+    {
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        static constexpr int num_requests = 50;
+
+        std::mutex mut;
+        std::promise<void> done_prom;
+        auto done = done_prom.get_future();
+        int responses = 0, good_responses = 0;
+
+        constexpr auto req_msg = "you will never get this, you will never get this, la la la la la"sv;
+        constexpr auto res_msg = "he break a cage and he get this"sv;
+
+        auto server_handler = [&](message msg) {
+            if (msg)
+            {
+                log::info(log_cat, "Server bparser received: {}", msg.view());
+                if (msg.body() == req_msg)
+                    msg.respond(res_msg);
+                else
+                    msg.respond("that would not be funny in America");
+            }
+        };
+
+        auto client_reply_handler = [&](message msg) {
+            if (msg)
+            {
+                std::lock_guard lock{mut};
+                responses++;
+                log::debug(log_cat, "Client bparser received response {}: {}", responses, msg.view());
+                if (msg.body() == res_msg)
+                    good_responses++;
+                if (responses == num_requests)
+                    done_prom.set_value();
+            }
+            else
+            {
+                log::debug(log_cat, "got back a failed message response");
+            }
+        };
+
+        stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+            auto s = std::make_shared<BTRequestStream>(c, e);
+            s->register_command("test_endpoint"s, server_handler);
+            return s;
+        };
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+        std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+
+        for (int i = 0; i < num_requests; i++)
+        {
+            client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
+        }
+
+        CHECK(done.wait_for(5s) == std::future_status::ready);
+        std::lock_guard lock{mut};
+        CHECK(good_responses == num_requests);
+        CHECK(responses == good_responses);
+    }
 
 }  // namespace oxen::quic::test
