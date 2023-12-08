@@ -1313,4 +1313,18 @@ namespace oxen::quic
         return conn;
     }
 
+#ifndef NDEBUG
+
+    connection_interface::~connection_interface()
+    {
+        log::debug(log_cat, "connection_interface @{} destroyed", (void*)this);
+    }
+
+    Connection::~Connection()
+    {
+        log::debug(log_cat, "Connection @{} destroyed", (void*)this);
+    }
+
+#endif
+
 }  // namespace oxen::quic

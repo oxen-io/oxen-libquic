@@ -126,10 +126,12 @@ namespace oxen::quic
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
-        virtual ~connection_interface() = default;
-
 #ifndef NDEBUG
+        virtual ~connection_interface();
+
         debug_interface test_suite;
+#else
+        virtual ~connection_interface() = default;
 #endif
     };
 
@@ -331,6 +333,10 @@ namespace oxen::quic
 
         // returns number of currently pending streams for use in test cases
         size_t num_pending() const { return pending_streams.size(); }
+
+#ifndef NDEBUG
+        ~Connection() override;
+#endif
     };
 
     extern "C"
