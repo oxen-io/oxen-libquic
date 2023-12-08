@@ -243,6 +243,10 @@ namespace oxen::quic
         if (conn.is_closing() || conn.is_draining())
             return;
 
+        // mark connection as closing so that if we re-enter we won't try closing a second time
+        conn.set_closing();
+        conn.halt_events();
+
         if (ec.ngtcp2_code() == NGTCP2_ERR_IDLE_CLOSE)
         {
             log::info(
@@ -264,10 +268,6 @@ namespace oxen::quic
                     "Connection (CID: {}) passed idle expiry timer; closing now with close packet",
                     *conn.scid().data);
         }
-
-        // mark connection as closing
-        conn.halt_events();
-        conn.set_closing();
 
         // prioritize connection level callback over endpoint level
         if (conn.conn_closed_cb)
