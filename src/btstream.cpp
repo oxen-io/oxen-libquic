@@ -73,13 +73,13 @@ namespace oxen::quic
         catch (const std::exception& e)
         {
             log::error(bp_cat, "Exception caught: {}", e.what());
-            close(io_error{BPARSER_EXCEPTION});
+            close(BPARSER_ERROR_EXCEPTION);
         }
     }
 
     void BTRequestStream::closed(uint64_t app_code)
     {
-        log::info(bp_cat, "bparser close callback called!");
+        log::info(bp_cat, "bparser close callback called with {}", quic_strerror(app_code));
         close_callback(*this, app_code);
     }
 
@@ -239,7 +239,7 @@ namespace oxen::quic
 
         if (bad)
         {
-            close(io_error{BPARSER_EXCEPTION});
+            close(BPARSER_ERROR_EXCEPTION);
             throw std::invalid_argument{bad};
         }
 

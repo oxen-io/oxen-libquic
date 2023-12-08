@@ -146,13 +146,6 @@ namespace oxen::quic
     template <typename T>
     using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
-    // Application error code we close with if the stream data handle throws
-    inline constexpr uint64_t STREAM_ERROR_EXCEPTION = (1ULL << 62) - 2;
-    // Application error code we close with if the datagram data handle throws
-    inline constexpr uint64_t DATAGRAM_ERROR_EXCEPTION = (1ULL << 62) - 32;
-    // Error code we send to a stream close callback if the stream's connection expires
-    inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = (1ULL << 62) + 1;
-
     // strang literals
     inline ustring operator""_us(const char* __str, size_t __len) noexcept
     {

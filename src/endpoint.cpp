@@ -300,7 +300,7 @@ namespace oxen::quic
             log::warning(
                     log_cat,
                     "Error: Failed to write connection close packet: {}",
-                    (written < 0) ? strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
+                    (written < 0) ? ngtcp2_strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
 
             delete_connection(conn.scid());
             return;

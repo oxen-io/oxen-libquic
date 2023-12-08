@@ -11,6 +11,7 @@
 
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "error.hpp"
 #include "format.hpp"
 #include "gnutls_crypto.hpp"
 #include "internal.hpp"
@@ -828,7 +829,7 @@ namespace oxen::quic
         {
             log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
             assert(endpoint().in_event_loop());
-            stream->close(io_error{app_err_code});
+            stream->close(app_err_code);
             return 0;
         }
 
@@ -892,36 +893,43 @@ namespace oxen::quic
 
         log::debug(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
-        bool good = false;
+        std::optional<uint64_t> error;
         try
         {
             str->receive(data);
-            good = true;
         }
-        // FIXME: we should add a special exception type that carries a specific stream application
-        // error to send instead of just the generic STREAM_ERROR_EXCEPTION.
+        catch (const application_stream_error& e)
+        {
+            // Application threw us a custom error code to close the stream with
+            log::debug(
+                    log_cat,
+                    "Stream {} data callback threw us a custom error code ({}); closing stream",
+                    str->_stream_id,
+                    e.code);
+            error = e.code;
+        }
         catch (const std::exception& e)
         {
             log::warning(
                     log_cat,
-                    "Stream {} data callback raised exception ({}); closing stream with app "
-                    "code {}",
+                    "Stream {} data callback raised exception ({}); closing stream with {}",
                     str->_stream_id,
                     e.what(),
-                    STREAM_ERROR_EXCEPTION);
+                    quic_strerror(STREAM_ERROR_EXCEPTION));
+            error = STREAM_ERROR_EXCEPTION;
         }
         catch (...)
         {
             log::warning(
                     log_cat,
-                    "Stream {} data callback raised an unknown exception; closing stream with "
-                    "app code {}",
+                    "Stream {} data callback raised an unknown exception; closing stream with {}",
                     str->_stream_id,
-                    STREAM_ERROR_EXCEPTION);
+                    quic_strerror(STREAM_ERROR_EXCEPTION));
+            error = STREAM_ERROR_EXCEPTION;
         }
-        if (!good)
+        if (error)
         {
-            str->close(io_error{error::STREAM_EXCEPTION});
+            str->close(*error);
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
 
@@ -1009,7 +1017,7 @@ namespace oxen::quic
             }
             if (!good)
             {
-                _endpoint.call([this, ec = io_error{error::DATAGRAM_EXCEPTION}]() {
+                _endpoint.call([this, ec = io_error{DATAGRAM_ERROR_EXCEPTION}]() {
                     log::debug(log_cat, "Endpoint closing CID: {}", scid());
                     _endpoint.close_connection(*this, ec, ec.strerror());
                 });

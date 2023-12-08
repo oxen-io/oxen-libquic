@@ -27,7 +27,7 @@ namespace oxen::quic
 
         if (!close_callback)
             close_callback = [](Stream&, uint64_t error_code) {
-                log::info(log_cat, "Default stream close callback called (error code: {})", error_code);
+                log::info(log_cat, "Default stream close callback called ({})", quic_strerror(error_code));
             };
 
         log::trace(log_cat, "Stream object created");
@@ -54,11 +54,13 @@ namespace oxen::quic
         return conn.scid();
     }
 
-    void Stream::close(io_error ec)
+    void Stream::close(uint64_t app_err_code)
     {
+        assert(app_err_code < APP_ERRCODE_MAX);
+
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
-        endpoint.call([this, ec]() {
+        endpoint.call([this, app_err_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (is_shutdown)
@@ -68,8 +70,8 @@ namespace oxen::quic
             else
             {
                 _is_closing = is_shutdown = true;
-                log::info(log_cat, "Closing stream (ID: {}) with error code {}", _stream_id, ec.strerror());
-                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, ec.ngtcp2());
+                log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
+                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, app_err_code);
             }
             if (is_shutdown)
                 data_callback = nullptr;

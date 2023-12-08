@@ -549,7 +549,7 @@ namespace oxen::quic::test
             str->send(std::move(payload));
 
             REQUIRE(stream_close_cb.wait());
-            CHECK(close_err.load() == BPARSER_EXCEPTION);
+            CHECK(close_err.load() == BPARSER_ERROR_EXCEPTION);
         }
     }
 

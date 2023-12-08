@@ -20,9 +20,6 @@ namespace oxen::quic
     // enough to hold `MAX_REQ_LEN` followed by a `:`.
     inline constexpr size_t MAX_REQ_LEN_ENCODED = 9;  // "10000000:"
 
-    // Application error
-    inline constexpr uint64_t BPARSER_EXCEPTION = (1ULL << 60) + 69;
-
     class BTRequestStream;
 
     struct message
