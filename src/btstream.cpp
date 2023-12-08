@@ -32,12 +32,7 @@ namespace oxen::quic
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        auto req = make_response(rid, body, error);
-
-        if (req)
-            send(std::move(*req).payload());
-        else
-            throw std::invalid_argument{"Invalid response!"};
+        send(sent_request{*this, encode_response(rid, body, error), rid}.payload());
     }
 
     void BTRequestStream::check_timeouts()
@@ -185,24 +180,27 @@ namespace oxen::quic
         }
     }
 
-    std::optional<sent_request> BTRequestStream::make_response(int64_t rid, bstring_view body, bool error)
+    std::string BTRequestStream::encode_command(std::string_view endpoint, int64_t rid, bstring_view body)
     {
         oxenc::bt_list_producer btlp;
 
-        try
-        {
-            btlp.append(error ? "E" : "R");
-            btlp.append(rid);
-            btlp.append(body);
+        btlp.append("C");
+        btlp.append(rid);
+        btlp.append(endpoint);
+        btlp.append(body);
 
-            return sent_request{*this, btlp.view(), rid};
-        }
-        catch (...)
-        {
-            log::critical(bp_cat, "Invalid outgoing response encoding!");
-        }
+        return std::move(btlp).str();
+    }
 
-        return std::nullopt;
+    std::string BTRequestStream::encode_response(int64_t rid, bstring_view body, bool error)
+    {
+        oxenc::bt_list_producer btlp;
+
+        btlp.append(error ? "E" : "R");
+        btlp.append(rid);
+        btlp.append(body);
+
+        return std::move(btlp).str();
     }
 
     /** Returns:

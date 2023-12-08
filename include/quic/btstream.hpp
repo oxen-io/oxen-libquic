@@ -189,15 +189,11 @@ namespace oxen::quic
         {
             log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-            auto req = make_command(std::move(ep), body, std::forward<Opt>(opts)...);
+            auto rid = next_rid++;
+            auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
 
             if (req->cb)
-            {
-                endpoint.call([this, r = std::move(req)]() {
-                    sent_reqs.push_back(std::move(r));
-                    send(sent_reqs.back()->view());
-                });
-            }
+                endpoint.call([this, r = std::move(req)]() { send(sent_reqs.emplace_back(std::move(r))->view()); });
             else
                 send(std::move(*req).payload());
         }
@@ -233,29 +229,9 @@ namespace oxen::quic
 
         void process_incoming(std::string_view req);
 
-        template <typename... Opt>
-        std::shared_ptr<sent_request> make_command(std::string_view endpoint, bstring_view body, Opt&&... opts)
-        {
-            oxenc::bt_list_producer btlp;
-            auto rid = ++next_rid;
+        std::string encode_command(std::string_view endpoint, int64_t rid, bstring_view body);
 
-            try
-            {
-                btlp.append("C");
-                btlp.append(rid);
-                btlp.append(endpoint);
-                btlp.append(body);
-
-                return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid, std::forward<Opt>(opts)...);
-            }
-            catch (const std::exception& e)
-            {
-                log::critical(bp_cat, "Invalid outgoing command encoding: {}", e.what());
-                throw;
-            }
-        }
-
-        std::optional<sent_request> make_response(int64_t rid, bstring_view body, bool error = false);
+        std::string encode_response(int64_t rid, bstring_view body, bool error);
 
         size_t parse_length(std::string_view req);
     };
