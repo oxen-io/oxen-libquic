@@ -202,9 +202,9 @@ namespace oxen::quic
 
         void drop_connection(Connection& conn);
 
-        void close_connection(Connection& conn, io_error ec = io_error{0}, std::string_view msg = "NO_ERROR"sv);
+        void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
-        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::string_view msg = "NO_ERROR"sv);
+        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
         const Address& local() const { return _local; }
 
@@ -251,6 +251,8 @@ namespace oxen::quic
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
         void on_receive(const Packet& pkt);
+
+        void _close_connection(Connection& conn, io_error ec, std::string msg);
 
         // Data structures used to keep track of various types of connections
         //

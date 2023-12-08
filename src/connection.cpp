@@ -246,7 +246,7 @@ namespace oxen::quic
 
     void Connection::close_connection(uint64_t error_code)
     {
-        _endpoint.call([this, error_code]() { _endpoint.close_connection(*this, io_error{error_code}); });
+        _endpoint.close_connection(*this, io_error{error_code});
     }
 
     void Connection::handle_conn_packet(const Packet& pkt)
@@ -296,10 +296,8 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this, rv]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"sv);
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"s);
                 break;
             case NGTCP2_ERR_DROP_CONN:
                 // drop connection without calling ngtcp2_conn_write_connection_close()
@@ -334,10 +332,8 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this, rv]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{rv});
                 break;
         }
 
@@ -670,13 +666,10 @@ namespace oxen::quic
                 if (ngtcp2_err_is_fatal(nwrite))
                 {
                     log::critical(log_cat, "Fatal ngtcp2 error: could not write frame - \"{}\"", ngtcp2_strerror(nwrite));
-                    _endpoint.call([this, rv = (int)nwrite]() {
-                        log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
-                        _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
-                    });
+                    _endpoint.close_connection(*this, io_error{(int)nwrite});
                     return;
                 }
-                else if (nwrite == NGTCP2_ERR_WRITE_MORE)
+                if (nwrite == NGTCP2_ERR_WRITE_MORE)
                 {
                     // lets try fitting a small end of a split datagram in
                     prefer_big_first = false;
@@ -1017,10 +1010,8 @@ namespace oxen::quic
             }
             if (!good)
             {
-                _endpoint.call([this, ec = io_error{DATAGRAM_ERROR_EXCEPTION}]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, ec, ec.strerror());
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{DATAGRAM_ERROR_EXCEPTION});
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }

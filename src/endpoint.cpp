@@ -115,16 +115,16 @@ namespace oxen::quic
 
     void Endpoint::close_conns(std::optional<Direction> d)
     {
-        for (const auto& c : conns)
-        {
-            if (d)
-            {
-                if (c.second->direction() == d)
-                    close_connection(*c.second.get());
-            }
-            else
-                close_connection(*c.second.get());
-        }
+        net.call([this, d] {
+            // We have to do this in two passes rather than just closing as we go because
+            // `close_connection` can remove from `conns`, invalidating our implicit iterator.
+            std::vector<Connection*> close_me;
+            for (const auto& c : conns)
+                if (!d || *d == c.second->direction())
+                    close_me.push_back(c.second.get());
+            for (auto* c : close_me)
+                _close_connection(*c, io_error{0}, "NO_ERROR");
+        });
     }
 
     void Endpoint::drain_connection(Connection& conn)
@@ -200,17 +200,6 @@ namespace oxen::quic
         return;
     }
 
-    void Endpoint::close_connection(ConnectionID cid, io_error ec, std::string_view msg)
-    {
-        for (auto& [scid, conn] : conns)
-        {
-            if (scid == cid)
-                return close_connection(*conn, std::move(ec), std::move(msg));
-        }
-
-        log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
-    }
-
     void Endpoint::drop_connection(Connection& conn)
     {
         const auto* err = ngtcp2_conn_get_ccerr(conn);
@@ -236,9 +225,32 @@ namespace oxen::quic
         delete_connection(conn.scid());
     }
 
-    void Endpoint::close_connection(Connection& conn, io_error ec, std::string_view msg)
+    void Endpoint::close_connection(ConnectionID cid, io_error ec, std::optional<std::string> msg)
+    {
+        if (!msg)
+            msg = ec.strerror();
+        net.call([this, cid = std::move(cid), ec = std::move(ec), msg = std::move(*msg)]() mutable {
+            if (auto it = conns.find(cid); it != conns.end())
+                _close_connection(*it->second, std::move(ec), std::move(msg));
+            else
+                log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
+        });
+    }
+
+    void Endpoint::close_connection(Connection& conn, io_error ec, std::optional<std::string> msg)
+    {
+        if (!msg)
+            msg = ec.strerror();
+        net.call([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
+            _close_connection(conn, std::move(ec), std::move(msg));
+        });
+    }
+
+    void Endpoint::_close_connection(Connection& conn, io_error ec, std::string msg)
     {
         log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
+
+        assert(net.in_event_loop());
 
         if (conn.is_closing() || conn.is_draining())
             return;
