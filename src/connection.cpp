@@ -349,10 +349,10 @@ namespace oxen::quic
     // so, we move them to the streams map, where they will get picked up by flush_streams and dump
     // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
     // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
-    void Connection::check_pending_streams(int available)
+    void Connection::check_pending_streams(uint64_t available)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        int popped = 0;
+        uint64_t popped = 0;
 
         while (!pending_streams.empty() && popped < available)
         {
@@ -1049,13 +1049,10 @@ namespace oxen::quic
         datagrams->send(data, std::move(keep_alive));
     }
 
-    int Connection::get_streams_available() const
+    uint64_t Connection::get_streams_available() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        uint64_t open = ngtcp2_conn_get_streams_bidi_left(conn.get());
-        if (open > std::numeric_limits<uint64_t>::max())
-            return -1;
-        return open;
+        return ngtcp2_conn_get_streams_bidi_left(conn.get());
     }
 
     size_t Connection::get_max_datagram_size() const

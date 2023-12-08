@@ -16,7 +16,7 @@ namespace oxen::quic
     struct user_config
     {
         // max streams
-        int max_streams = 0;
+        uint64_t max_streams = 0;
         // datagram support
         bool datagram_support = false;
         // datagram splitting support

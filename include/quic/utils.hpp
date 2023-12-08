@@ -111,7 +111,7 @@ namespace oxen::quic
         return x * 1024 * 1_Gi;
     }
 
-    inline constexpr int DEFAULT_MAX_BIDI_STREAMS = 32;
+    inline constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
 
     // NGTCP2 sets the path_pmtud_payload to 1200 on connection creation, then discovers upwards
     // to a theoretical max of 1452. In 'lazy' mode, we take in split packets under the current max
@@ -147,23 +147,23 @@ namespace oxen::quic
     using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
     // strang literals
-    inline ustring operator""_us(const char* __str, size_t __len) noexcept
+    inline ustring operator""_us(const char* str, size_t len) noexcept
     {
-        return ustring(reinterpret_cast<const unsigned char*>(__str), __len);
+        return {reinterpret_cast<const unsigned char*>(str), len};
     }
-    inline ustring_view operator""_usv(const char* __str, size_t __len) noexcept
+    inline ustring_view operator""_usv(const char* str, size_t len) noexcept
     {
-        return ustring_view(reinterpret_cast<const unsigned char*>(__str), __len);
-    }
-
-    inline bstring_view operator""_bsv(const char* __str, size_t __len) noexcept
-    {
-        return bstring_view(reinterpret_cast<const std::byte*>(__str), __len);
+        return {reinterpret_cast<const unsigned char*>(str), len};
     }
 
-    inline bstring operator""_bs(const char* _str, size_t _len) noexcept
+    inline bstring_view operator""_bsv(const char* str, size_t len) noexcept
     {
-        return bstring(reinterpret_cast<const std::byte*>(_str), _len);
+        return {reinterpret_cast<const std::byte*>(str), len};
+    }
+
+    inline bstring operator""_bs(const char* str, size_t len) noexcept
+    {
+        return {reinterpret_cast<const std::byte*>(str), len};
     }
 
     template <

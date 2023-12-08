@@ -110,7 +110,7 @@ namespace oxen::quic
 
         template <typename... Opt>
         sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, Opt&&... opts) :
-                req_id{rid}, return_sender{bp}, total_len{d.length()}, req_time{get_time()}, expiry{req_time}
+                req_id{rid}, return_sender{bp}, total_len{d.size()}, req_time{get_time()}, expiry{req_time}
         {
             if (total_len > MAX_REQ_LEN)
                 throw std::invalid_argument{"Request body too long!"};
@@ -163,8 +163,6 @@ namespace oxen::quic
         {
             ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
         }
-
-        ~BTRequestStream() override { sent_reqs.clear(); }
 
         std::weak_ptr<BTRequestStream> weak_from_this()
         {

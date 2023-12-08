@@ -10,9 +10,9 @@ namespace oxen::quic::opt
 {
     struct max_streams
     {
-        int stream_count = DEFAULT_MAX_BIDI_STREAMS;
+        uint64_t stream_count = DEFAULT_MAX_BIDI_STREAMS;
         max_streams() = default;
-        explicit max_streams(int s) : stream_count{s} {}
+        explicit max_streams(uint64_t s) : stream_count{s} {}
     };
 
     /// This can be initialized a few different ways. Simply passing a default constructed struct

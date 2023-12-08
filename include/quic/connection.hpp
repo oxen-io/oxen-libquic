@@ -104,8 +104,8 @@ namespace oxen::quic
 
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
 
-        virtual int get_max_streams() const = 0;
-        virtual int get_streams_available() const = 0;
+        virtual uint64_t get_max_streams() const = 0;
+        virtual uint64_t get_streams_available() const = 0;
         virtual size_t get_max_datagram_size() const = 0;
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
@@ -198,9 +198,9 @@ namespace oxen::quic
 
         ustring_view selected_alpn() const override;
 
-        int get_streams_available() const override;
+        uint64_t get_streams_available() const override;
         size_t get_max_datagram_size() const override;
-        int get_max_streams() const override { return _max_streams; }
+        uint64_t get_max_streams() const override { return _max_streams; }
         bool datagrams_enabled() const override { return _datagrams_enabled; }
         bool packet_splitting_enabled() const override { return _packet_splitting; }
 
@@ -241,7 +241,7 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        const int _max_streams{DEFAULT_MAX_BIDI_STREAMS};
+        const uint64_t _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         std::atomic<bool> _congested{false};
@@ -312,7 +312,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_closed(int64_t id, uint64_t app_code);
-        void check_pending_streams(int available);
+        void check_pending_streams(uint64_t available);
         int recv_datagram(bstring_view data, bool fin);
         int ack_datagram(uint64_t dgram_id);
 

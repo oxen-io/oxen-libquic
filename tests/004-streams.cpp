@@ -129,21 +129,20 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::atomic<int> index{0};
-        std::atomic<int> data_check{0};
-        int n_streams = 12;
-        int n_sends = n_streams + 2, n_recvs = n_streams + 1;
+        std::atomic<size_t> index{0};
+        std::atomic<size_t> data_check{0};
+        size_t n_streams = 12, n_sends = n_streams + 2, n_recvs = n_streams + 1;
 
         opt::max_streams max_streams{n_streams - 4};  // 8
-        std::vector<std::shared_ptr<Stream>> streams{size_t(n_streams)};
+        std::vector<std::shared_ptr<Stream>> streams{n_streams};
 
         Address server_local{};
         Address client_local{};
 
-        std::vector<std::promise<bool>> send_promises{size_t(n_sends)}, receive_promises{size_t(n_recvs)};
-        std::vector<std::future<bool>> send_futures{size_t(n_sends)}, receive_futures{size_t(n_recvs)};
+        std::vector<std::promise<bool>> send_promises{n_sends}, receive_promises{n_recvs};
+        std::vector<std::future<bool>> send_futures{n_sends}, receive_futures{n_recvs};
 
-        for (int i = 0; i < n_recvs; ++i)
+        for (size_t i = 0; i < n_recvs; ++i)
         {
             send_futures[i] = send_promises[i].get_future();
             receive_futures[i] = receive_promises[i].get_future();
@@ -156,8 +155,7 @@ namespace oxen::quic::test
             try
             {
                 data_check += 1;
-                receive_promises.at(index).set_value(true);
-                ++index;
+                receive_promises.at(index++).set_value(true);
             }
             catch (std::exception& e)
             {
@@ -177,7 +175,7 @@ namespace oxen::quic::test
 
         REQUIRE(client_established.wait());
 
-        for (int i = 0; i < n_streams; ++i)
+        for (size_t i = 0; i < n_streams; ++i)
         {
             streams[i] = conn_interface->get_new_stream();
             streams[i]->send(msg);
@@ -185,15 +183,15 @@ namespace oxen::quic::test
         }
 
         // 2) check the first 8
-        for (int i = 0; i < n_streams - 4; ++i)
+        for (size_t i = 0; i < n_streams - 4; ++i)
             REQUIRE(receive_futures[i].get());
 
         // 3) close 5 streams
-        for (int i = 0; i < 5; ++i)
+        for (size_t i = 0; i < 5; ++i)
             streams[i]->close();
 
         // 4) check the last 4
-        for (int i = n_streams - 4; i < n_streams; ++i)
+        for (size_t i = n_streams - 4; i < n_streams; ++i)
             REQUIRE(receive_futures[i].get());
 
         // 5) open 2 more streams and send
