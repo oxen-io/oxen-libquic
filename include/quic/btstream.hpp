@@ -28,7 +28,7 @@ namespace oxen::quic
     struct message
     {
         friend class BTRequestStream;
-        friend class sent_request;
+        friend struct sent_request;
 
       private:
         int64_t req_id;
