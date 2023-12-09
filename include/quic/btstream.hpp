@@ -156,14 +156,16 @@ namespace oxen::quic
         std::atomic<int64_t> next_rid{0};
 
         friend struct sent_request;
+        friend class Network;
 
-      public:
+      protected:
         template <typename... Opt>
         explicit BTRequestStream(Connection& _c, Endpoint& _e, Opt&&... opts) : Stream{_c, _e}
         {
             ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
         }
 
+      public:
         std::weak_ptr<BTRequestStream> weak_from_this()
         {
             return std::dynamic_pointer_cast<BTRequestStream>(shared_from_this());

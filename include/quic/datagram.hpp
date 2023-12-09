@@ -53,9 +53,10 @@ namespace oxen::quic
 
     class IOChannel
     {
-      public:
+      protected:
         IOChannel(Connection& c, Endpoint& e);
 
+      public:
         virtual ~IOChannel() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
 
         Connection& conn;
@@ -108,8 +109,13 @@ namespace oxen::quic
 
     class DatagramIO : public IOChannel
     {
-      public:
+
+      protected:
+        // Construct via net.make_shared<DatagramIO>(...)
+        friend class Network;
         DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb = nullptr);
+
+      public:
         dgram_data_callback dgram_data_cb;
 
         /// Datagram Numbering:

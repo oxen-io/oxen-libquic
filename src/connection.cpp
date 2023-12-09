@@ -812,7 +812,7 @@ namespace oxen::quic
 
         auto stream = (context->stream_construct_cb)
                             ? context->stream_construct_cb(*this, _endpoint, id)
-                            : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+                            : _endpoint.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
         stream->_stream_id = id;
         stream->set_ready();
 
@@ -1154,7 +1154,7 @@ namespace oxen::quic
             callbacks.ack_datagram = on_ack_datagram;
 #endif
 
-            di = std::make_shared<dgram_interface>(*this);
+            di = _endpoint.make_shared<dgram_interface>(*this);
         }
         else
         {
@@ -1199,8 +1199,8 @@ namespace oxen::quic
                                ? is_outbound() ? std::move(context->conn_closed_cb) : context->conn_closed_cb
                                : nullptr;
 
-        datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
-        pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
+        datagrams = _endpoint.make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
+        pseudo_stream = _endpoint.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 
         const auto is_outbound = (dir == Direction::OUTBOUND);

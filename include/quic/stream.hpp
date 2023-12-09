@@ -34,12 +34,15 @@ namespace oxen::quic
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class Connection;
+        friend class Network;
 
-      public:
+      protected:
         Stream(Connection& conn,
                Endpoint& ep,
                stream_data_callback data_cb = nullptr,
                stream_close_callback close_cb = nullptr);
+
+      public:
         ~Stream() override;
 
         bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }

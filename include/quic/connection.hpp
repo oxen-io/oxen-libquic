@@ -17,6 +17,7 @@
 namespace oxen::quic
 {
     struct dgram_interface;
+    class Network;
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
@@ -62,19 +63,30 @@ namespace oxen::quic
       public:
         virtual ustring_view selected_alpn() const = 0;
 
-        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        template <
+                typename StreamT = Stream,
+                typename... Args,
+                typename EndpointDeferred = Endpoint,
+                std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> queue_stream(Args&&... args)
         {
-            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, Endpoint& e) {
-                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
+            // has a forward declaration; the user of this method needs to have the full definition
+            // available to call this.
+            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, EndpointDeferred& e) {
+                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
         }
 
-        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        template <
+                typename StreamT = Stream,
+                typename... Args,
+                typename EndpointDeferred = Endpoint,
+                std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> get_new_stream(Args&&... args)
         {
-            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, Endpoint& e) {
-                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, EndpointDeferred& e) {
+                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
         }
 
@@ -289,7 +301,7 @@ namespace oxen::quic
         int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
 
         // datagram "pseudo-stream"
-        std::unique_ptr<DatagramIO> datagrams;
+        std::shared_ptr<DatagramIO> datagrams;
         // "pseudo-stream" to represent ngtcp2 stream ID -1
         std::shared_ptr<Stream> pseudo_stream;
         // holds queue of pending streams not yet ready to broadcast

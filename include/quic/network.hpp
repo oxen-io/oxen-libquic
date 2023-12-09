@@ -54,6 +54,24 @@ namespace oxen::quic
 
         void set_shutdown_immediate(bool b = true) { shutdown_immediate = b; }
 
+        // Returns a pointer deleter that defers the actual destruction call to this network
+        // object's event loop.
+        template <typename T>
+        auto network_deleter()
+        {
+            return [this](T* ptr) { call([ptr] { delete ptr; }); };
+        }
+
+        // Similar in concept to std::make_shared<T>, but it creates the shared pointer with a
+        // custom deleter that dispatches actual object destruction to the network's event loop for
+        // thread safety.
+        template <typename T, typename... Args>
+        std::shared_ptr<T> make_shared(Args&&... args)
+        {
+            auto* ptr = new T{std::forward<Args>(args)...};
+            return std::shared_ptr<T>{ptr, network_deleter<T>()};
+        }
+
       private:
         std::atomic<bool> running{false};
         std::atomic<bool> shutdown_immediate{false};

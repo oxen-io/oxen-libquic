@@ -170,6 +170,14 @@ namespace oxen::quic
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 
+        // Shortcut for calling net.make_shared<T> to make a std::shared_ptr<T> that has destruction
+        // synchronized to the network event loop.
+        template <typename T, typename... Args>
+        std::shared_ptr<T> make_shared(Args&&... args)
+        {
+            return net.make_shared<T>(std::forward<Args>(args)...);
+        }
+
         // query a list of all active inbound and outbound connections paired with a conn_interface
         std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
 

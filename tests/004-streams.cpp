@@ -314,11 +314,11 @@ namespace oxen::quic::test
         std::future<bool> server_future = server_promise.get_future();
 
         stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return std::make_shared<ServerStream>(c, e, std::move(client_promise));
+            return e.make_shared<ServerStream>(c, e, std::move(client_promise));
         };
 
         stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return std::make_shared<ClientStream>(c, e, std::move(server_promise));
+            return e.make_shared<ClientStream>(c, e, std::move(server_promise));
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -469,18 +469,18 @@ namespace oxen::quic::test
                     {
                         case 0:
                             log::info(bp_cat, "Server opening Custom Stream A!");
-                            return std::make_shared<CustomStreamA>(c, e, std::move(sp1));
+                            return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
                         case 4:
                             log::info(bp_cat, "Server opening Custom Stream B!");
-                            return std::make_shared<CustomStreamB>(c, e, std::move(sp2));
+                            return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
                             log::info(bp_cat, "Server opening Custom Stream C!");
-                            return std::make_shared<CustomStreamC>(c, e, std::move(sp3));
+                            return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
                         default:
-                            return std::make_shared<Stream>(c, e);
+                            return e.make_shared<Stream>(c, e);
                     }
                 }
-                return std::make_shared<Stream>(c, e);
+                return e.make_shared<Stream>(c, e);
             };
 
             auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
