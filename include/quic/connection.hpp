@@ -185,12 +185,6 @@ namespace oxen::quic
 
         TLSSession* get_session() const;
 
-        std::shared_ptr<Stream> queue_stream_impl(
-                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
-
-        std::shared_ptr<Stream> get_new_stream_impl(
-                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
-
         Direction direction() const override { return dir; }
 
         void halt_events();
@@ -293,6 +287,18 @@ namespace oxen::quic
 
         bool draining = false;
         bool closing = false;
+
+        // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
+        // then the given `make_stream` gets invoked to create a default stream.
+        std::shared_ptr<Stream> construct_stream(
+                const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& make_stream,
+                std::optional<int64_t> stream_id = std::nullopt);
+
+        std::shared_ptr<Stream> queue_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
+
+        std::shared_ptr<Stream> get_new_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;

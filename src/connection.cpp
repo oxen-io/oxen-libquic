@@ -367,12 +367,24 @@ namespace oxen::quic
         }
     }
 
+    std::shared_ptr<Stream> Connection::construct_stream(
+            const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& make_stream,
+            std::optional<int64_t> stream_id)
+    {
+        std::shared_ptr<Stream> stream;
+        if (context->stream_construct_cb)
+            stream = context->stream_construct_cb(*this, _endpoint, stream_id);
+        if (!stream)
+            stream = make_stream(*this, _endpoint);
+
+        return stream;
+    }
+
     std::shared_ptr<Stream> Connection::queue_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
-                                                         : make_stream(*this, _endpoint);
+            auto stream = construct_stream(make_stream);
 
             stream->set_not_ready();
             stream->_stream_id = next_incoming_stream_id;
@@ -388,8 +400,7 @@ namespace oxen::quic
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
-                                                         : make_stream(*this, _endpoint);
+            auto stream = construct_stream(make_stream);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
@@ -810,9 +821,12 @@ namespace oxen::quic
             return 0;
         }
 
-        auto stream = (context->stream_construct_cb)
-                            ? context->stream_construct_cb(*this, _endpoint, id)
-                            : _endpoint.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+        auto stream = construct_stream(
+                [this](Connection& c, Endpoint& e) {
+                    return e.make_shared<Stream>(c, e, context->stream_data_cb, context->stream_close_cb);
+                },
+                id);
+
         stream->_stream_id = id;
         stream->set_ready();
 

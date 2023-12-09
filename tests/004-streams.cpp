@@ -476,11 +476,9 @@ namespace oxen::quic::test
                         case 8:
                             log::info(bp_cat, "Server opening Custom Stream C!");
                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
-                        default:
-                            return e.make_shared<Stream>(c, e);
                     }
                 }
-                return e.make_shared<Stream>(c, e);
+                return nullptr;
             };
 
             auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
