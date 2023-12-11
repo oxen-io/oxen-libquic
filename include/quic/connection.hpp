@@ -59,6 +59,7 @@ namespace oxen::quic
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
         virtual std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
+        virtual std::shared_ptr<Stream> get_stream_impl(int64_t id) = 0;
 
       public:
         virtual ustring_view selected_alpn() const = 0;
@@ -88,6 +89,14 @@ namespace oxen::quic
             return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, EndpointDeferred& e) {
                 return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
+        }
+
+        template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> get_stream(int64_t id)
+        {
+            if (auto s = std::dynamic_pointer_cast<StreamT>(get_stream_impl(id)))
+                return s;
+            throw std::runtime_error{"Could not find a stream of ID {}"_format(id)};
         }
 
         template <
@@ -127,7 +136,6 @@ namespace oxen::quic
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
         virtual ustring_view remote_key() const = 0;
-        virtual std::shared_ptr<Stream> get_stream(int64_t ID) const = 0;
         bool is_inbound() const { return direction() == Direction::INBOUND; }
         bool is_outbound() const { return direction() == Direction::OUTBOUND; }
         std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
@@ -302,6 +310,8 @@ namespace oxen::quic
         std::shared_ptr<Stream> get_new_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
+        std::shared_ptr<Stream> get_stream_impl(int64_t id) override;
+
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
         std::map<int64_t, std::shared_ptr<Stream>> stream_queue;
@@ -327,8 +337,6 @@ namespace oxen::quic
         std::shared_ptr<dgram_interface> di;
 
       public:
-        // public to grab btstream from application level
-        std::shared_ptr<Stream> get_stream(int64_t ID) const override;
         // public to be called by endpoint handing this connection a packet
         void handle_conn_packet(const Packet& pkt);
         // these are public so ngtcp2 can access them from callbacks

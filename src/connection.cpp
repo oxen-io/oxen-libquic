@@ -425,6 +425,15 @@ namespace oxen::quic
         });
     }
 
+    std::shared_ptr<Stream> Connection::get_stream_impl(int64_t id)
+    {
+        return _endpoint.call_get([this, id]() -> std::shared_ptr<Stream> {
+            if (auto it = streams.find(id); it != streams.end())
+                return it->second;
+            return nullptr;
+        });
+    }
+
     stream_data_callback Connection::get_default_data_callback() const
     {
         return context->stream_data_cb;
@@ -801,11 +810,6 @@ namespace oxen::quic
             tv.tv_usec = 0;
         }
         event_add(packet_retransmit_timer.get(), &tv);
-    }
-
-    std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
-    {
-        return _endpoint.call_get([this, ID] { return streams.at(ID); });
     }
 
     int Connection::stream_opened(int64_t id)
