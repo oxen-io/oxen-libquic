@@ -20,6 +20,65 @@ namespace oxen::quic
         req_body = btlc.consume_string_view();
     }
 
+    static std::pair<size_t, size_t> get_sv_pos(const bstring& source, std::string_view view)
+    {
+        std::pair<size_t, size_t> result;
+        auto& [off, len] = result;
+        off = view.data() - reinterpret_cast<const char*>(source.data());
+        len = view.size();
+        return result;
+    }
+    static void fixup_view(bstring& new_source, std::string_view& new_view, std::pair<size_t, size_t> off_len)
+    {
+        new_view = {reinterpret_cast<const char*>(new_source.data()) + off_len.first, off_len.second};
+    }
+
+    message& message::operator=(message&& m)
+    {
+        if (this != &m)
+        {
+            req_id = m.req_id;
+            return_sender = std::move(m.return_sender);
+            cid = std::move(m.cid);
+            auto type_pos = get_sv_pos(m.data, m.req_type);
+            auto ep_pos = get_sv_pos(m.data, m.ep);
+            auto body_pos = get_sv_pos(m.data, m.req_body);
+            data = std::move(m.data);
+            fixup_view(data, req_type, type_pos);
+            fixup_view(data, ep, ep_pos);
+            fixup_view(data, req_body, body_pos);
+        }
+        return *this;
+    }
+
+    message& message::operator=(const message& m)
+    {
+        if (this != &m)
+        {
+            req_id = m.req_id;
+            return_sender = m.return_sender;
+            cid = m.cid;
+            auto type_pos = get_sv_pos(m.data, m.req_type);
+            auto ep_pos = get_sv_pos(m.data, m.ep);
+            auto body_pos = get_sv_pos(m.data, m.req_body);
+            data = m.data;
+            fixup_view(data, req_type, type_pos);
+            fixup_view(data, ep, ep_pos);
+            fixup_view(data, req_body, body_pos);
+        }
+        return *this;
+    }
+
+    message::message(message&& m)
+    {
+        *this = std::move(m);
+    }
+
+    message::message(const message& m)
+    {
+        *this = m;
+    }
+
     void message::respond(bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);

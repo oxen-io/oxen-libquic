@@ -29,7 +29,9 @@ namespace oxen::quic
 
       private:
         int64_t req_id;
-        bstring data;
+        bstring data;  // Wrapped in a shared pointer because: a) we store views into this and need
+                       // them to stay valid across moves; and b) we want message to be copyable so
+                       // that it can be captured in lambda args.
         std::string_view req_type;
         std::string_view ep;
         std::string_view req_body;
@@ -39,6 +41,11 @@ namespace oxen::quic
         message(BTRequestStream& bp, bstring req, bool is_error = false);
 
       public:
+        message(message&& m);
+        message(const message& m);
+        message& operator=(message&& m);
+        message& operator=(const message& m);
+
         void respond(bstring_view body, bool error = false);
         void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
