@@ -126,6 +126,7 @@ namespace oxen::quic
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
+        virtual ustring_view remote_key() const = 0;
         bool is_inbound() const { return direction() == Direction::INBOUND; }
         bool is_outbound() const { return direction() == Direction::OUTBOUND; }
         std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
@@ -184,6 +185,8 @@ namespace oxen::quic
         void packet_io_ready();
 
         TLSSession* get_session() const;
+
+        ustring_view remote_key() const override { return tls_session->remote_key(); }
 
         Direction direction() const override { return dir; }
 

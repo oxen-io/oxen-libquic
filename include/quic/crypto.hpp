@@ -31,6 +31,7 @@ namespace oxen::quic
         ngtcp2_crypto_conn_ref conn_ref;
         virtual void* get_session() = 0;
         virtual ustring_view selected_alpn() = 0;
+        virtual ustring_view remote_key() const = 0;
         virtual void set_expected_remote_key(ustring key) = 0;
         virtual ~TLSSession() = default;
     };
