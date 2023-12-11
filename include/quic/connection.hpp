@@ -187,7 +187,7 @@ namespace oxen::quic
 
         TLSSession* get_session() const;
 
-        ustring_view remote_key() const override { return tls_session->remote_key(); }
+        ustring_view remote_key() const override;
 
         Direction direction() const override { return dir; }
 

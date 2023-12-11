@@ -226,6 +226,11 @@ namespace oxen::quic
         return datagrams->recv_buffer.last_cleared;
     }
 
+    ustring_view Connection::remote_key() const
+    {
+        return dynamic_cast<GNUTLSSession*>(get_session())->remote_key();
+    }
+
     TLSSession* Connection::get_session() const
     {
         return tls_session.get();
