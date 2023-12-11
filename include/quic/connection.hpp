@@ -127,6 +127,7 @@ namespace oxen::quic
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
         virtual ustring_view remote_key() const = 0;
+        virtual std::shared_ptr<Stream> get_stream(int64_t ID) const = 0;
         bool is_inbound() const { return direction() == Direction::INBOUND; }
         bool is_outbound() const { return direction() == Direction::OUTBOUND; }
         std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
@@ -286,8 +287,6 @@ namespace oxen::quic
 
         void schedule_packet_retransmit(std::chrono::steady_clock::time_point ts);
 
-        std::shared_ptr<Stream> get_stream(int64_t ID) const;
-
         bool draining = false;
         bool closing = false;
 
@@ -328,6 +327,8 @@ namespace oxen::quic
         std::shared_ptr<dgram_interface> di;
 
       public:
+        // public to grab btstream from application level
+        std::shared_ptr<Stream> get_stream(int64_t ID) const override;
         // public to be called by endpoint handing this connection a packet
         void handle_conn_packet(const Packet& pkt);
         // these are public so ngtcp2 can access them from callbacks
