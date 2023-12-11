@@ -540,16 +540,14 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        const auto& f = draining.begin();
-
-        while (!draining.empty() && f->first < now)
+        for (auto it = draining.begin(); it != draining.end() && it->first < now; )
         {
-            if (auto itr = conns.find(f->second); itr != conns.end())
+            if (auto itr = conns.find(it->second); itr != conns.end())
             {
                 log::debug(log_cat, "Deleting connection {}", *itr->first.data);
                 conns.erase(itr);
             }
-            draining.erase(f);
+            it = draining.erase(it);
         }
     }
 
