@@ -29,23 +29,22 @@ namespace oxen::quic
 
       private:
         int64_t req_id;
-        bstring data;  // Wrapped in a shared pointer because: a) we store views into this and need
-                       // them to stay valid across moves; and b) we want message to be copyable so
-                       // that it can be captured in lambda args.
-        std::string_view req_type;
-        std::string_view ep;
-        std::string_view req_body;
+        bstring data;
+
+        // We keep the locations of variables fields as relative positions inside `data` *rather*
+        // than using std::string_view members because the string_views are more difficult to
+        // maintain when the object gets moved or copied.
+        using substr_location = std::pair<std::ptrdiff_t, std::size_t>;
+        substr_location req_type{};
+        substr_location ep{};
+        substr_location req_body{};
+
         std::weak_ptr<BTRequestStream> return_sender;
         ConnectionID cid;
 
         message(BTRequestStream& bp, bstring req, bool is_error = false);
 
       public:
-        message(message&& m);
-        message(const message& m);
-        message& operator=(message&& m);
-        message& operator=(const message& m);
-
         void respond(bstring_view body, bool error = false);
         void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
@@ -71,14 +70,14 @@ namespace oxen::quic
         }
 
         int64_t rid() const { return req_id; }
-        std::string_view type() const { return req_type; }
-        std::string_view endpoint() const { return ep; }
-        std::string endpoint_str() const { return std::string{ep}; }
+        std::string_view type() const { return {reinterpret_cast<const char*>(data.data()) + req_type.first, req_type.second}; }
+        std::string_view endpoint() const { return {reinterpret_cast<const char*>(data.data()) + ep.first, ep.second}; }
+        std::string endpoint_str() const { return std::string{endpoint()}; }
 
         template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
         std::basic_string_view<Char> body() const
         {
-            return convert_sv<Char>(req_body);
+            return {reinterpret_cast<const Char*>(data.data()) + req_body.first, req_body.second};
         }
 
         template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>

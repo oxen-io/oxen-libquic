@@ -4,79 +4,28 @@
 
 namespace oxen::quic
 {
+
+    static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr) {
+        auto* bsubstr = reinterpret_cast<const std::byte*>(substr.data());
+        // Make sure the given substr actually is a substr of data:
+        assert(bsubstr >= data.data() && bsubstr + substr.size() <= data.data() + data.size());
+        return {bsubstr - data.data(), substr.size()};
+    }
+
     message::message(BTRequestStream& bp, bstring req, bool is_error) :
             data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 
-        req_type = btlc.consume_string_view();
+        req_type = get_location(data, btlc.consume_string_view());
         req_id = btlc.consume_integer<int64_t>();
 
-        if (req_type == "C")
-            ep = btlc.consume_string_view();
-        else if (req_type == "E")
+        if (auto rt = type(); rt == "C")
+            ep = get_location(data, btlc.consume_string_view());
+        else if (rt == "E")
             is_error = true;
 
-        req_body = btlc.consume_string_view();
-    }
-
-    static std::pair<size_t, size_t> get_sv_pos(const bstring& source, std::string_view view)
-    {
-        std::pair<size_t, size_t> result;
-        auto& [off, len] = result;
-        off = view.data() - reinterpret_cast<const char*>(source.data());
-        len = view.size();
-        return result;
-    }
-    static void fixup_view(bstring& new_source, std::string_view& new_view, std::pair<size_t, size_t> off_len)
-    {
-        new_view = {reinterpret_cast<const char*>(new_source.data()) + off_len.first, off_len.second};
-    }
-
-    message& message::operator=(message&& m)
-    {
-        if (this != &m)
-        {
-            req_id = m.req_id;
-            return_sender = std::move(m.return_sender);
-            cid = std::move(m.cid);
-            auto type_pos = get_sv_pos(m.data, m.req_type);
-            auto ep_pos = get_sv_pos(m.data, m.ep);
-            auto body_pos = get_sv_pos(m.data, m.req_body);
-            data = std::move(m.data);
-            fixup_view(data, req_type, type_pos);
-            fixup_view(data, ep, ep_pos);
-            fixup_view(data, req_body, body_pos);
-        }
-        return *this;
-    }
-
-    message& message::operator=(const message& m)
-    {
-        if (this != &m)
-        {
-            req_id = m.req_id;
-            return_sender = m.return_sender;
-            cid = m.cid;
-            auto type_pos = get_sv_pos(m.data, m.req_type);
-            auto ep_pos = get_sv_pos(m.data, m.ep);
-            auto body_pos = get_sv_pos(m.data, m.req_body);
-            data = m.data;
-            fixup_view(data, req_type, type_pos);
-            fixup_view(data, ep, ep_pos);
-            fixup_view(data, req_body, body_pos);
-        }
-        return *this;
-    }
-
-    message::message(message&& m)
-    {
-        *this = std::move(m);
-    }
-
-    message::message(const message& m)
-    {
-        *this = m;
+        req_body = get_location(data, btlc.consume_string_view());
     }
 
     void message::respond(bstring_view body, bool error)
@@ -144,9 +93,9 @@ namespace oxen::quic
 
     void BTRequestStream::handle_input(message msg)
     {
-        log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.req_type);
+        log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.type());
 
-        if (msg.req_type == "R" || msg.req_type == "E")
+        if (auto type = msg.type(); type == "R" || type == "E")
         {
             log::trace(log_cat, "Looking for request with req_id={}", msg.req_id);
             // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
