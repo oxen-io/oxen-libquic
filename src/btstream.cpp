@@ -5,7 +5,8 @@
 namespace oxen::quic
 {
 
-    static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr) {
+    static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr)
+    {
         auto* bsubstr = reinterpret_cast<const std::byte*>(substr.data());
         // Make sure the given substr actually is a substr of data:
         assert(bsubstr >= data.data() && bsubstr + substr.size() <= data.data() + data.size());
@@ -88,7 +89,8 @@ namespace oxen::quic
 
     void BTRequestStream::register_command(std::string ep, std::function<void(message)> func)
     {
-        endpoint.call([&]() { func_map[std::move(ep)] = std::move(func); });
+        endpoint.call(
+                [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
     }
 
     void BTRequestStream::handle_input(message msg)
