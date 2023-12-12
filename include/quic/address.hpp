@@ -41,7 +41,7 @@ namespace oxen::quic
         template <
                 typename T,
                 std::enable_if_t<
-                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr>,
+                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr_in6>,
                         int> = 0>
         Address& operator=(const T* s)
         {
