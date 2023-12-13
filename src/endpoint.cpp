@@ -540,7 +540,7 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        for (auto it = draining.begin(); it != draining.end() && it->first < now; )
+        for (auto it = draining.begin(); it != draining.end() && it->first < now;)
         {
             if (auto itr = conns.find(it->second); itr != conns.end())
             {

@@ -14,7 +14,7 @@ namespace oxen::quic
     }
 
     message::message(BTRequestStream& bp, bstring req, bool is_error) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, is_error{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 
@@ -23,8 +23,6 @@ namespace oxen::quic
 
         if (auto rt = type(); rt == "C")
             ep = get_location(data, btlc.consume_string_view());
-        else if (rt == "E")
-            is_error = true;
 
         req_body = get_location(data, btlc.consume_string_view());
     }

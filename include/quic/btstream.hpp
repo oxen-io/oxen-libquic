@@ -48,7 +48,6 @@ namespace oxen::quic
         void respond(bstring_view body, bool error = false);
         void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
-        bool timed_out{false};
         bool is_error{false};
 
         //  To be used to determine if the message was a result of an error as such:
@@ -61,7 +60,7 @@ namespace oxen::quic
         //      if (m)
         //      { // success logic }
         //  }
-        operator bool() const { return not timed_out && not is_error; }
+        operator bool() const { return not is_error; }
 
         template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
         std::basic_string_view<Char> view() const
@@ -70,7 +69,10 @@ namespace oxen::quic
         }
 
         int64_t rid() const { return req_id; }
-        std::string_view type() const { return {reinterpret_cast<const char*>(data.data()) + req_type.first, req_type.second}; }
+        std::string_view type() const
+        {
+            return {reinterpret_cast<const char*>(data.data()) + req_type.first, req_type.second};
+        }
         std::string_view endpoint() const { return {reinterpret_cast<const char*>(data.data()) + ep.first, ep.second}; }
         std::string endpoint_str() const { return std::string{endpoint()}; }
 

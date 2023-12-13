@@ -389,10 +389,10 @@ namespace oxen::quic
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = construct_stream(make_stream);
+            auto stream = construct_stream(make_stream, next_incoming_stream_id);
 
             stream->set_not_ready();
-            stream->_stream_id = next_incoming_stream_id;
+            // stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
             auto& str = stream_queue[stream->_stream_id];
