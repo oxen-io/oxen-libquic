@@ -42,25 +42,29 @@ namespace oxen::quic
         std::weak_ptr<BTRequestStream> return_sender;
         ConnectionID cid;
 
-        message(BTRequestStream& bp, bstring req, bool is_error = false);
+        // - `is_timeout` should be true if this is being constructed as a non-response because we
+        //   didn't get any reply from the other side in time.
+        message(BTRequestStream& bp, bstring req, bool is_timeout = false);
 
       public:
         void respond(bstring_view body, bool error = false);
         void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
-        bool is_error{false};
+        const bool timed_out{false};
+        bool is_error() const { return type() == "E"sv; }
 
-        //  To be used to determine if the message was a result of an error as such:
+        //  To be used to determine if the message was a result of an error or timeout; equivalent
+        //  to checking that both .timed_out and .is_error() are false.
         //
         //  void f(const message& m)
         //  {
-        //      if (not m.timed_out)
+        //      if (not m.timed_out and not m.is_error)
         //      { // success logic }
         //      ... // is identical to:
         //      if (m)
         //      { // success logic }
         //  }
-        operator bool() const { return not is_error; }
+        explicit operator bool() const { return !timed_out && !is_error(); }
 
         template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
         std::basic_string_view<Char> view() const
@@ -110,8 +114,8 @@ namespace oxen::quic
         // total length of the request; is at the beginning of the request
         size_t total_len;
 
-        std::chrono::steady_clock::time_point req_time;
-        std::chrono::steady_clock::time_point expiry;
+        time_point req_time;
+        time_point expiry;
         std::optional<std::chrono::milliseconds> timeout;
 
         bool is_empty() const { return data.empty() && total_len == 0; }
@@ -128,7 +132,7 @@ namespace oxen::quic
             expiry += timeout.value_or(DEFAULT_TIMEOUT);
         }
 
-        bool is_expired(std::chrono::steady_clock::time_point tp) const { return expiry < tp; }
+        bool is_expired(time_point now) const { return expiry < now; }
 
         message to_timeout() && { return {return_sender, ""_bs, true}; }
 

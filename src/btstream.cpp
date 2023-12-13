@@ -14,14 +14,14 @@ namespace oxen::quic
     }
 
     message::message(BTRequestStream& bp, bstring req, bool is_error) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, is_error{is_error}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 
         req_type = get_location(data, btlc.consume_string_view());
         req_id = btlc.consume_integer<int64_t>();
 
-        if (auto rt = type(); rt == "C")
+        if (type() == "C")
             ep = get_location(data, btlc.consume_string_view());
 
         req_body = get_location(data, btlc.consume_string_view());
@@ -48,19 +48,14 @@ namespace oxen::quic
     {
         const auto now = get_time();
 
-        do
+        while (!sent_reqs.empty())
         {
-            auto& f = sent_reqs.front();
-
-            if (f->is_expired(now))
-            {
-                f->cb(std::move(*f).to_timeout());
-                sent_reqs.pop_front();
-            }
-            else
+            auto& f = *sent_reqs.front();
+            if (!f.is_expired(now))
                 return;
-
-        } while (not sent_reqs.empty());
+            f.cb(std::move(f).to_timeout());
+            sent_reqs.pop_front();
+        }
     }
 
     void BTRequestStream::receive(bstring_view data)
