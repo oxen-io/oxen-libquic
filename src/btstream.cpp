@@ -236,7 +236,7 @@ namespace oxen::quic
         auto [ptr, ec] = std::from_chars(req.data(), req.data() + pos, current_len);
 
         const char* bad = nullptr;
-        if (ec != std::errc())
+        if (ec != std::errc() || ptr != req.data() + pos)
             bad = "Invalid incoming request encoding!";
         else if (current_len == 0)
             bad = "Invalid empty bt request!";
