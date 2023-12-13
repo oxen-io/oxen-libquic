@@ -128,7 +128,7 @@ namespace oxen::quic
         }
 
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
-
+        virtual size_t active_streams() const = 0;
         virtual uint64_t get_max_streams() const = 0;
         virtual uint64_t get_streams_available() const = 0;
         virtual size_t get_max_datagram_size() const = 0;
@@ -202,6 +202,8 @@ namespace oxen::quic
         ustring_view remote_key() const override;
 
         Direction direction() const override { return dir; }
+
+        size_t active_streams() const override { return streams.size(); }
 
         void halt_events();
         bool is_closing() const { return closing; }

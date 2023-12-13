@@ -392,7 +392,7 @@ namespace oxen::quic
             auto stream = construct_stream(make_stream, next_incoming_stream_id);
 
             stream->set_not_ready();
-            // stream->_stream_id = next_incoming_stream_id;
+            stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
             auto& str = stream_queue[stream->_stream_id];
@@ -907,7 +907,7 @@ namespace oxen::quic
             return 0;
         }
 
-        log::debug(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
+        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
         std::optional<uint64_t> error;
         try
