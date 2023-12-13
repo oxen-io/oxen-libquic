@@ -74,9 +74,11 @@ namespace oxen::quic
             // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
             // has a forward declaration; the user of this method needs to have the full definition
             // available to call this.
-            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, EndpointDeferred& e) {
+            auto s = std::dynamic_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, EndpointDeferred& e) {
                 return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
+            assert(s);
+            return s;
         }
 
         template <
@@ -86,9 +88,11 @@ namespace oxen::quic
                 std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> get_new_stream(Args&&... args)
         {
-            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, EndpointDeferred& e) {
+            auto s = std::dynamic_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, EndpointDeferred& e) {
                 return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
+            assert(s);
+            return s;
         }
 
         template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
