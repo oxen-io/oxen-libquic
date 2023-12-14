@@ -15,6 +15,12 @@ namespace oxen::quic
         log::trace(log_cat, "User passed max_streams_bidi config value: {}", config.max_streams);
     }
 
+    void IOContext::handle_ioctx_opt(opt::keep_alive ka)
+    {
+        config.keep_alive = ka.time;
+        log::trace(log_cat, "User passed connection keep_alive config value: {}", config.keep_alive.count());
+    }
+
     void IOContext::handle_ioctx_opt(stream_data_callback func)
     {
         log::trace(log_cat, "IO context stored stream close callback");

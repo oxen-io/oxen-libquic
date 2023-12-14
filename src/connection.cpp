@@ -1282,6 +1282,8 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
         }
 
+        ngtcp2_conn_set_keep_alive_timeout(connptr, context->config.keep_alive.count());
+
         tls_session = tls_creds->make_session(is_outbound, alpns);
 
         if (remote_pk)

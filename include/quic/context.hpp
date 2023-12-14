@@ -16,13 +16,15 @@ namespace oxen::quic
     struct user_config
     {
         // max streams
-        uint64_t max_streams = 0;
+        uint64_t max_streams{0};
+        // keep alive timeout
+        std::chrono::milliseconds keep_alive{0ms};
         // datagram support
-        bool datagram_support = false;
+        bool datagram_support{false};
         // datagram splitting support
-        bool split_packet = false;
+        bool split_packet{false};
         // splitting policy
-        Splitting policy = Splitting::NONE;
+        Splitting policy{Splitting::NONE};
 
         user_config() = default;
     };
@@ -59,6 +61,7 @@ namespace oxen::quic
       private:
         void handle_ioctx_opt(std::shared_ptr<TLSCreds> tls);
         void handle_ioctx_opt(opt::max_streams ms);
+        void handle_ioctx_opt(opt::keep_alive ka);
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);
