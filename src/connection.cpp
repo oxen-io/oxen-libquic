@@ -452,6 +452,10 @@ namespace oxen::quic
         return _endpoint.call_get([this, id]() -> std::shared_ptr<Stream> {
             if (auto it = streams.find(id); it != streams.end())
                 return it->second;
+
+            if (auto it = stream_queue.find(id); it != stream_queue.end())
+                return it->second;
+
             return nullptr;
         });
     }

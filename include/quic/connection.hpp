@@ -128,7 +128,8 @@ namespace oxen::quic
             auto s = get_stream_impl(id);
             if (!s)
                 return nullptr;
-            if constexpr (!std::is_same_v<StreamT, Stream>) {
+            if constexpr (!std::is_same_v<StreamT, Stream>)
+            {
                 if (auto st = std::dynamic_pointer_cast<StreamT>(std::move(s)))
                     return st;
                 throw std::invalid_argument{"Stream ID {} is not an instance of the requested Stream subclass"_format(id)};

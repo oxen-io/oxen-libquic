@@ -349,7 +349,8 @@ namespace oxen::quic::test
 
         CustomStream(Connection& _c, Endpoint& _e, std::promise<std::string> _p) : Stream{_c, _e}, p{std::move(_p)} {}
 
-        void receive(bstring_view m) override {
+        void receive(bstring_view m) override
+        {
             log::info(log_cat, "Custom stream received data:\n{}", buffer_printer{m});
             p.set_value(std::string{convert_sv<char>(m)});
         }
@@ -375,8 +376,9 @@ namespace oxen::quic::test
         Network test_net{};
 
         std::promise<std::string> sp1, sp2, sp3, sp4, cp1, cp2, cp3;
-        std::future<std::string> sf1 = sp1.get_future(), sf2 = sp2.get_future(), sf3 = sp3.get_future(), sf4 = sp4.get_future(),
-                          cf1 = cp1.get_future(), cf2 = cp2.get_future(), cf3 = cp3.get_future();
+        std::future<std::string> sf1 = sp1.get_future(), sf2 = sp2.get_future(), sf3 = sp3.get_future(),
+                                 sf4 = sp4.get_future(), cf1 = cp1.get_future(), cf2 = cp2.get_future(),
+                                 cf3 = cp3.get_future();
 
         std::shared_ptr<CustomStreamA> server_a, client_a;
         std::shared_ptr<CustomStreamB> server_b, client_b;
@@ -401,6 +403,7 @@ namespace oxen::quic::test
 
         std::shared_ptr<Endpoint> client_endpoint, server_endpoint;
         std::shared_ptr<connection_interface> client_ci;
+
         SECTION("Stream logic using queue_incoming_stream in connection open callback")
         {
             auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
@@ -531,7 +534,8 @@ namespace oxen::quic::test
         CHECK(expected_server_stream_ctor_count == server_stream_ctor_count.load());
     };
 
-    TEST_CASE("004 - subclass retrieval", "[004][customstream][get_stream]") {
+    TEST_CASE("004 - subclass retrieval", "[004][customstream][get_stream]")
+    {
         Network test_net{};
         Address server_local{};
         Address client_local{};
@@ -585,7 +589,6 @@ namespace oxen::quic::test
         CHECK_THROWS_AS(client_ci->maybe_stream<CustomStream>(12), std::invalid_argument);
     }
 
-
     TEST_CASE("004 - Subclassing quic::stream, sequential client stream queuing", "[004][customstream][sequential][client]")
     {
         Network test_net{};
@@ -594,7 +597,8 @@ namespace oxen::quic::test
         std::map<int64_t, int> server_seen;
 
         std::promise<std::string> cp1, cp2, cp3, cp4;
-        std::future<std::string> cf1 = cp1.get_future(), cf2 = cp2.get_future(), cf3 = cp3.get_future(), cf4 = cp4.get_future();
+        std::future<std::string> cf1 = cp1.get_future(), cf2 = cp2.get_future(), cf3 = cp3.get_future(),
+                                 cf4 = cp4.get_future();
 
         auto client_established = callback_waiter{[](connection_interface&) {}};
         auto server_closed = callback_waiter{[](connection_interface&, uint64_t) {}};
@@ -674,11 +678,131 @@ namespace oxen::quic::test
 
         {
             std::lock_guard lock{mut};
-            CHECK(server_seen == std::map<int64_t,int>{{0, 1}, {4, 1}, {8,1}, {12,1}});
+            CHECK(server_seen == std::map<int64_t, int>{{0, 1}, {4, 1}, {8, 1}, {12, 1}});
         }
 
         client_ci->close_connection();
         REQUIRE(server_closed.wait());
+    };
+
+    TEST_CASE("004 - Subclassing Stream, server stream extraction", "[004][server][extraction]")
+    {
+        Network test_net{};
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        std::shared_ptr<BTRequestStream> server_extracted, client_extracted;
+        std::shared_ptr<connection_interface> server_ci;
+
+        auto server_handler = callback_waiter{[&](message msg) { REQUIRE(msg.stream() == server_extracted); }};
+
+        auto client_handler = callback_waiter{[&](message msg) { REQUIRE(msg.stream() == client_extracted); }};
+
+        auto client_established = callback_waiter{[&](connection_interface& ci) {
+            client_extracted = ci.open_stream<BTRequestStream>();
+            client_extracted->register_command("test_endpoint"s, client_handler);
+        }};
+
+        stream_constructor_callback server_constructor =
+                [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
+            if (id)
+            {
+                if (*id == 0)
+                {
+                    server_extracted = e.make_shared<BTRequestStream>(c, e);
+                    server_extracted->register_command("test_endpoint"s, server_handler);
+                    return server_extracted;
+                }
+                else
+                {
+                    return e.make_shared<Stream>(c, e);
+                }
+            }
+
+            throw std::runtime_error{"We need ID's!"};
+        };
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_constructor);
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        REQUIRE(client_established.wait());
+
+        std::shared_ptr<BTRequestStream> client_bt = client_ci->maybe_stream<BTRequestStream>(0);
+        REQUIRE(client_extracted->stream_id() == client_bt->stream_id());
+        REQUIRE(client_extracted == client_bt);
+
+        server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+        std::shared_ptr<BTRequestStream> early_access = server_ci->maybe_stream<BTRequestStream>(0);
+        REQUIRE_FALSE(early_access);
+
+        client_extracted->command("test_endpoint"s, "hi"s);
+        REQUIRE(server_handler.wait());
+
+        std::shared_ptr<BTRequestStream> server_bt = server_ci->maybe_stream<BTRequestStream>(0);
+        REQUIRE(server_bt);
+        REQUIRE(server_extracted->stream_id() == 0);
+        REQUIRE(server_extracted->stream_id() == server_bt->stream_id());
+        REQUIRE(server_extracted == server_bt);
+
+        server_extracted->command("test_endpoint"s, "hi"s);
+        REQUIRE(client_handler.wait());
+    };
+
+    TEST_CASE("004 - Subclassing Stream, server extracts queued streams", "[004][server][queue]")
+    {
+        Network test_net{};
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        std::shared_ptr<BTRequestStream> server_bt, client_bt;
+        std::shared_ptr<connection_interface> server_ci;
+
+        auto server_handler = callback_waiter{[&](message msg) { REQUIRE(msg.stream() == server_bt); }};
+
+        auto client_handler = callback_waiter{[&](message msg) { REQUIRE(msg.stream() == client_bt); }};
+
+        auto server_established = callback_waiter{[&](connection_interface& ci) {
+            server_bt = ci.queue_incoming_stream<BTRequestStream>();
+            server_bt->register_command("test_endpoint"s, server_handler);
+        }};
+
+        auto client_established = callback_waiter{[&](connection_interface&) {}};
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_established);
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_ci = client_endpoint->connect(client_remote, client_tls, client_established);
+
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
+
+        client_bt = client_ci->open_stream<BTRequestStream>();
+        client_bt->register_command("test_endpoint"s, client_handler);
+        REQUIRE(client_bt->stream_id() == 0);
+
+        server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
+        std::shared_ptr<BTRequestStream> server_extracted = server_ci->maybe_stream<BTRequestStream>(0);
+        REQUIRE(server_bt->stream_id() == 0);
+        REQUIRE(server_extracted);
+        REQUIRE(server_bt == server_extracted);
+
+        client_bt->command("test_endpoint"s, "hi"s);
+        REQUIRE(server_handler.wait());
+
+        server_bt->command("test_endpoint"s, "hi"s);
+        REQUIRE(client_handler.wait());
     };
 
 }  // namespace oxen::quic::test
