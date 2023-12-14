@@ -78,8 +78,8 @@ namespace oxen::quic::test
             auto c_interface_b = client_b->connect(client_remote, client_tls);
 
             // open streams
-            auto stream_a = c_interface_a->get_new_stream();
-            auto stream_b = c_interface_b->get_new_stream();
+            auto stream_a = c_interface_a->open_stream();
+            auto stream_b = c_interface_b->open_stream();
 
             // send
             stream_a->send(msg);
@@ -98,8 +98,8 @@ namespace oxen::quic::test
             auto c_interface_d = client_d->connect(client_remote, client_tls);
 
             // open streams
-            auto stream_c = c_interface_c->get_new_stream();
-            auto stream_d = c_interface_d->get_new_stream();
+            auto stream_c = c_interface_c->open_stream();
+            auto stream_d = c_interface_d->open_stream();
 
             // send
             stream_c->send(msg);

@@ -48,7 +48,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        auto stream = conn_interface->get_new_stream();
+        auto stream = conn_interface->open_stream();
         stream->send("HELLO!"s);
 
         int i = 0;

@@ -155,9 +155,10 @@ namespace oxen::quic
     }
 
     template <typename F>
-    void require_future(F& f, std::chrono::milliseconds timeout = 1s)
+    auto require_future(F& f, std::chrono::milliseconds timeout = 1s)
     {
         REQUIRE(f.wait_for(timeout) == std::future_status::ready);
+        return f.get();
     }
 
     template <typename T>

@@ -39,7 +39,7 @@ namespace oxen::quic::test
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
         // client make stream and send; message displayed by server_data_cb
-        auto client_stream = conn_interface->get_new_stream();
+        auto client_stream = conn_interface->open_stream();
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
 
@@ -81,7 +81,7 @@ namespace oxen::quic::test
         RemoteAddress server_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
 
         auto server_ci = server_endpoint_b->connect(server_remote, server_tls);
-        auto server_stream = server_ci->get_new_stream();
+        auto server_stream = server_ci->open_stream();
 
         server_stream->send(good_msg);
 
@@ -91,7 +91,7 @@ namespace oxen::quic::test
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
         // client make stream and send; message displayed by server_data_cb
-        auto client_stream = conn_interface->get_new_stream();
+        auto client_stream = conn_interface->open_stream();
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
 
@@ -132,7 +132,7 @@ namespace oxen::quic::test
         RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
 
         auto server_a_ci = server_endpoint_b->connect(server_remote_a, server_tls);
-        auto server_a_stream = server_a_ci->get_new_stream();
+        auto server_a_stream = server_a_ci->open_stream();
 
         server_a_stream->send(good_msg);
 
@@ -140,7 +140,7 @@ namespace oxen::quic::test
 
         auto server_b_ci = server_endpoint_a->connect(server_remote_b, server_tls);
 
-        auto server_b_stream = server_b_ci->get_new_stream();
+        auto server_b_stream = server_b_ci->open_stream();
 
         server_b_stream->send(good_msg);
 
@@ -190,7 +190,7 @@ namespace oxen::quic::test
         RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
 
         auto conn_to_a = server_endpoint_b->connect(server_remote_a, server_tls);
-        auto stream_to_a = conn_to_a->get_new_stream();
+        auto stream_to_a = conn_to_a->open_stream();
 
         SECTION("Sending bstring_view of long-lived buffer")
         {
@@ -261,7 +261,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            auto client_bp = conn_interface->get_new_stream<BTRequestStream>();
+            auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
             client_bp->command("test_endpoint"s, "test_request_body"s);
 
@@ -304,7 +304,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_constructor);
 
-            std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+            std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
 
             client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
 
@@ -344,7 +344,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            auto client_bp = conn_interface->get_new_stream<BTRequestStream>();
+            auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
             client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
 
@@ -414,7 +414,7 @@ namespace oxen::quic::test
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+        std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
 
         for (int i = 0; i < num_requests; i++)
         {
@@ -493,7 +493,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-            std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+            std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
 
             for (int i = 0; i < num_requests; i++)
             {
@@ -535,7 +535,7 @@ namespace oxen::quic::test
 
         SECTION("Too huge send failure")
         {
-            std::shared_ptr<BTRequestStream> client_bp = conn_interface->get_new_stream<BTRequestStream>();
+            std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
             CHECK_THROWS_WITH(client_bp->command("test_endpoint"s, req_msg, client_reply_handler), "Request body too long!");
         }
 
@@ -548,7 +548,7 @@ namespace oxen::quic::test
 
             std::atomic<uint64_t> close_err = -1;
             auto stream_close_cb = callback_waiter{[&](Stream&, uint64_t error_code) { close_err = error_code; }};
-            auto str = conn_interface->get_new_stream(nullptr, stream_close_cb);
+            auto str = conn_interface->open_stream<Stream>(nullptr, stream_close_cb);
 
             str->send(std::move(payload));
 

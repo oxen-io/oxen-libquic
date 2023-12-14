@@ -373,25 +373,31 @@ namespace oxen::quic
     }
 
     std::shared_ptr<Stream> Connection::construct_stream(
-            const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& make_stream,
+            const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& default_stream,
             std::optional<int64_t> stream_id)
     {
         std::shared_ptr<Stream> stream;
         if (context->stream_construct_cb)
             stream = context->stream_construct_cb(*this, _endpoint, stream_id);
+        if (!stream && default_stream)
+            stream = default_stream(*this, _endpoint);
         if (!stream)
-            stream = make_stream(*this, _endpoint);
+            stream = _endpoint.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
 
         return stream;
     }
 
-    std::shared_ptr<Stream> Connection::queue_stream_impl(
+    std::shared_ptr<Stream> Connection::queue_incoming_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = construct_stream(make_stream, next_incoming_stream_id);
+            std::shared_ptr<Stream> stream;
+            if (make_stream)
+                stream = make_stream(*this, _endpoint);
+            else
+                stream = construct_stream(nullptr);
 
-            stream->set_not_ready();
+            assert(!stream->ready);
             stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
@@ -401,16 +407,27 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> Connection::get_new_stream_impl(
+    std::shared_ptr<Stream> connection_interface::queue_incoming_stream()
+    {
+        return queue_incoming_stream_impl(nullptr);
+    }
+
+    std::shared_ptr<Stream> Connection::open_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = construct_stream(make_stream);
+            std::shared_ptr<Stream> stream;
+            if (make_stream)
+                stream = make_stream(*this, _endpoint);
+            else
+                stream = construct_stream(make_stream);
+
+            assert(!stream->ready);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
                 log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
-                stream->set_not_ready();
+                assert(!stream->ready);
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
             }
@@ -423,6 +440,11 @@ namespace oxen::quic
                 return strm;
             }
         });
+    }
+
+    std::shared_ptr<Stream> connection_interface::open_stream()
+    {
+        return open_stream_impl(nullptr);
     }
 
     std::shared_ptr<Stream> Connection::get_stream_impl(int64_t id)
@@ -830,11 +852,7 @@ namespace oxen::quic
             return 0;
         }
 
-        auto stream = construct_stream(
-                [this](Connection& c, Endpoint& e) {
-                    return e.make_shared<Stream>(c, e, context->stream_data_cb, context->stream_close_cb);
-                },
-                id);
+        auto stream = construct_stream(nullptr, id);
 
         stream->_stream_id = id;
         stream->set_ready();

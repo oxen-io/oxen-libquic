@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 
 #include "context.hpp"
 #include "format.hpp"
@@ -55,52 +56,97 @@ namespace oxen::quic
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       protected:
-        virtual std::shared_ptr<Stream> queue_stream_impl(
+        virtual std::shared_ptr<Stream> queue_incoming_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
-        virtual std::shared_ptr<Stream> get_new_stream_impl(
+        virtual std::shared_ptr<Stream> open_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
         virtual std::shared_ptr<Stream> get_stream_impl(int64_t id) = 0;
 
       public:
         virtual ustring_view selected_alpn() const = 0;
 
+        /// Queues an incoming stream of the given StreamT type, forwarding the given arguments to
+        /// the StreamT constructor.  The stream will be given the next unseen incoming connection
+        /// ID; it will be made ready once the associated stream id is seen from the remote
+        /// connection.  Note that this constructor bypasses the stream constructor callback for the
+        /// applicable stream id.
         template <
-                typename StreamT = Stream,
+                typename StreamT,
                 typename... Args,
                 typename EndpointDeferred = Endpoint,
                 std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<StreamT> queue_stream(Args&&... args)
+        std::shared_ptr<StreamT> queue_incoming_stream(Args&&... args)
         {
             // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
             // has a forward declaration; the user of this method needs to have the full definition
             // available to call this.
-            auto s = std::dynamic_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, EndpointDeferred& e) {
+            return std::static_pointer_cast<StreamT>(queue_incoming_stream_impl([&](Connection& c, EndpointDeferred& e) {
                 return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
-            assert(s);
-            return s;
         }
 
+        /// Queues a default incoming Stream object, either via the stream constructor callback (if
+        /// set) or the default Stream constructor (if no constructor callback, or the callback
+        /// returns nullptr).  The stream object will be made ready once the associated next
+        /// incoming stream ID is observed from the other end.
+        std::shared_ptr<Stream> queue_incoming_stream();
+
+        /// Opens a new outgoing stream to the other end of the connection of the given StreamT
+        /// type, forwarding the given arguments to the StreamT constructor.  The returned stream
+        /// may or may not be ready (and have an id assigned) based on whether there are available
+        /// stream ids on the connection.  Check `->ready` on the returned instance to check.  If
+        /// not ready the stream will be queued and become ready once a stream id becomes available,
+        /// such as from an increase in available stream ids resulting from the closure of an
+        /// existing stream.  Note that this constructor bypasses the stream constructor callback
+        /// for the applicable stream id.
         template <
-                typename StreamT = Stream,
+                typename StreamT,
                 typename... Args,
                 typename EndpointDeferred = Endpoint,
                 std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<StreamT> get_new_stream(Args&&... args)
+        std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
-            auto s = std::dynamic_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, EndpointDeferred& e) {
+            return std::static_pointer_cast<StreamT>(open_stream_impl([&](Connection& c, EndpointDeferred& e) {
                 return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
-            assert(s);
-            return s;
         }
 
+        /// Opens a bog standard Stream connection to the other end of the connection.  This version
+        /// of open_stream takes no arguments; it will invoke the stream constructor callback (if
+        /// configured) and otherwise will fall back to construct a default Stream.  See the
+        /// comments in the templated version of the method, above, for details about the readiness
+        /// of the returned stream.
+        std::shared_ptr<Stream> open_stream();
+
+        /// Returns a stream object for the stream with the given id, if the stream exists (and, if
+        /// StreamT is specified, is of the given Stream subclass).  Returns nullptr if the id is
+        /// not currently an open stream; throws std::invalid_argument if the stream exists but is
+        /// not an instance of the given StreamT type.
+        template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> maybe_stream(int64_t id)
+        {
+            auto s = get_stream_impl(id);
+            if (!s)
+                return nullptr;
+            if constexpr (!std::is_same_v<StreamT, Stream>) {
+                if (auto st = std::dynamic_pointer_cast<StreamT>(std::move(s)))
+                    return st;
+                throw std::invalid_argument{"Stream ID {} is not an instance of the requested Stream subclass"_format(id)};
+            }
+            else
+                return s;
+        }
+
+        /// Returns a stream object for the stream with the given id, if the stream exists (and, if
+        /// StreamT is specified, is of the given Stream subclass).  Otherwise throws
+        /// std::out_of_range if the stream was not found, and std::invalid_argument if the stream
+        /// was found, but is not an instance of StreamT.
         template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
         std::shared_ptr<StreamT> get_stream(int64_t id)
         {
-            if (auto s = std::dynamic_pointer_cast<StreamT>(get_stream_impl(id)))
+            if (auto s = maybe_stream<StreamT>(id))
                 return s;
-            throw std::runtime_error{"Could not find a stream of ID {}"_format(id)};
+            throw std::out_of_range{"Could not find a stream with ID {}"_format(id)};
         }
 
         template <
@@ -307,13 +353,13 @@ namespace oxen::quic
         // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
         // then the given `make_stream` gets invoked to create a default stream.
         std::shared_ptr<Stream> construct_stream(
-                const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& make_stream,
+                const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& default_stream,
                 std::optional<int64_t> stream_id = std::nullopt);
 
-        std::shared_ptr<Stream> queue_stream_impl(
+        std::shared_ptr<Stream> queue_incoming_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
-        std::shared_ptr<Stream> get_new_stream_impl(
+        std::shared_ptr<Stream> open_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
 
         std::shared_ptr<Stream> get_stream_impl(int64_t id) override;

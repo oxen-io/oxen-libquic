@@ -81,6 +81,10 @@ namespace oxen::quic
                 close_callback(*this, app_code);
         }
 
+        // Called immediately after set_ready so that a subclass can do thing as soon as the stream
+        // becomes ready.  The default does nothing.
+        virtual void on_ready() {}
+
         void send_impl(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
       private:
@@ -263,11 +267,7 @@ namespace oxen::quic
         {
             log::trace(log_cat, "Setting stream ready");
             ready = true;
-        }
-        inline void set_not_ready()
-        {
-            log::trace(log_cat, "Setting stream not ready");
-            ready = false;
+            on_ready();
         }
     };
 }  // namespace oxen::quic
