@@ -443,6 +443,10 @@ namespace oxen::quic::test
         auto done = done_prom.get_future();
         int responses = 0, good_responses = 0;
 
+        // Make sure debug logging is off for these because at debug log this produces so much log
+        // output it can take too long to run the tests within our 5s future wait.
+        log_level_raiser log_relief{log::Level::info};
+
         SECTION("Huge but not too huge")
         {
             std::string req_msg(9'000'000, 'a');

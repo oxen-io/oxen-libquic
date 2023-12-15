@@ -67,6 +67,35 @@ namespace oxen::quic
         logger_config(out, type, lvl);
     }
 
+    /// RAII class that resets the log level for the given category while the object is alive, then
+    /// resets it to what it was at construction when the object is destroyed.
+    struct log_level_override
+    {
+        log::Level previous;
+        log_level_override(log::Level l, std::string category = "quic") : previous{log::get_level(category)}
+        {
+            log::set_level(category, l);
+        }
+        ~log_level_override() { log::set_level("quic", previous); }
+    };
+
+    /// Same as above, but only raises the log level to a more serious cutoff (leaving it alone if
+    /// already higher).
+    struct log_level_raiser : log_level_override
+    {
+        log_level_raiser(log::Level l, std::string category = "quic") :
+                log_level_override{std::max(l, log::get_level(category)), category}
+        {}
+    };
+    /// Same as above, but only lowers the log level to a more frivolous cutoff (leaving it alone if
+    /// already higher).
+    struct log_level_lowerer : log_level_override
+    {
+        log_level_lowerer(log::Level l, std::string category = "quic") :
+                log_level_override{std::min(l, log::get_level(category)), category}
+        {}
+    };
+
     /// Parses an integer of some sort from a string, requiring that the entire string be consumed
     /// during parsing.  Return false if parsing failed, sets `value` and returns true if the entire
     /// string was consumed.
