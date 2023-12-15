@@ -25,6 +25,8 @@ namespace oxen::quic
             ep = get_location(data, btlc.consume_string_view());
 
         req_body = get_location(data, btlc.consume_string_view());
+
+        btlc.finish();
     }
 
     void message::respond(bstring_view body, bool error)
