@@ -11,6 +11,7 @@
 
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "error.hpp"
 #include "format.hpp"
 #include "gnutls_crypto.hpp"
 #include "internal.hpp"
@@ -225,6 +226,11 @@ namespace oxen::quic
         return datagrams->recv_buffer.last_cleared;
     }
 
+    ustring_view Connection::remote_key() const
+    {
+        return dynamic_cast<GNUTLSSession*>(get_session())->remote_key();
+    }
+
     TLSSession* Connection::get_session() const
     {
         return tls_session.get();
@@ -245,7 +251,7 @@ namespace oxen::quic
 
     void Connection::close_connection(uint64_t error_code)
     {
-        _endpoint.call([this, error_code]() { _endpoint.close_connection(*this, io_error{error_code}); });
+        _endpoint.close_connection(*this, io_error{error_code});
     }
 
     void Connection::handle_conn_packet(const Packet& pkt)
@@ -295,10 +301,8 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this, rv]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"sv);
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"s);
                 break;
             case NGTCP2_ERR_DROP_CONN:
                 // drop connection without calling ngtcp2_conn_write_connection_close()
@@ -333,10 +337,8 @@ namespace oxen::quic
                         "Note: CID-{} encountered error {}; signaling endpoint to close connection",
                         scid(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this, rv]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{rv});
                 break;
         }
 
@@ -348,10 +350,10 @@ namespace oxen::quic
     // so, we move them to the streams map, where they will get picked up by flush_streams and dump
     // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
     // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
-    void Connection::check_pending_streams(int available)
+    void Connection::check_pending_streams(uint64_t available)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        int popped = 0;
+        uint64_t popped = 0;
 
         while (!pending_streams.empty() && popped < available)
         {
@@ -370,14 +372,32 @@ namespace oxen::quic
         }
     }
 
-    std::shared_ptr<Stream> Connection::queue_stream_impl(
+    std::shared_ptr<Stream> Connection::construct_stream(
+            const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& default_stream,
+            std::optional<int64_t> stream_id)
+    {
+        std::shared_ptr<Stream> stream;
+        if (context->stream_construct_cb)
+            stream = context->stream_construct_cb(*this, _endpoint, stream_id);
+        if (!stream && default_stream)
+            stream = default_stream(*this, _endpoint);
+        if (!stream)
+            stream = _endpoint.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+
+        return stream;
+    }
+
+    std::shared_ptr<Stream> Connection::queue_incoming_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
-                                                         : make_stream(*this, _endpoint);
+            std::shared_ptr<Stream> stream;
+            if (make_stream)
+                stream = make_stream(*this, _endpoint);
+            else
+                stream = construct_stream(nullptr);
 
-            stream->set_not_ready();
+            assert(!stream->ready);
             stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
@@ -387,17 +407,27 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> Connection::get_new_stream_impl(
+    std::shared_ptr<Stream> connection_interface::queue_incoming_stream()
+    {
+        return queue_incoming_stream_impl(nullptr);
+    }
+
+    std::shared_ptr<Stream> Connection::open_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
         return _endpoint.call_get([this, &make_stream]() {
-            auto stream = (context->stream_construct_cb) ? context->stream_construct_cb(*this, _endpoint, std::nullopt)
-                                                         : make_stream(*this, _endpoint);
+            std::shared_ptr<Stream> stream;
+            if (make_stream)
+                stream = make_stream(*this, _endpoint);
+            else
+                stream = construct_stream(make_stream);
+
+            assert(!stream->ready);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
                 log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
-                stream->set_not_ready();
+                assert(!stream->ready);
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
             }
@@ -409,6 +439,24 @@ namespace oxen::quic
                 strm = std::move(stream);
                 return strm;
             }
+        });
+    }
+
+    std::shared_ptr<Stream> connection_interface::open_stream()
+    {
+        return open_stream_impl(nullptr);
+    }
+
+    std::shared_ptr<Stream> Connection::get_stream_impl(int64_t id)
+    {
+        return _endpoint.call_get([this, id]() -> std::shared_ptr<Stream> {
+            if (auto it = streams.find(id); it != streams.end())
+                return it->second;
+
+            if (auto it = stream_queue.find(id); it != stream_queue.end())
+                return it->second;
+
+            return nullptr;
         });
     }
 
@@ -669,13 +717,10 @@ namespace oxen::quic
                 if (ngtcp2_err_is_fatal(nwrite))
                 {
                     log::critical(log_cat, "Fatal ngtcp2 error: could not write frame - \"{}\"", ngtcp2_strerror(nwrite));
-                    _endpoint.call([this, rv = (int)nwrite]() {
-                        log::info(log_cat, "Endpoint signaled by connection (CID: {}) to kill it", _source_cid);
-                        _endpoint.close_connection(*this, io_error{rv}, ngtcp2_strerror(rv));
-                    });
+                    _endpoint.close_connection(*this, io_error{(int)nwrite});
                     return;
                 }
-                else if (nwrite == NGTCP2_ERR_WRITE_MORE)
+                if (nwrite == NGTCP2_ERR_WRITE_MORE)
                 {
                     // lets try fitting a small end of a split datagram in
                     prefer_big_first = false;
@@ -793,11 +838,6 @@ namespace oxen::quic
         event_add(packet_retransmit_timer.get(), &tv);
     }
 
-    std::shared_ptr<Stream> Connection::get_stream(int64_t ID) const
-    {
-        return _endpoint.call_get([this, ID] { return streams.at(ID); });
-    }
-
     int Connection::stream_opened(int64_t id)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -816,9 +856,8 @@ namespace oxen::quic
             return 0;
         }
 
-        auto stream = (context->stream_construct_cb)
-                            ? context->stream_construct_cb(*this, _endpoint, id)
-                            : std::make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+        auto stream = construct_stream(nullptr, id);
+
         stream->_stream_id = id;
         stream->set_ready();
 
@@ -828,7 +867,7 @@ namespace oxen::quic
         {
             log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
             assert(endpoint().in_event_loop());
-            stream->close(io_error{app_err_code});
+            stream->close(app_err_code);
             return 0;
         }
 
@@ -890,38 +929,45 @@ namespace oxen::quic
             return 0;
         }
 
-        log::debug(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
+        log::trace(log_cat, "Stream (ID: {}) received data: {}", id, buffer_printer{data});
 
-        bool good = false;
+        std::optional<uint64_t> error;
         try
         {
             str->receive(data);
-            good = true;
         }
-        // FIXME: we should add a special exception type that carries a specific stream application
-        // error to send instead of just the generic STREAM_ERROR_EXCEPTION.
+        catch (const application_stream_error& e)
+        {
+            // Application threw us a custom error code to close the stream with
+            log::debug(
+                    log_cat,
+                    "Stream {} data callback threw us a custom error code ({}); closing stream",
+                    str->_stream_id,
+                    e.code);
+            error = e.code;
+        }
         catch (const std::exception& e)
         {
             log::warning(
                     log_cat,
-                    "Stream {} data callback raised exception ({}); closing stream with app "
-                    "code {}",
+                    "Stream {} data callback raised exception ({}); closing stream with {}",
                     str->_stream_id,
                     e.what(),
-                    STREAM_ERROR_EXCEPTION);
+                    quic_strerror(STREAM_ERROR_EXCEPTION));
+            error = STREAM_ERROR_EXCEPTION;
         }
         catch (...)
         {
             log::warning(
                     log_cat,
-                    "Stream {} data callback raised an unknown exception; closing stream with "
-                    "app code {}",
+                    "Stream {} data callback raised an unknown exception; closing stream with {}",
                     str->_stream_id,
-                    STREAM_ERROR_EXCEPTION);
+                    quic_strerror(STREAM_ERROR_EXCEPTION));
+            error = STREAM_ERROR_EXCEPTION;
         }
-        if (!good)
+        if (error)
         {
-            str->close(io_error{error::STREAM_EXCEPTION});
+            str->close(*error);
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
 
@@ -987,7 +1033,7 @@ namespace oxen::quic
 
             try
             {
-                datagrams->dgram_data_cb(di, (maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
+                datagrams->dgram_data_cb(*di, (maybe_data ? std::move(*maybe_data) : bstring{data.begin(), data.end()}));
                 good = true;
             }
             catch (const std::exception& e)
@@ -1009,10 +1055,8 @@ namespace oxen::quic
             }
             if (!good)
             {
-                _endpoint.call([this, ec = io_error{error::DATAGRAM_EXCEPTION}]() {
-                    log::debug(log_cat, "Endpoint closing CID: {}", scid());
-                    _endpoint.close_connection(*this, ec, ec.strerror());
-                });
+                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                _endpoint.close_connection(*this, io_error{DATAGRAM_ERROR_EXCEPTION});
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }
@@ -1041,13 +1085,10 @@ namespace oxen::quic
         datagrams->send(data, std::move(keep_alive));
     }
 
-    int Connection::get_streams_available() const
+    uint64_t Connection::get_streams_available() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        uint64_t open = ngtcp2_conn_get_streams_bidi_left(conn.get());
-        if (open > std::numeric_limits<uint64_t>::max())
-            return -1;
-        return open;
+        return ngtcp2_conn_get_streams_bidi_left(conn.get());
     }
 
     size_t Connection::get_max_datagram_size() const
@@ -1067,33 +1108,6 @@ namespace oxen::quic
             ngtcp2_callbacks& callbacks,
             std::chrono::nanoseconds handshake_timeout)
     {
-        auto* ev_base = endpoint().get_loop().get();
-
-        packet_io_trigger.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_packet_io_ready(); },
-                this));
-        packet_retransmit_timer.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self_) {
-                    auto& self = *static_cast<Connection*>(self_);
-                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
-                    {
-                        log::warning(
-                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                        self.endpoint().close_connection(self, io_error{rv});
-                        return;
-                    }
-                    self.on_packet_io_ready();
-                },
-                this));
-
-        event_add(packet_retransmit_timer.get(), nullptr);
-
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
@@ -1157,6 +1171,8 @@ namespace oxen::quic
 #ifndef NDEBUG
             callbacks.ack_datagram = on_ack_datagram;
 #endif
+
+            di = _endpoint.make_shared<dgram_interface>(*this);
         }
         else
         {
@@ -1187,8 +1203,7 @@ namespace oxen::quic
             _max_streams{context->config.max_streams ? context->config.max_streams : DEFAULT_MAX_BIDI_STREAMS},
             _datagrams_enabled{context->config.datagram_support},
             _packet_splitting{context->config.split_packet},
-            tls_creds{context->tls_creds},
-            di{*this}
+            tls_creds{context->tls_creds}
     {
         // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
         //  - If this is an outbound, steal the callback to be used once. Outbound connections
@@ -1202,8 +1217,8 @@ namespace oxen::quic
                                ? is_outbound() ? std::move(context->conn_closed_cb) : context->conn_closed_cb
                                : nullptr;
 
-        datagrams = std::make_unique<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
-        pseudo_stream = std::make_shared<Stream>(*this, _endpoint);
+        datagrams = _endpoint.make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
+        pseudo_stream = _endpoint.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 
         const auto is_outbound = (dir == Direction::OUTBOUND);
@@ -1262,6 +1277,8 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
         }
 
+        ngtcp2_conn_set_keep_alive_timeout(connptr, context->config.keep_alive.count());
+
         tls_session = tls_creds->make_session(is_outbound, alpns);
 
         if (remote_pk)
@@ -1277,6 +1294,33 @@ namespace oxen::quic
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
 
         conn.reset(connptr);
+
+        auto* ev_base = endpoint().get_loop().get();
+
+        packet_io_trigger.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_packet_io_ready(); },
+                this));
+        packet_retransmit_timer.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self_) {
+                    auto& self = *static_cast<Connection*>(self_);
+                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
+                    {
+                        log::warning(
+                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
+                        self.endpoint().close_connection(self, io_error{rv});
+                        return;
+                    }
+                    self.on_packet_io_ready();
+                },
+                this));
+
+        event_add(packet_retransmit_timer.get(), nullptr);
 
 #ifndef NDEBUG
         test_suite.datagram_drop_enabled = false;
@@ -1306,5 +1350,19 @@ namespace oxen::quic
 
         return conn;
     }
+
+#ifndef NDEBUG
+
+    connection_interface::~connection_interface()
+    {
+        log::debug(log_cat, "connection_interface @{} destroyed", (void*)this);
+    }
+
+    Connection::~Connection()
+    {
+        log::debug(log_cat, "Connection @{} destroyed", (void*)this);
+    }
+
+#endif
 
 }  // namespace oxen::quic

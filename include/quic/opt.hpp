@@ -8,11 +8,20 @@
 
 namespace oxen::quic::opt
 {
+    using namespace std::chrono_literals;
+
     struct max_streams
     {
-        int stream_count = DEFAULT_MAX_BIDI_STREAMS;
+        uint64_t stream_count{DEFAULT_MAX_BIDI_STREAMS};
         max_streams() = default;
-        explicit max_streams(int s) : stream_count{s} {}
+        explicit max_streams(uint64_t s) : stream_count{s} {}
+    };
+
+    struct keep_alive
+    {
+        std::chrono::milliseconds time{0ms};
+        keep_alive() = default;
+        explicit keep_alive(std::chrono::milliseconds val) : time{val} {}
     };
 
     /// This can be initialized a few different ways. Simply passing a default constructed struct
@@ -36,10 +45,10 @@ namespace oxen::quic::opt
     /// destroyed and re-initialized with the desired settings.
     struct enable_datagrams
     {
-        bool split_packets = false;
-        Splitting mode = Splitting::NONE;
+        bool split_packets{false};
+        Splitting mode{Splitting::NONE};
         // Note: this is the size of the entire buffer, divided amongst 4 rows
-        int bufsize = 4096;
+        int bufsize{4096};
 
         enable_datagrams() = default;
         explicit enable_datagrams(bool e) = delete;

@@ -294,7 +294,7 @@ int main(int argc, char* argv[])
     for (size_t i = 0; i < parallel; i++)
     {
         auto& s = *streams[i];
-        s.stream = client_ci->get_new_stream();
+        s.stream = client_ci->open_stream();
         std::string remaining_str;
         remaining_str.resize(8);
         oxenc::write_host_as_little(s.remaining, remaining_str.data());

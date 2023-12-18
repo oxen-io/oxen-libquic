@@ -64,7 +64,7 @@ endif()
 
 # oxenc
 if (NOT TARGET oxenc)
-    system_or_submodule(OXENC oxenc liboxenc>=1.0.9 oxen-encoding)
+    system_or_submodule(OXENC oxenc liboxenc>=1.0.10 oxen-encoding)
 endif()
 
 # libevent

@@ -73,14 +73,14 @@ namespace oxen::quic
         }
 
         template <typename... Opt>
-        bool listen(Opt&&... opts)
+        void listen(Opt&&... opts)
         {
 
             static_assert(
                     (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
                     "Endpoint listen requires exactly one std::shared_ptr<TLSCreds> argument");
 
-            std::promise<bool> p;
+            std::promise<void> p;
             auto f = p.get_future();
 
             net.call([&opts..., &p, this]() mutable {
@@ -93,7 +93,7 @@ namespace oxen::quic
 
                     log::debug(log_cat, "Inbound context ready for incoming connections");
 
-                    p.set_value(true);
+                    p.set_value();
                 }
                 catch (...)
                 {
@@ -101,7 +101,7 @@ namespace oxen::quic
                 }
             });
 
-            return f.get();
+            f.get();
         }
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
@@ -170,6 +170,14 @@ namespace oxen::quic
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 
+        // Shortcut for calling net.make_shared<T> to make a std::shared_ptr<T> that has destruction
+        // synchronized to the network event loop.
+        template <typename T, typename... Args>
+        std::shared_ptr<T> make_shared(Args&&... args)
+        {
+            return net.make_shared<T>(std::forward<Args>(args)...);
+        }
+
         // query a list of all active inbound and outbound connections paired with a conn_interface
         std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
@@ -202,9 +210,9 @@ namespace oxen::quic
 
         void drop_connection(Connection& conn);
 
-        void close_connection(Connection& conn, io_error ec = io_error{0}, std::string_view msg = "NO_ERROR"sv);
+        void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
-        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::string_view msg = "NO_ERROR"sv);
+        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
         const Address& local() const { return _local; }
 
@@ -251,6 +259,8 @@ namespace oxen::quic
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
         void on_receive(const Packet& pkt);
+
+        void _close_connection(Connection& conn, io_error ec, std::string msg);
 
         // Data structures used to keep track of various types of connections
         //

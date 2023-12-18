@@ -78,7 +78,7 @@ namespace oxen::quic
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
 
         if (expected_key)
-            expected_remote_key = *expected_key;
+            _expected_remote_key = *expected_key;
 
         auto direction_string = (is_client) ? "Client"s : "Server"s;
         log::trace(log_cat, "Creating {} GNUTLSSession", direction_string);
@@ -311,11 +311,11 @@ namespace oxen::quic
                 buffer_printer{cert_data, cert_size});
 
         // pubkey comes as 12 bytes header + 32 bytes key
-        remote_key.write(cert_data, cert_size);
+        _remote_key.write(cert_data, cert_size);
 
         if (is_client)
         {  // Client does validation through a remote pubkey provided when calling endpoint::connect
-            if (remote_key == expected_remote_key)
+            if (_remote_key == _expected_remote_key)
             {
                 log::debug(log_cat, "Client successfully validated remote key!");
                 return 1;
@@ -336,7 +336,7 @@ namespace oxen::quic
                 // provided a certificate and is only called by the server, we can assume the following returns:
                 //      true: the certificate was verified, and the connection is marked as validated
                 //      false: the certificate was not verified, and the connection is rejected
-                return creds.key_verify(remote_key.view(), alpn);
+                return creds.key_verify(_remote_key.view(), alpn);
             }
 
             log::debug(log_cat, "Server did not provide key verify callback! Allowing connection");

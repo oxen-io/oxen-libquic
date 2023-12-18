@@ -1,60 +1,61 @@
 #include "btstream.hpp"
 
+#include <stdexcept>
+
 namespace oxen::quic
 {
-    message::message(BTRequestStream& bp, std::string req, bool is_error) :
+
+    static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr)
+    {
+        auto* bsubstr = reinterpret_cast<const std::byte*>(substr.data());
+        // Make sure the given substr actually is a substr of data:
+        assert(bsubstr >= data.data() && bsubstr + substr.size() <= data.data() + data.size());
+        return {bsubstr - data.data(), substr.size()};
+    }
+
+    message::message(BTRequestStream& bp, bstring req, bool is_error) :
             data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
     {
         oxenc::bt_list_consumer btlc(data);
 
-        req_type = btlc.consume_string_view();
+        req_type = get_location(data, btlc.consume_string_view());
         req_id = btlc.consume_integer<int64_t>();
 
-        if (req_type == "C")
-            ep = btlc.consume_string_view();
-        else if (req_type == "E")
-            is_error = true;
+        if (type() == "C")
+            ep = get_location(data, btlc.consume_string_view());
 
-        req_body = btlc.consume_string_view();
+        req_body = get_location(data, btlc.consume_string_view());
+
+        btlc.finish();
     }
 
-    void message::respond(std::string body, bool error)
+    void message::respond(bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (auto ptr = return_sender.lock())
-            ptr->respond(req_id, std::move(body), error);
+            ptr->respond(req_id, body, error);
     }
 
-    void BTRequestStream::respond(int64_t rid, std::string body, bool error)
+    void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        auto req = make_response(rid, std::move(body), error);
-
-        if (req)
-            send(std::move(*req).payload());
-        else
-            throw std::invalid_argument{"Invalid response!"};
+        send(sent_request{*this, encode_response(rid, body, error), rid}.payload());
     }
 
     void BTRequestStream::check_timeouts()
     {
         const auto now = get_time();
 
-        do
+        while (!sent_reqs.empty())
         {
-            auto& f = sent_reqs.front();
-
-            if (f->is_expired(now))
-            {
-                f->cb(f->to_message(true));
-                sent_reqs.pop_front();
-            }
-            else
+            auto& f = *sent_reqs.front();
+            if (!f.is_expired(now))
                 return;
-
-        } while (not sent_reqs.empty());
+            f.cb(std::move(f).to_timeout());
+            sent_reqs.pop_front();
+        }
     }
 
     void BTRequestStream::receive(bstring_view data)
@@ -71,36 +72,38 @@ namespace oxen::quic
         catch (const std::exception& e)
         {
             log::error(bp_cat, "Exception caught: {}", e.what());
-            close(io_error{BPARSER_EXCEPTION});
+            close(BPARSER_ERROR_EXCEPTION);
         }
     }
 
     void BTRequestStream::closed(uint64_t app_code)
     {
-        log::info(bp_cat, "bparser close callback called!");
+        log::info(bp_cat, "bparser close callback called with {}", quic_strerror(app_code));
         close_callback(*this, app_code);
     }
 
     void BTRequestStream::register_command(std::string ep, std::function<void(message)> func)
     {
-        endpoint.call([&]() { func_map[std::move(ep)] = std::move(func); });
+        endpoint.call(
+                [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
     }
 
     void BTRequestStream::handle_input(message msg)
     {
-        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+        log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.type());
 
-        if (msg.req_type == "R" || msg.req_type == "E")
+        if (auto type = msg.type(); type == "R" || type == "E")
         {
+            log::trace(log_cat, "Looking for request with req_id={}", msg.req_id);
             // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
             // As a result, our comparator checks if the sent request ID is greater thanthan the target rid
             auto itr = std::lower_bound(
                     sent_reqs.begin(),
                     sent_reqs.end(),
                     msg.req_id,
-                    [](const std::shared_ptr<sent_request>& sr, int64_t rid) { return sr->req_id > rid; });
+                    [](const std::shared_ptr<sent_request>& sr, int64_t rid) { return sr->req_id < rid; });
 
-            if (itr != sent_reqs.end() and itr->get()->req_id == msg.req_id)
+            if (itr != sent_reqs.end())
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
                 itr->get()->cb(std::move(msg));
@@ -129,7 +132,7 @@ namespace oxen::quic
                 if (not size_buf.empty())
                 {
                     size_t prev_len = size_buf.size();
-                    size_buf += req.substr(0, 15);
+                    size_buf += req.substr(0, MAX_REQ_LEN_ENCODED);
 
                     consumed = parse_length(size_buf);
 
@@ -141,7 +144,7 @@ namespace oxen::quic
                 }
                 else
                 {
-                    consumed = parse_length(req);
+                    consumed = parse_length(convert_sv<char>(req));
                     if (consumed == 0)
                     {
                         size_buf += req;
@@ -150,56 +153,59 @@ namespace oxen::quic
 
                     req.remove_prefix(consumed);
                 }
-
-                if (req.size() >= current_len)
-                {
-                    buf += req.substr(0, current_len);
-                    handle_input(message{*this, std::move(buf)});
-                    req.remove_prefix(current_len);
-
-                    current_len = 0;
-                    continue;
-                }
-
-                buf.reserve(current_len);
-                buf += req;
-                return;
             }
 
-            auto r_size = req.size() + buf.size();
+            assert(current_len > 0);  // We shouldn't get out of the above without knowing this
 
-            if (r_size >= current_len)
+            if (auto r_size = req.size() + buf.size(); r_size >= current_len)
             {
-                buf += req.substr(0, r_size);
-                req.remove_prefix(r_size);
+                // We have enough data for a complete request, so copy whatever we need to
+                // complete the current request into buf and process it, leaving behind the
+                // potential start of the next request:
+                if (buf.size() < current_len)
+                {
+                    size_t need = current_len - buf.size();
+                    buf += convert_sv<std::byte>(req.substr(0, need));
+                    req.remove_prefix(need);
+                }
+
                 handle_input(message{*this, std::move(buf)});
+
+                // Back to the top to try processing another request that might have arrived in
+                // the same stream buffer
                 current_len = 0;
                 continue;
             }
 
-            buf += req;
+            // Otherwise we don't have enough data on hand for a complete request, so move what we
+            // got to the buffer to be processed when the next incoming chunk of data arrives.
+            buf.reserve(current_len);
+            buf += convert_sv<std::byte>(req);
             return;
         }
     }
 
-    std::optional<sent_request> BTRequestStream::make_response(int64_t rid, std::string body, bool error)
+    std::string BTRequestStream::encode_command(std::string_view endpoint, int64_t rid, bstring_view body)
     {
         oxenc::bt_list_producer btlp;
 
-        try
-        {
-            btlp.append(error ? "E" : "R");
-            btlp.append(rid);
-            btlp.append(body);
+        btlp.append("C");
+        btlp.append(rid);
+        btlp.append(endpoint);
+        btlp.append(body);
 
-            return sent_request{*this, btlp.view(), rid};
-        }
-        catch (...)
-        {
-            log::critical(bp_cat, "Invalid outgoing response encoding!");
-        }
+        return std::move(btlp).str();
+    }
 
-        return std::nullopt;
+    std::string BTRequestStream::encode_response(int64_t rid, bstring_view body, bool error)
+    {
+        oxenc::bt_list_producer btlp;
+
+        btlp.append(error ? "E" : "R");
+        btlp.append(rid);
+        btlp.append(body);
+
+        return std::move(btlp).str();
     }
 
     /** Returns:
@@ -214,21 +220,30 @@ namespace oxen::quic
         auto pos = req.find_first_of(':');
 
         // request is incomplete with no readable request length
-        if (req.at(pos) == req.back())
+        if (pos == std::string_view::npos)
+        {
+            if (req.size() >= MAX_REQ_LEN_ENCODED)
+                // we didn't find a valid length, but do have enough consumed for the maximum valid
+                // length, so something is clearly wrong with this input.
+                throw std::invalid_argument{"Invalid incoming request; invalid encoding or request too large"};
+
             return 0;
+        }
 
         auto [ptr, ec] = std::from_chars(req.data(), req.data() + pos, current_len);
 
-        if (ec != std::errc())
-        {
-            close(io_error{BPARSER_EXCEPTION});
-            throw std::invalid_argument{"Invalid incoming request encoding!"};
-        }
+        const char* bad = nullptr;
+        if (ec != std::errc() || ptr != req.data() + pos)
+            bad = "Invalid incoming request encoding!";
+        else if (current_len == 0)
+            bad = "Invalid empty bt request!";
+        else if (current_len > MAX_REQ_LEN)
+            bad = "Request exceeds maximum size!";
 
-        if (current_len > MAX_REQ_LEN)
+        if (bad)
         {
-            close(io_error{BPARSER_EXCEPTION});
-            throw std::invalid_argument{"Request exceeds maximum size!"};
+            close(BPARSER_ERROR_EXCEPTION);
+            throw std::invalid_argument{bad};
         }
 
         return pos + 1;

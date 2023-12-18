@@ -30,7 +30,7 @@ namespace oxen::quic::test
         SECTION("Default ALPN")
         {
             auto server_endpoint = test_net.endpoint(server_local, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
@@ -46,7 +46,7 @@ namespace oxen::quic::test
             opt::outbound_alpns client_alpns{{"client"}};
 
             auto server_endpoint = test_net.endpoint(server_local, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
@@ -62,7 +62,7 @@ namespace oxen::quic::test
             opt::inbound_alpns server_alpns{{"client", "relay"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
@@ -79,7 +79,7 @@ namespace oxen::quic::test
             opt::outbound_alpns client_alpns{{"foobar"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
@@ -97,7 +97,7 @@ namespace oxen::quic::test
             opt::outbound_alpns client_alpns2{{"relay"}};
 
             auto server_endpoint = test_net.endpoint(server_local, server_alpns, timeout);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 

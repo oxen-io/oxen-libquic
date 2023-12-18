@@ -335,9 +335,9 @@ namespace oxen::quic
 
         bool is_client;
 
-        gnutls_key expected_remote_key{};
+        gnutls_key _expected_remote_key{};
 
-        gnutls_key remote_key{};
+        gnutls_key _remote_key{};
 
         void set_tls_hook_functions();  // TODO: which and when?
       public:
@@ -350,6 +350,8 @@ namespace oxen::quic
         ~GNUTLSSession();
 
         void* get_session() override { return session; };
+
+        ustring_view remote_key() const override { return _remote_key.view(); }
 
         ustring_view selected_alpn() override;
 
@@ -364,7 +366,7 @@ namespace oxen::quic
 
         int validate_remote_key();
 
-        void set_expected_remote_key(ustring key) override { expected_remote_key(key); }
+        void set_expected_remote_key(ustring key) override { _expected_remote_key(key); }
     };
 
     GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session);

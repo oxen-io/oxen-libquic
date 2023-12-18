@@ -34,13 +34,16 @@ namespace oxen::quic
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class Connection;
+        friend class Network;
 
-      public:
+      protected:
         Stream(Connection& conn,
                Endpoint& ep,
                stream_data_callback data_cb = nullptr,
                stream_close_callback close_cb = nullptr);
-        ~Stream();
+
+      public:
+        ~Stream() override;
 
         bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
         bool is_stream() const override { return true; }
@@ -56,31 +59,7 @@ namespace oxen::quic
 
         std::shared_ptr<Stream> get_stream() override;
 
-        void close(io_error ec = io_error{});
-
-        void send(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
-
-        template <
-                typename CharType,
-                std::enable_if_t<sizeof(CharType) == 1 && !std::is_same_v<CharType, std::byte>, int> = 0>
-        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
-        {
-            send(convert_sv<std::byte>(data), std::move(keep_alive));
-        }
-
-        template <typename CharType>
-        void send(std::basic_string<CharType>&& data)
-        {
-            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
-            std::basic_string_view<CharType> view{*keep_alive};
-            send(view, std::move(keep_alive));
-        }
-
-        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
-        void send(std::vector<Char>&& buf)
-        {
-            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
-        }
+        void close(uint64_t app_err_code = 0);
 
         void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
 
@@ -101,6 +80,12 @@ namespace oxen::quic
             if (close_callback)
                 close_callback(*this, app_code);
         }
+
+        // Called immediately after set_ready so that a subclass can do thing as soon as the stream
+        // becomes ready.  The default does nothing.
+        virtual void on_ready() {}
+
+        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
       private:
         stream_buffer user_buffers;
@@ -282,11 +267,7 @@ namespace oxen::quic
         {
             log::trace(log_cat, "Setting stream ready");
             ready = true;
-        }
-        inline void set_not_ready()
-        {
-            log::trace(log_cat, "Setting stream not ready");
-            ready = false;
+            on_ready();
         }
     };
 }  // namespace oxen::quic

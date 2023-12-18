@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 
 #include "context.hpp"
 #include "format.hpp"
@@ -17,6 +18,7 @@
 namespace oxen::quic
 {
     struct dgram_interface;
+    class Network;
 
     // Wrapper for ngtcp2_cid with helper functionalities to make it passable
     struct alignas(size_t) ConnectionID : ngtcp2_cid
@@ -54,28 +56,98 @@ namespace oxen::quic
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       protected:
-        virtual std::shared_ptr<Stream> queue_stream_impl(
+        virtual std::shared_ptr<Stream> queue_incoming_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
-        virtual std::shared_ptr<Stream> get_new_stream_impl(
+        virtual std::shared_ptr<Stream> open_stream_impl(
                 std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) = 0;
+        virtual std::shared_ptr<Stream> get_stream_impl(int64_t id) = 0;
 
       public:
         virtual ustring_view selected_alpn() const = 0;
 
-        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<StreamT> queue_stream(Args&&... args)
+        /// Queues an incoming stream of the given StreamT type, forwarding the given arguments to
+        /// the StreamT constructor.  The stream will be given the next unseen incoming connection
+        /// ID; it will be made ready once the associated stream id is seen from the remote
+        /// connection.  Note that this constructor bypasses the stream constructor callback for the
+        /// applicable stream id.
+        template <
+                typename StreamT,
+                typename... Args,
+                typename EndpointDeferred = Endpoint,
+                std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> queue_incoming_stream(Args&&... args)
         {
-            return std::static_pointer_cast<StreamT>(queue_stream_impl([&](Connection& c, Endpoint& e) {
-                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
+            // has a forward declaration; the user of this method needs to have the full definition
+            // available to call this.
+            return std::static_pointer_cast<StreamT>(queue_incoming_stream_impl([&](Connection& c, EndpointDeferred& e) {
+                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
         }
 
-        template <typename StreamT = Stream, typename... Args, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
-        std::shared_ptr<StreamT> get_new_stream(Args&&... args)
+        /// Queues a default incoming Stream object, either via the stream constructor callback (if
+        /// set) or the default Stream constructor (if no constructor callback, or the callback
+        /// returns nullptr).  The stream object will be made ready once the associated next
+        /// incoming stream ID is observed from the other end.
+        std::shared_ptr<Stream> queue_incoming_stream();
+
+        /// Opens a new outgoing stream to the other end of the connection of the given StreamT
+        /// type, forwarding the given arguments to the StreamT constructor.  The returned stream
+        /// may or may not be ready (and have an id assigned) based on whether there are available
+        /// stream ids on the connection.  Check `->ready` on the returned instance to check.  If
+        /// not ready the stream will be queued and become ready once a stream id becomes available,
+        /// such as from an increase in available stream ids resulting from the closure of an
+        /// existing stream.  Note that this constructor bypasses the stream constructor callback
+        /// for the applicable stream id.
+        template <
+                typename StreamT,
+                typename... Args,
+                typename EndpointDeferred = Endpoint,
+                std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
-            return std::static_pointer_cast<StreamT>(get_new_stream_impl([&](Connection& c, Endpoint& e) {
-                return std::make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+            return std::static_pointer_cast<StreamT>(open_stream_impl([&](Connection& c, EndpointDeferred& e) {
+                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
+        }
+
+        /// Opens a bog standard Stream connection to the other end of the connection.  This version
+        /// of open_stream takes no arguments; it will invoke the stream constructor callback (if
+        /// configured) and otherwise will fall back to construct a default Stream.  See the
+        /// comments in the templated version of the method, above, for details about the readiness
+        /// of the returned stream.
+        std::shared_ptr<Stream> open_stream();
+
+        /// Returns a stream object for the stream with the given id, if the stream exists (and, if
+        /// StreamT is specified, is of the given Stream subclass).  Returns nullptr if the id is
+        /// not currently an open stream; throws std::invalid_argument if the stream exists but is
+        /// not an instance of the given StreamT type.
+        template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> maybe_stream(int64_t id)
+        {
+            auto s = get_stream_impl(id);
+            if (!s)
+                return nullptr;
+            if constexpr (!std::is_same_v<StreamT, Stream>)
+            {
+                if (auto st = std::dynamic_pointer_cast<StreamT>(std::move(s)))
+                    return st;
+                throw std::invalid_argument{"Stream ID {} is not an instance of the requested Stream subclass"_format(id)};
+            }
+            else
+                return s;
+        }
+
+        /// Returns a stream object for the stream with the given id, if the stream exists (and, if
+        /// StreamT is specified, is of the given Stream subclass).  Otherwise throws
+        /// std::out_of_range if the stream was not found, and std::invalid_argument if the stream
+        /// was found, but is not an instance of StreamT.
+        template <typename StreamT = Stream, std::enable_if_t<std::is_base_of_v<Stream, StreamT>, int> = 0>
+        std::shared_ptr<StreamT> get_stream(int64_t id)
+        {
+            if (auto s = maybe_stream<StreamT>(id))
+                return s;
+            throw std::out_of_range{"Could not find a stream with ID {}"_format(id)};
         }
 
         template <
@@ -103,9 +175,9 @@ namespace oxen::quic
         }
 
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
-
-        virtual int get_max_streams() const = 0;
-        virtual int get_streams_available() const = 0;
+        virtual size_t active_streams() const = 0;
+        virtual uint64_t get_max_streams() const = 0;
+        virtual uint64_t get_streams_available() const = 0;
         virtual size_t get_max_datagram_size() const = 0;
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
@@ -113,6 +185,11 @@ namespace oxen::quic
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
+        virtual Direction direction() const = 0;
+        virtual ustring_view remote_key() const = 0;
+        bool is_inbound() const { return direction() == Direction::INBOUND; }
+        bool is_outbound() const { return direction() == Direction::OUTBOUND; }
+        std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -122,14 +199,16 @@ namespace oxen::quic
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
-        virtual ~connection_interface() = default;
-
 #ifndef NDEBUG
+        virtual ~connection_interface();
+
         debug_interface test_suite;
+#else
+        virtual ~connection_interface() = default;
 #endif
     };
 
-    class Connection : public connection_interface, public std::enable_shared_from_this<Connection>
+    class Connection : public connection_interface
     {
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
@@ -167,16 +246,11 @@ namespace oxen::quic
 
         TLSSession* get_session() const;
 
-        std::shared_ptr<Stream> queue_stream_impl(
-                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
+        ustring_view remote_key() const override;
 
-        std::shared_ptr<Stream> get_new_stream_impl(
-                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
+        Direction direction() const override { return dir; }
 
-        Direction direction() const { return dir; }
-        bool is_inbound() const { return dir == Direction::INBOUND; }
-        bool is_outbound() const { return dir == Direction::OUTBOUND; }
-        std::string_view direction_str() const { return dir == Direction::INBOUND ? "server"sv : "client"sv; }
+        size_t active_streams() const override { return streams.size(); }
 
         void halt_events();
         bool is_closing() const { return closing; }
@@ -197,9 +271,9 @@ namespace oxen::quic
 
         ustring_view selected_alpn() const override;
 
-        int get_streams_available() const override;
+        uint64_t get_streams_available() const override;
         size_t get_max_datagram_size() const override;
-        int get_max_streams() const override { return _max_streams; }
+        uint64_t get_max_streams() const override { return _max_streams; }
         bool datagrams_enabled() const override { return _datagrams_enabled; }
         bool packet_splitting_enabled() const override { return _packet_splitting; }
 
@@ -240,7 +314,7 @@ namespace oxen::quic
         const ConnectionID _source_cid;
         ConnectionID _dest_cid;
         Path _path;
-        const int _max_streams{DEFAULT_MAX_BIDI_STREAMS};
+        const uint64_t _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
         std::atomic<bool> _congested{false};
@@ -274,10 +348,22 @@ namespace oxen::quic
 
         void schedule_packet_retransmit(std::chrono::steady_clock::time_point ts);
 
-        std::shared_ptr<Stream> get_stream(int64_t ID) const;
-
         bool draining = false;
         bool closing = false;
+
+        // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
+        // then the given `make_stream` gets invoked to create a default stream.
+        std::shared_ptr<Stream> construct_stream(
+                const std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)>& default_stream,
+                std::optional<int64_t> stream_id = std::nullopt);
+
+        std::shared_ptr<Stream> queue_incoming_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
+
+        std::shared_ptr<Stream> open_stream_impl(
+                std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream) override;
+
+        std::shared_ptr<Stream> get_stream_impl(int64_t id) override;
 
         // holds a mapping of active streams
         std::map<int64_t, std::shared_ptr<Stream>> streams;
@@ -286,7 +372,7 @@ namespace oxen::quic
         int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
 
         // datagram "pseudo-stream"
-        std::unique_ptr<DatagramIO> datagrams;
+        std::shared_ptr<DatagramIO> datagrams;
         // "pseudo-stream" to represent ngtcp2 stream ID -1
         std::shared_ptr<Stream> pseudo_stream;
         // holds queue of pending streams not yet ready to broadcast
@@ -301,7 +387,7 @@ namespace oxen::quic
 
         io_result read_packet(const Packet& pkt);
 
-        dgram_interface di;
+        std::shared_ptr<dgram_interface> di;
 
       public:
         // public to be called by endpoint handing this connection a packet
@@ -311,7 +397,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_closed(int64_t id, uint64_t app_code);
-        void check_pending_streams(int available);
+        void check_pending_streams(uint64_t available);
         int recv_datagram(bstring_view data, bool fin);
         int ack_datagram(uint64_t dgram_id);
 
@@ -330,6 +416,10 @@ namespace oxen::quic
 
         // returns number of currently pending streams for use in test cases
         size_t num_pending() const { return pending_streams.size(); }
+
+#ifndef NDEBUG
+        ~Connection() override;
+#endif
     };
 
     extern "C"

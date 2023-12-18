@@ -38,7 +38,7 @@ namespace oxen::quic
         ci.send_datagram(data, std::move(keep_alive));
     }
 
-    void DatagramIO::send(bstring_view data, std::shared_ptr<void> keep_alive)
+    void DatagramIO::send_impl(bstring_view data, std::shared_ptr<void> keep_alive)
     {
         // check this first and once; already considers policy when returning
         const auto max_size = conn.get_max_datagram_size();

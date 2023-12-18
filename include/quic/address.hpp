@@ -41,7 +41,7 @@ namespace oxen::quic
         template <
                 typename T,
                 std::enable_if_t<
-                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr>,
+                        std::is_same_v<T, sockaddr> || std::is_same_v<T, sockaddr_in> || std::is_same_v<T, sockaddr_in6>,
                         int> = 0>
         Address& operator=(const T* s)
         {
@@ -57,6 +57,22 @@ namespace oxen::quic
         {
             _copy_internals(obj);
             return *this;
+        }
+
+        void set_port(uint16_t port)
+        {
+            if (_sock_addr.ss_family == AF_INET6)
+            {
+                auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
+                sin6.sin6_port = oxenc::host_to_big(port);
+            }
+            else if (_sock_addr.ss_family == AF_INET)
+            {
+                auto& sin4 = reinterpret_cast<sockaddr_in&>(_sock_addr);
+                sin4.sin_port = oxenc::host_to_big(port);
+            }
+            else
+                throw std::invalid_argument{"Error: could not set port in unknown sock_addr"};
         }
 
         // Converts an IPv4 address into an IPv4-mapped IPv6 address.  The address must already be

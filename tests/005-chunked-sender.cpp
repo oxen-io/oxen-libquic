@@ -41,14 +41,14 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local);
-        REQUIRE(server_endpoint->listen(server_tls, server_data_cb));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
-        auto stream = conn_interface->get_new_stream();
+        auto stream = conn_interface->open_stream();
         stream->send("HELLO!"s);
 
         int i = 0;

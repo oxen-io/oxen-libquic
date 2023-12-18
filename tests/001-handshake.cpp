@@ -132,7 +132,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         SECTION("Endpoint::listen() + Endpoint::Connect() - Incorrect pubkey in remote")
         {
@@ -146,7 +146,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(not client_established.wait());
+            REQUIRE(not client_established_2.wait());
             REQUIRE(client_attempt != 1000);
             REQUIRE(client_error == 1000);
         };
@@ -168,8 +168,11 @@ namespace oxen::quic::test
         {
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            // This will return false until the connection has had time to establish and validate
-            REQUIRE_FALSE(client_ci->is_validated());
+            // This will return false until the connection has had time to establish and validate. Depending
+            // on the architecture running the test, the connection may be already established and validated
+            // by the time this line es executed
+            CHECK_NOFAIL(client_ci->is_validated());
+
             REQUIRE(client_established.wait());
             REQUIRE(server_established.wait());
             REQUIRE(client_ci->is_validated());
@@ -207,7 +210,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
@@ -240,7 +243,7 @@ namespace oxen::quic::test
             Address client_local{};
 
             auto server_endpoint = test_net.endpoint(server_local, server_established);
-            REQUIRE(server_endpoint->listen(server_tls));
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "::1"s, server_endpoint->local().port()};
 
@@ -266,7 +269,7 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
-        REQUIRE(server_endpoint->listen(server_tls));
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 

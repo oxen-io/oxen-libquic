@@ -16,60 +16,90 @@ namespace oxen::quic
     // request sizes
     inline constexpr long long MAX_REQ_LEN = 10_M;
 
-    // Application error
-    inline constexpr uint64_t BPARSER_EXCEPTION = (1ULL << 60) + 69;
+    // maximum length of the bencoded request length string, including the `:`.  This must be large
+    // enough to hold `MAX_REQ_LEN` followed by a `:`.
+    inline constexpr size_t MAX_REQ_LEN_ENCODED = 9;  // "10000000:"
 
     class BTRequestStream;
 
     struct message
     {
         friend class BTRequestStream;
+        friend struct sent_request;
 
       private:
         int64_t req_id;
-        std::string data;
-        std::string_view req_type;
-        std::string_view ep;
-        std::string_view req_body;
+        bstring data;
+
+        // We keep the locations of variables fields as relative positions inside `data` *rather*
+        // than using std::string_view members because the string_views are more difficult to
+        // maintain when the object gets moved or copied.
+        using substr_location = std::pair<std::ptrdiff_t, std::size_t>;
+        substr_location req_type{};
+        substr_location ep{};
+        substr_location req_body{};
+
         std::weak_ptr<BTRequestStream> return_sender;
         ConnectionID cid;
 
+        // - `is_timeout` should be true if this is being constructed as a non-response because we
+        //   didn't get any reply from the other side in time.
+        message(BTRequestStream& bp, bstring req, bool is_timeout = false);
+
       public:
-        message(BTRequestStream& bp, std::string req, bool is_error = false);
+        void respond(bstring_view body, bool error = false);
+        void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
-        void respond(std::string body, bool error = false);
+        const bool timed_out{false};
+        bool is_error() const { return type() == "E"sv; }
 
-        bool timed_out{false};
-        bool is_error{false};
-
-        //  To be used to determine if the message was a result of an error as such:
+        //  To be used to determine if the message was a result of an error or timeout; equivalent
+        //  to checking that both .timed_out and .is_error() are false.
         //
         //  void f(const message& m)
         //  {
-        //      if (not m.timed_out)
+        //      if (not m.timed_out and not m.is_error)
         //      { // success logic }
         //      ... // is identical to:
         //      if (m)
         //      { // success logic }
         //  }
-        operator bool() const { return not timed_out && not is_error; }
+        explicit operator bool() const { return !timed_out && !is_error(); }
 
-        std::string_view view() const { return {data}; }
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string_view<Char> view() const
+        {
+            return {reinterpret_cast<const Char*>(data.data()), data.size()};
+        }
 
         int64_t rid() const { return req_id; }
-        std::string_view type() const { return req_type; }
-        std::string_view endpoint() const { return ep; }
-        std::string_view body() const { return req_body; }
-        std::string endpoint_str() const { return std::string{ep}; }
-        std::string body_str() const { return std::string{req_body}; }
+        std::string_view type() const
+        {
+            return {reinterpret_cast<const char*>(data.data()) + req_type.first, req_type.second};
+        }
+        std::string_view endpoint() const { return {reinterpret_cast<const char*>(data.data()) + ep.first, ep.second}; }
+        std::string endpoint_str() const { return std::string{endpoint()}; }
+
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string_view<Char> body() const
+        {
+            return {reinterpret_cast<const Char*>(data.data()) + req_body.first, req_body.second};
+        }
+
+        template <typename Char = char, typename = std::enable_if_t<sizeof(Char) == 1>>
+        std::basic_string<Char> body_str() const
+        {
+            return std::basic_string<Char>{body<Char>()};
+        }
+
         const ConnectionID& scid() const { return cid; }
 
         std::shared_ptr<BTRequestStream> stream() const
         {
-            if (return_sender.expired())
-                throw std::runtime_error{"Cannot access expired pointer to BT stream!"};
+            if (auto ptr = return_sender.lock())
+                return ptr;
 
-            return return_sender.lock();
+            throw std::runtime_error{"Cannot access expired pointer to BT stream!"};
         }
     };
 
@@ -84,15 +114,15 @@ namespace oxen::quic
         // total length of the request; is at the beginning of the request
         size_t total_len;
 
-        std::chrono::steady_clock::time_point req_time;
-        std::chrono::steady_clock::time_point expiry;
+        time_point req_time;
+        time_point expiry;
         std::optional<std::chrono::milliseconds> timeout;
 
         bool is_empty() const { return data.empty() && total_len == 0; }
 
         template <typename... Opt>
         sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, Opt&&... opts) :
-                req_id{rid}, return_sender{bp}, total_len{d.length()}, req_time{get_time()}, expiry{req_time}
+                req_id{rid}, return_sender{bp}, total_len{d.size()}, req_time{get_time()}, expiry{req_time}
         {
             if (total_len > MAX_REQ_LEN)
                 throw std::invalid_argument{"Request body too long!"};
@@ -102,9 +132,9 @@ namespace oxen::quic
             expiry += timeout.value_or(DEFAULT_TIMEOUT);
         }
 
-        bool is_expired(std::chrono::steady_clock::time_point tp) const { return expiry < tp; }
+        bool is_expired(time_point now) const { return expiry < now; }
 
-        message to_message(bool timed_out = false) { return {return_sender, data, timed_out}; }
+        message to_timeout() && { return {return_sender, ""_bs, true}; }
 
         std::string_view view() { return {data}; }
         std::string payload() && { return std::move(data); }
@@ -130,7 +160,7 @@ namespace oxen::quic
 
         std::unordered_map<std::string, std::function<void(message)>> func_map;
 
-        std::string buf;
+        bstring buf;
         std::string size_buf;
 
         size_t current_len{0};
@@ -138,16 +168,16 @@ namespace oxen::quic
         std::atomic<int64_t> next_rid{0};
 
         friend struct sent_request;
+        friend class Network;
 
-      public:
+      protected:
         template <typename... Opt>
         explicit BTRequestStream(Connection& _c, Endpoint& _e, Opt&&... opts) : Stream{_c, _e}
         {
             ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
         }
 
-        ~BTRequestStream() override { sent_reqs.clear(); }
-
+      public:
         std::weak_ptr<BTRequestStream> weak_from_this()
         {
             return std::dynamic_pointer_cast<BTRequestStream>(shared_from_this());
@@ -167,24 +197,26 @@ namespace oxen::quic
                     std::chrono::milliseconds timeout - request timeout (defaults to 10 seconds)
         */
         template <typename... Opt>
-        void command(std::string ep, std::string body, Opt&&... opts)
+        void command(std::string ep, bstring_view body, Opt&&... opts)
         {
             log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-            auto req = make_command(std::move(ep), std::move(body), std::forward<Opt>(opts)...);
+            auto rid = next_rid++;
+            auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
 
             if (req->cb)
-            {
-                endpoint.call([this, r = std::move(req)]() {
-                    sent_reqs.push_back(std::move(r));
-                    send(sent_reqs.back()->view());
-                });
-            }
+                endpoint.call([this, r = std::move(req)]() { send(sent_reqs.emplace_back(std::move(r))->view()); });
             else
                 send(std::move(*req).payload());
         }
+        // Same as above, but takes a regular string_view
+        template <typename... Opt>
+        void command(std::string ep, std::string_view body, Opt&&... opts)
+        {
+            command(std::move(ep), convert_sv<std::byte>(body), std::forward<Opt>(opts)...);
+        }
 
-        void respond(int64_t rid, std::string body, bool error = false);
+        void respond(int64_t rid, bstring_view body, bool error = false);
 
         void check_timeouts();
 
@@ -209,29 +241,9 @@ namespace oxen::quic
 
         void process_incoming(std::string_view req);
 
-        template <typename... Opt>
-        std::shared_ptr<sent_request> make_command(std::string endpoint, std::string body, Opt&&... opts)
-        {
-            oxenc::bt_list_producer btlp;
-            auto rid = ++next_rid;
+        std::string encode_command(std::string_view endpoint, int64_t rid, bstring_view body);
 
-            try
-            {
-                btlp.append("C");
-                btlp.append(rid);
-                btlp.append(endpoint);
-                btlp.append(body);
-
-                return std::make_shared<sent_request>(*this, std::move(btlp).str(), rid, std::forward<Opt>(opts)...);
-            }
-            catch (const std::exception& e)
-            {
-                log::critical(bp_cat, "Invalid outgoing command encoding: {}", e.what());
-                throw;
-            }
-        }
-
-        std::optional<sent_request> make_response(int64_t rid, std::string body, bool error = false);
+        std::string encode_response(int64_t rid, bstring_view body, bool error);
 
         size_t parse_length(std::string_view req);
     };
