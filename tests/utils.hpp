@@ -12,6 +12,8 @@
 #include <quic/utils.hpp>
 #include <string>
 
+#include "oxenc/base64.h"
+
 namespace oxen::quic
 {
     extern bool disable_ipv6, disable_rotating_buffer;
@@ -27,14 +29,25 @@ namespace oxen::quic
         inline const std::string SERVER_SEED = "fefbb50cdd4cde3be0ae75042c44ff42b026def4fd6be4fb1dc6e81ea0480c9b"_hex;
         inline const std::string SERVER_PUBKEY = "d580d5c68937095ea997f6a88f07a86cdd26dfa0d7d268e80ea9bbb5f3ca0304"_hex;
 
-        inline auto tls_creds_from_ed_keys()
-        {
-            auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);
-            auto server = GNUTLSCreds::make_from_ed_keys(SERVER_SEED, SERVER_PUBKEY);
-
-            return std::make_pair(std::move(client), std::move(server));
-        }
+        std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> tls_creds_from_ed_keys();
     }  // namespace test::defaults
+
+    // Generates a random Ed25519 keypair for testing purposes.  Returned values are the 32-byte
+    // seed and 32-byte pubkey.
+    std::pair<std::string, std::string> generate_ed25519();
+
+    // Takes a hex- or base64-encoded byte value of the given byte size and returns the bytes.
+    // Returns nullopt if the encoded value is not a valid byte encoding of the given size.
+    template <typename Char = char>
+    inline std::optional<std::basic_string<Char>> decode_bytes(std::string_view encoded, size_t size = 32)
+    {
+        if (encoded.size() == size * 2 && oxenc::is_hex(encoded))
+            return oxenc::from_hex<Char>(encoded);
+        if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(32, true) &&
+            oxenc::is_base64(encoded))
+            return oxenc::from_base64<Char>(encoded);
+        return std::nullopt;
+    }
 
     inline void add_log_opts(CLI::App& cli, std::string& file, std::string& level)
     {
@@ -88,7 +101,7 @@ namespace oxen::quic
         {}
     };
     /// Same as above, but only lowers the log level to a more frivolous cutoff (leaving it alone if
-    /// already higher).
+    /// already lower).
     struct log_level_lowerer : log_level_override
     {
         log_level_lowerer(log::Level l, std::string category = "quic") :

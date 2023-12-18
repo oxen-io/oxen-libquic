@@ -28,24 +28,6 @@ int main(int argc, char* argv[])
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
 
-    std::string key{"./serverkey.pem"}, cert{"./servercert.pem"};
-
-    cli.add_option("-c,--certificate", cert, "Path to server certificate to use")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
-    cli.add_option("-k,--key", key, "Path to server key to use")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
-
-    // optional
-    std::string client_cert{"./clientcert.pem"};
-    cli.add_option("-C,--clientcert", key, "Path to client certificate for client authentication")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
-
     try
     {
         cli.parse(argc, argv);
@@ -57,9 +39,10 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-    Network server_net{};
+    auto [seed, pubkey] = generate_ed25519();
+    auto server_tls = GNUTLSCreds::make_from_ed_keys(seed, pubkey);
 
-    auto server_tls = GNUTLSCreds::make(key, cert, client_cert);
+    Network server_net{};
 
     auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
     Address server_local{listen_addr, listen_port};
@@ -137,11 +120,32 @@ int main(int argc, char* argv[])
         }
     };
 
-    log::critical(test_cat, "Calling 'server_listen'...");
-    auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
-    // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
-    server = server_net.endpoint(server_local, recv_dgram_cb, split_dgram);
-    server->listen(server_tls, stream_opened);
+    try
+    {
+        log::debug(test_cat, "Starting up endpoint");
+        auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
+        // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
+        server = server_net.endpoint(server_local, recv_dgram_cb, split_dgram);
+        server->listen(server_tls, stream_opened);
+    }
+    catch (const std::exception& e)
+    {
+        log::critical(test_cat, "Failed to start server: {}!", e.what());
+        return 1;
+    }
+
+    {
+        // We always want to see this log statement because it contains the pubkey the client needs,
+        // but it feels wrong to force it to a critical statement, so temporarily lower the level to
+        // info to display it.
+        log_level_lowerer enable_info{log::Level::info, test_cat.name};
+        log::info(
+                test_cat,
+                "Listening on {}; client connection args:\n\t{}--remote-pubkey={}",
+                server_local,
+                server_local != Address{"127.0.0.1", 5500} ? "--remote {} "_format(server_local.to_string()) : "",
+                oxenc::to_base64(pubkey));
+    }
 
     t_fut.get();
 

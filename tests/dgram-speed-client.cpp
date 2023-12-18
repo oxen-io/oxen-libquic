@@ -27,34 +27,28 @@ int main(int argc, char* argv[])
     std::string remote_addr = "127.0.0.1:5500";
     cli.add_option("--remote", remote_addr, "Remove address to connect to")->type_name("IP:PORT")->capture_default_str();
 
+    std::string remote_pubkey;
+    cli.add_option("-p,--remote-pubkey", remote_pubkey, "Remote speedtest-client pubkey")
+            ->type_name("PUBKEY_HEX_OR_B64")
+            ->transform([](const std::string& val) -> std::string {
+                if (auto pk = decode_bytes(val))
+                    return std::move(*pk);
+                throw CLI::ValidationError{
+                        "Invalid value passed to --remote-pubkey: expected value encoded as hex or base64"};
+            })
+            ->required();
+
     std::string local_addr = "";
     cli.add_option("--local", local_addr, "Local bind address, if required")->type_name("IP:PORT")->capture_default_str();
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
 
-    std::string server_cert{"./servercert.pem"};
-    cli.add_option("-c,--servercert", server_cert, "Path to server certificate to use")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
-
     uint64_t size = 1'000'000'000;
     cli.add_option("-S,--size", size, "Amount of data to transfer.");
 
     size_t dgram_size = 0;
     cli.add_option("--dgram-size", dgram_size, "Datagram size to send");
-
-    // TODO: make this optional
-    std::string cert{"./clientcert.pem"}, key{"./clientkey.pem"};
-    cli.add_option("-C,--certificate", key, "Path to client certificate for client authentication")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
-    cli.add_option("-K,--key", key, "Path to client key to use for client authentication")
-            ->type_name("FILE")
-            ->capture_default_str()
-            ->check(CLI::ExistingFile);
 
     try
     {
@@ -88,7 +82,7 @@ int main(int argc, char* argv[])
 
             msg.resize(dgram_size);
             // Byte 0 must be set to 0, except for the final packet where we set it to 1
-            for (int i = 0; i < dgram_size; i++)
+            for (size_t i = 0; i < dgram_size; i++)
                 msg[i] = static_cast<unsigned char>(i % 256);
         }
     };
@@ -97,7 +91,8 @@ int main(int argc, char* argv[])
 
     Network client_net{};
 
-    auto client_tls = GNUTLSCreds::make(key, cert, server_cert);
+    auto [seed, pubkey] = generate_ed25519();
+    auto client_tls = GNUTLSCreds::make_from_ed_keys(seed, pubkey);
 
     send_data* d_ptr;
 
@@ -156,7 +151,7 @@ int main(int argc, char* argv[])
             };
 
     auto [server_a, server_p] = parse_addr(remote_addr);
-    RemoteAddress server_addr{server_a, server_p};
+    RemoteAddress server_addr{remote_pubkey, server_a, server_p};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
     client_tls->set_client_tls_hook(outbound_tls_cb);
