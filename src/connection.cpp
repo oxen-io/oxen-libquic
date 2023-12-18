@@ -1108,33 +1108,6 @@ namespace oxen::quic
             ngtcp2_callbacks& callbacks,
             std::chrono::nanoseconds handshake_timeout)
     {
-        auto* ev_base = endpoint().get_loop().get();
-
-        packet_io_trigger.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_packet_io_ready(); },
-                this));
-        packet_retransmit_timer.reset(event_new(
-                ev_base,
-                -1,
-                0,
-                [](evutil_socket_t, short, void* self_) {
-                    auto& self = *static_cast<Connection*>(self_);
-                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
-                    {
-                        log::warning(
-                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
-                        self.endpoint().close_connection(self, io_error{rv});
-                        return;
-                    }
-                    self.on_packet_io_ready();
-                },
-                this));
-
-        event_add(packet_retransmit_timer.get(), nullptr);
-
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
@@ -1321,6 +1294,33 @@ namespace oxen::quic
         ngtcp2_conn_set_tls_native_handle(connptr, tls_session->get_session());
 
         conn.reset(connptr);
+
+        auto* ev_base = endpoint().get_loop().get();
+
+        packet_io_trigger.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self) { static_cast<Connection*>(self)->on_packet_io_ready(); },
+                this));
+        packet_retransmit_timer.reset(event_new(
+                ev_base,
+                -1,
+                0,
+                [](evutil_socket_t, short, void* self_) {
+                    auto& self = *static_cast<Connection*>(self_);
+                    if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
+                    {
+                        log::warning(
+                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
+                        self.endpoint().close_connection(self, io_error{rv});
+                        return;
+                    }
+                    self.on_packet_io_ready();
+                },
+                this));
+
+        event_add(packet_retransmit_timer.get(), nullptr);
 
 #ifndef NDEBUG
         test_suite.datagram_drop_enabled = false;

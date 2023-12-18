@@ -146,7 +146,7 @@ namespace oxen::quic::test
             auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(not client_established.wait());
+            REQUIRE(not client_established_2.wait());
             REQUIRE(client_attempt != 1000);
             REQUIRE(client_error == 1000);
         };
@@ -168,8 +168,11 @@ namespace oxen::quic::test
         {
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            // This will return false until the connection has had time to establish and validate
-            REQUIRE_FALSE(client_ci->is_validated());
+            // This will return false until the connection has had time to establish and validate. Depending
+            // on the architecture running the test, the connection may be already established and validated
+            // by the time this line es executed
+            CHECK_NOFAIL(client_ci->is_validated());
+
             REQUIRE(client_established.wait());
             REQUIRE(server_established.wait());
             REQUIRE(client_ci->is_validated());

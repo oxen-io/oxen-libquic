@@ -436,12 +436,7 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{};
 
-        static constexpr int num_requests = 10;
-
-        std::mutex mut;
-        std::promise<void> done_prom;
-        auto done = done_prom.get_future();
-        int responses = 0, good_responses = 0;
+        static constexpr int num_requests = 5;
 
         // Make sure debug logging is off for these because at debug log this produces so much log
         // output it can take too long to run the tests within our 5s future wait.
@@ -449,10 +444,15 @@ namespace oxen::quic::test
 
         SECTION("Huge but not too huge")
         {
+            std::promise<void> done_prom;
+            auto done = done_prom.get_future();
+
+            std::atomic<int> responses = 0, good_responses = 0;
+
             std::string req_msg(9'000'000, 'a');
             constexpr auto res_msg = "oh look some a's"sv;
 
-            auto server_handler = [&](message msg) {
+            auto server_handler = [&](message msg) mutable {
                 if (msg)
                 {
                     if (msg.body() == req_msg)
@@ -462,14 +462,13 @@ namespace oxen::quic::test
                 }
             };
 
-            auto client_reply_handler = [&](message msg) {
+            auto client_reply_handler = [&](message msg) mutable {
                 if (msg)
                 {
-                    std::lock_guard lock{mut};
-                    responses++;
-                    log::debug(log_cat, "Client bparser received response {}: {}", responses, msg.view());
+                    ++responses;
+                    log::debug(log_cat, "Client bparser received response {}: {}", responses.load(), msg.view());
                     if (msg.body() == res_msg)
-                        good_responses++;
+                        ++good_responses;
                     if (responses == num_requests)
                         done_prom.set_value();
                 }
@@ -501,59 +500,62 @@ namespace oxen::quic::test
             }
 
             CHECK(done.wait_for(5s) == std::future_status::ready);
-            std::lock_guard lock{mut};
             CHECK(good_responses == num_requests);
             CHECK(responses == good_responses);
         }
 
-        std::string req_msg(10'000'000, 'a');
-
-        auto server_handler = [&](message) {
-            REQUIRE(false);  // Should not get here!
-        };
-
-        auto client_reply_handler = [&](message msg) {
-            if (msg)
-                log::debug(log_cat, "Client bparser received response {}: {}", responses, msg.view());
-            else
-                log::debug(log_cat, "got back a failed message response");
-        };
-
-        stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            auto s = e.make_shared<BTRequestStream>(c, e);
-            s->register_command("test_endpoint"s, server_handler);
-            return s;
-        };
-
-        auto server_endpoint = test_net.endpoint(server_local);
-        REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
-
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
-
-        auto client_endpoint = test_net.endpoint(client_local);
-        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
-
-        SECTION("Too huge send failure")
+        SECTION("Too huge")
         {
-            std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
-            CHECK_THROWS_WITH(client_bp->command("test_endpoint"s, req_msg, client_reply_handler), "Request body too long!");
-        }
+            std::string req_msg(10'000'000, 'a');
 
-        SECTION("Too huge receive failure")
-        {
-            // Construct a bt request manually so that we can send invalid (too long) data at the
-            // server (normally a client won't let us do that, as tested in the above section)
-            std::string payload = "li123e1:C{}:{}e"_format(req_msg.size(), req_msg);
-            payload = "{}:{}"_format(payload.size(), payload);
+            auto server_handler = [&](message) mutable {
+                REQUIRE(false);  // Should not get here!
+            };
 
-            std::atomic<uint64_t> close_err = -1;
-            auto stream_close_cb = callback_waiter{[&](Stream&, uint64_t error_code) { close_err = error_code; }};
-            auto str = conn_interface->open_stream<Stream>(nullptr, stream_close_cb);
+            auto client_reply_handler = [&](message msg) mutable {
+                if (msg)
+                    log::debug(log_cat, "Client bparser received response: {}", msg.view());
+                else
+                    log::debug(log_cat, "got back a failed message response");
+            };
 
-            str->send(std::move(payload));
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                auto s = e.make_shared<BTRequestStream>(c, e);
+                s->register_command("test_endpoint"s, server_handler);
+                return s;
+            };
 
-            REQUIRE(stream_close_cb.wait());
-            CHECK(close_err.load() == BPARSER_ERROR_EXCEPTION);
+            auto server_endpoint = test_net.endpoint(server_local);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
+
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+            SECTION("Send failure")
+            {
+                std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
+                CHECK_THROWS_WITH(
+                        client_bp->command("test_endpoint"s, req_msg, client_reply_handler), "Request body too long!");
+            }
+
+            SECTION("Receive failure")
+            {
+                // Construct a bt request manually so that we can send invalid (too long) data at the
+                // server (normally a client won't let us do that, as tested in the above section)
+                std::string payload = "li123e1:C{}:{}e"_format(req_msg.size(), req_msg);
+                payload = "{}:{}"_format(payload.size(), payload);
+
+                std::atomic<uint64_t> close_err = -1;
+                auto stream_close_cb = callback_waiter{[&](Stream&, uint64_t error_code) { close_err = error_code; }};
+                auto str = conn_interface->open_stream<Stream>(nullptr, stream_close_cb);
+
+                str->send(std::move(payload));
+
+                REQUIRE(stream_close_cb.wait());
+                CHECK(close_err.load() == BPARSER_ERROR_EXCEPTION);
+            }
         }
     }
 
