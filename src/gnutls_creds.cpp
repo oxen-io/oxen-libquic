@@ -8,32 +8,29 @@ namespace oxen::quic
         // Return value: 0 is pass, negative is fail
         int cert_verify_callback_gnutls(gnutls_session_t session)
         {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             auto* conn = get_connection_from_gnutls(session);
 
             GNUTLSSession* tls_session = dynamic_cast<GNUTLSSession*>(conn->get_session());
             assert(tls_session);
 
+            bool success = false;
             auto local_name = (conn->is_outbound()) ? "CLIENT" : "SERVER";
 
-            //  1: Peer provided a valid cert, connection accepted and marked validated
-            //  0: Peer did not provide a cert, connection accepted but not marked validated
-            //  -1: Peer provided an invalid cert, connection rejected
-            auto rv = tls_session->validate_remote_key();
-
-            if (rv < 0)
-            {
-                log::warning(log_cat, "{} was unable to validate peer certificate: rejecting connection!", local_name);
-                return -1;
-            }
-
-            if (rv > 0)
-            {
-                log::warning(log_cat, "{} was able to validate peer certificate!", local_name);
+            //  true: Peer provided a valid cert; connection is accepted and marked validated
+            //  false: Peer either provided an invalid cert or no cert; connection is rejected
+            if (success = tls_session->validate_remote_key(); success)
                 conn->set_validated();
-            }
 
-            return 0;
+            auto err = "Quic {} was {}able to validate peer certificate; {} connection!"_format(
+                    local_name, success ? "" : "un", success ? "accepting" : "rejecting");
+
+            if (success)
+                log::debug(log_cat, err);
+            else
+                log::error(log_cat, err);
+
+            return !success;
         }
     }
 
@@ -76,7 +73,7 @@ namespace oxen::quic
             throw std::invalid_argument("gnutls didn't like a specified key file/memblock");
         }
 
-        log::info(log_cat, "Completed credential initialization");
+        log::debug(log_cat, "Completed credential initialization");
     }
 
     void GNUTLSCreds::load_keys(x509_loader& s, x509_loader& pk)
@@ -149,7 +146,7 @@ namespace oxen::quic
 
     GNUTLSCreds::~GNUTLSCreds()
     {
-        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_certificate_free_credentials(cred);
     }
 

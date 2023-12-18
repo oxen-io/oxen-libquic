@@ -364,7 +364,7 @@ namespace oxen::quic
 
         int do_post_handshake(gnutls_session_t session);
 
-        int validate_remote_key();
+        bool validate_remote_key();
 
         void set_expected_remote_key(ustring key) override { _expected_remote_key(key); }
     };

@@ -239,28 +239,30 @@ namespace oxen::quic
 
     //  In our new cert verification scheme, the logic proceeds as follows.
     //
-    //  - Upon every connection, the local endpointwill request certificates from ALL peers
-    //  - IF: the local endpoint provided a key_verify callback (therefore a server)
+    //  - Upon every connection, the local endpoint will request certificates from ALL peers
+    //  - IF: the local endpoint provided a key_verify callback
     //      - IF: the peer provides a certificate:
     //          - If the certificate is accepted, then the connection is allowed and the
     //            connection is marked as "validated"
     //          - If the certificate is rejected, then the connection is refused
-    //      ELSE:
-    //          - The connection is allowed, but it is not marked as "validated"
-    //  ELSE:
-    //      - The connection is allowed, but it is not marked as "validated"
+    //        ELSE:
+    //          - The connection is refused
+    //    ELSE: the remote pubkey is compared against the pubkey in the address upon connection
+    //      - If the pubkey matches, then the connection is allowed and the connection is
+    //        marked as "validated"
+    //      - If the pubkeys don't match, then the connection is refused
     //
     //  Return values:
-    //      -1: The connection is refused
-    //       0: The connection is accepted, but not marked "validated"
-    //       1: The connection is accepted and marked "validated"
+    //       true: The connection is accepted and marked "validated"
+    //       false: The connection is refused
     //
-    int GNUTLSSession::validate_remote_key()
+    bool GNUTLSSession::validate_remote_key()
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(creds.using_raw_pk);
-        const auto local_name = is_client ? "CLIENT" : "SERVER";
 
-        log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+        const auto local_name = is_client ? "CLIENT" : "SERVER";
+        bool success = false;
 
         log::debug(
                 log_cat,
@@ -279,7 +281,7 @@ namespace oxen::quic
                     "{} called, but remote cert type is not raw pubkey (type: {}).",
                     __PRETTY_FUNCTION__,
                     translate_cert_type(cert_type));
-            return -1;
+            return success;
         }
 
         uint32_t cert_list_size = 0;
@@ -288,16 +290,16 @@ namespace oxen::quic
         // The peer did not return a certificate
         if (cert_list_size == 0)
         {
-            log::warning(log_cat, "{} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
-            return 0;
+            log::debug(log_cat, "Quic {} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
+            return success;
         }
 
-        // DISCUSS: Should we reject in this case? Or select the first one of the list and proceed?
         if (cert_list_size != 1)
         {
-            log::error(
-                    log_cat, "{} called {}, but peers cert list has more than one entry.", local_name, __PRETTY_FUNCTION__);
-            return -1;
+            log::debug(
+                    log_cat,
+                    "Quic {} received peers cert list with more than one entry; choosing first item and proceeding...",
+                    local_name);
         }
 
         const auto* cert_data = cert_list[0].data + CERT_HEADER_SIZE;
@@ -305,7 +307,7 @@ namespace oxen::quic
 
         log::debug(
                 log_cat,
-                "{} validating pubkey \"cert\" of len {}B:\n{}\n",
+                "Quic {} validating pubkey \"cert\" of len {}B:\n{}\n",
                 local_name,
                 cert_size,
                 buffer_printer{cert_data, cert_size});
@@ -315,32 +317,35 @@ namespace oxen::quic
 
         if (is_client)
         {  // Client does validation through a remote pubkey provided when calling endpoint::connect
-            if (_remote_key == _expected_remote_key)
-            {
-                log::debug(log_cat, "Client successfully validated remote key!");
-                return 1;
-            }
+            success = _remote_key == _expected_remote_key;
 
-            log::debug(log_cat, "Client could not validate remote key! Rejecting connection");
-            return -1;
+            log::debug(
+                    log_cat,
+                    "Quic {} {}successfully validated remote key! {} connection",
+                    local_name,
+                    success ? "" : "un",
+                    success ? "accepting" : "rejecting");
+
+            return success;
         }
         else
         {  // Server does validation through callback
             auto alpn = selected_alpn();
 
-            if (creds.key_verify)
-            {
-                log::debug(log_cat, "{}: Calling key verify callback", local_name);
+            log::debug(
+                    log_cat,
+                    "Quic {}: {} key verify callback{}",
+                    local_name,
+                    creds.key_verify ? "calling" : "did not provide",
+                    creds.key_verify ? "" : "; accepting connection");
 
-                // Key verify cb will return true on success, false on fail. Since this is only called if a client has
-                // provided a certificate and is only called by the server, we can assume the following returns:
-                //      true: the certificate was verified, and the connection is marked as validated
-                //      false: the certificate was not verified, and the connection is rejected
-                return creds.key_verify(_remote_key.view(), alpn);
-            }
+            // Key verify cb will return true on success, false on fail. Since this is only called if a client has
+            // provided a certificate and is only called by the server, we can assume the following returns:
+            //      true: the certificate was verified, and the connection is marked as validated
+            //      false: the certificate was not verified, and the connection is rejected
+            success = (creds.key_verify) ? creds.key_verify(_remote_key.view(), alpn) : true;
 
-            log::debug(log_cat, "Server did not provide key verify callback! Allowing connection");
-            return 0;
+            return success;
         }
     }
 
