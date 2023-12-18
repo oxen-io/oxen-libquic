@@ -322,7 +322,7 @@ namespace oxen::quic
 
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string sk);
 
-        std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) override;
+        std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<ustring>& alpns) override;
     };
 
     class GNUTLSSession : public TLSSession
@@ -344,7 +344,7 @@ namespace oxen::quic
         GNUTLSSession(
                 GNUTLSCreds& creds,
                 bool is_client,
-                const std::vector<std::string>& alpns,
+                const std::vector<ustring>& alpns,
                 std::optional<gnutls_key> expected_key = std::nullopt);
 
         ~GNUTLSSession();

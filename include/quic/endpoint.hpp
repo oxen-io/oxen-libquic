@@ -250,8 +250,8 @@ namespace oxen::quic
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
 
-        std::vector<std::string> outbound_alpns;
-        std::vector<std::string> inbound_alpns;
+        std::vector<ustring> outbound_alpns;
+        std::vector<ustring> inbound_alpns;
         std::chrono::nanoseconds handshake_timeout{5s};
 
         void _init_internals();

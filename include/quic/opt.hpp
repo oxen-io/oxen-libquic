@@ -67,15 +67,15 @@ namespace oxen::quic::opt
     // supported ALPNs for outbound connections
     struct outbound_alpns
     {
-        std::vector<std::string> alpns;
-        explicit outbound_alpns(std::vector<std::string> alpns = {}) : alpns{std::move(alpns)} {}
+        std::vector<ustring> alpns;
+        explicit outbound_alpns(std::vector<ustring> alpns = {}) : alpns{std::move(alpns)} {}
     };
 
     // supported ALPNs for inbound connections
     struct inbound_alpns
     {
-        std::vector<std::string> alpns;
-        explicit inbound_alpns(std::vector<std::string> alpns = {}) : alpns{std::move(alpns)} {}
+        std::vector<ustring> alpns;
+        explicit inbound_alpns(std::vector<ustring> alpns = {}) : alpns{std::move(alpns)} {}
     };
 
     struct handshake_timeout

@@ -21,7 +21,7 @@ namespace oxen::quic
     class TLSCreds
     {
       public:
-        virtual std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<std::string>& alpns) = 0;
+        virtual std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<ustring>& alpns) = 0;
         virtual ~TLSCreds() = default;
     };
 

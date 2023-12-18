@@ -69,10 +69,7 @@ namespace oxen::quic
     }
 
     GNUTLSSession::GNUTLSSession(
-            GNUTLSCreds& creds,
-            bool is_client,
-            const std::vector<std::string>& alpns,
-            std::optional<gnutls_key> expected_key) :
+            GNUTLSCreds& creds, bool is_client, const std::vector<ustring>& alpns, std::optional<gnutls_key> expected_key) :
             creds{creds}, is_client{is_client}
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
@@ -118,9 +115,13 @@ namespace oxen::quic
             std::vector<gnutls_datum_t> allowed_alpns;
             for (auto& s : alpns)
             {
-                log::trace(log_cat, "GNUTLS adding \"{}\" to {} ALPNs", s, direction_string);
-                allowed_alpns.emplace_back(gnutls_datum_t{
-                        reinterpret_cast<uint8_t*>(const_cast<char*>(s.data())), static_cast<uint32_t>(s.size())});
+                log::trace(
+                        log_cat,
+                        "GNUTLS adding \"{}\" to {} ALPNs",
+                        to_sv(ustring_view{s.data(), s.size()}),
+                        direction_string);
+                allowed_alpns.emplace_back(
+                        gnutls_datum_t{const_cast<unsigned char*>(s.data()), static_cast<uint32_t>(s.size())});
             }
 
             if (auto rv =
