@@ -237,7 +237,7 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
-                const std::vector<std::string>& alpns,
+                const std::vector<ustring>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
@@ -303,7 +303,7 @@ namespace oxen::quic
                 const ConnectionID& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
-                const std::vector<std::string>& alpns,
+                const std::vector<ustring>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr);
