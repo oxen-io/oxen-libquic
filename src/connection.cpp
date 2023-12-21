@@ -1351,6 +1351,15 @@ namespace oxen::quic
         return conn;
     }
 
+    void Connection::check_stream_timeouts()
+    {
+        for (const auto* s : {&streams, &stream_queue})
+            for (const auto& [id, stream] : *s)
+                stream->check_timeouts();
+        for (const auto& s : pending_streams)
+            s->check_timeouts();
+    }
+
 #ifndef NDEBUG
 
     connection_interface::~connection_interface()

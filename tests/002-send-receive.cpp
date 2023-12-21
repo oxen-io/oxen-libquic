@@ -351,6 +351,75 @@ namespace oxen::quic::test
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
         }
+
+        SECTION("Timeouts and errors")
+        {
+            auto server_bp_cb = [&](message m) {
+                if (m.body() == "hello")
+                    m.respond("goodbye");
+                else if (m.body() == "I need a reply crypto-soon")
+                {}  // <-- Crypto-soon, defined.
+                else if (m.body() == "I hate you")
+                    m.respond("lol", true);
+            };
+
+            int saw_regular = 0, saw_timeout = 0, saw_error = 0;
+
+            std::promise<void> done;
+
+            auto client_bp_cb = [&](message msg) {
+                if (msg)
+                {
+                    log::info(log_cat, "GOT REGULAR");
+                    saw_regular++;
+                }
+                else if (msg.is_error())
+                {
+                    log::info(log_cat, "GOT ERROR");
+
+                    saw_error++;
+                }
+                else if (msg.timed_out)
+                {
+                    log::info(log_cat, "GOT TIMEOUT");
+                    saw_timeout++;
+                }
+
+                if (saw_regular + saw_error + saw_timeout >= 3)
+                    done.set_value();
+            };
+
+            stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                auto s = e.make_shared<BTRequestStream>(c, e);
+                s->register_command("test"s, server_bp_cb);
+                return s;
+            };
+
+            stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
+                return e.make_shared<BTRequestStream>(c, e);
+            };
+
+            auto server_endpoint = test_net.endpoint(server_local);
+            server_endpoint->listen(server_tls, server_constructor);
+
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local);
+            auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+            auto client_bp = conn_interface->open_stream<BTRequestStream>();
+
+            client_bp->command("test"s, "hello"s, client_bp_cb);
+            client_bp->command("test"s, "I need a reply crypto-soon"s, client_bp_cb, 250ms);
+            client_bp->command("test"s, "I hate you"s, client_bp_cb);
+
+            auto fut = done.get_future();
+            require_future(fut);
+
+            CHECK(saw_regular == 1);
+            CHECK(saw_timeout == 1);
+            CHECK(saw_error == 1);
+        }
     }
 
     TEST_CASE("002 - BParser multi-request testing", "[002][bparser][multi]")
