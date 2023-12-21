@@ -13,20 +13,23 @@ namespace oxen::quic
         return {bsubstr - data.data(), substr.size()};
     }
 
-    message::message(BTRequestStream& bp, bstring req, bool is_error) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_error}
+    message::message(BTRequestStream& bp, bstring req, bool is_timeout) :
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_timeout}
     {
-        oxenc::bt_list_consumer btlc(data);
+        if (!is_timeout)
+        {
+            oxenc::bt_list_consumer btlc(data);
 
-        req_type = get_location(data, btlc.consume_string_view());
-        req_id = btlc.consume_integer<int64_t>();
+            req_type = get_location(data, btlc.consume_string_view());
+            req_id = btlc.consume_integer<int64_t>();
 
-        if (type() == "C")
-            ep = get_location(data, btlc.consume_string_view());
+            if (type() == "C")
+                ep = get_location(data, btlc.consume_string_view());
 
-        req_body = get_location(data, btlc.consume_string_view());
+            req_body = get_location(data, btlc.consume_string_view());
 
-        btlc.finish();
+            btlc.finish();
+        }
     }
 
     void message::respond(bstring_view body, bool error)
@@ -46,6 +49,7 @@ namespace oxen::quic
 
     void BTRequestStream::check_timeouts()
     {
+        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
         const auto now = get_time();
 
         while (!sent_reqs.empty())

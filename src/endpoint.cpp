@@ -549,6 +549,10 @@ namespace oxen::quic
             }
             it = draining.erase(it);
         }
+
+        // Propagate the timeout check to connections, to be propagated to streams
+        for (auto& [cid, conn] : conns)
+            conn->check_stream_timeouts();
     }
 
     Connection* Endpoint::get_conn(const ConnectionID& id)

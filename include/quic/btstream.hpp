@@ -218,7 +218,7 @@ namespace oxen::quic
 
         void respond(int64_t rid, bstring_view body, bool error = false);
 
-        void check_timeouts();
+        void check_timeouts() override;
 
         void receive(bstring_view data) override;
 

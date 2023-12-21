@@ -417,6 +417,10 @@ namespace oxen::quic
         // returns number of currently pending streams for use in test cases
         size_t num_pending() const { return pending_streams.size(); }
 
+        // Called (from Endpoint) to trigger any required stream timeouts.  Should not be called
+        // externally.
+        void check_stream_timeouts();
+
 #ifndef NDEBUG
         ~Connection() override;
 #endif

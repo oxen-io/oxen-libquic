@@ -85,6 +85,11 @@ namespace oxen::quic
         // becomes ready.  The default does nothing.
         virtual void on_ready() {}
 
+        /// Called periodically to check if anything needs to be timed out.  The default does
+        /// nothing, but subclasses can override to not do nothing if it's not the case that nothing
+        /// ain't not good enough isn't false.
+        virtual void check_timeouts() {}
+
         void send_impl(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
       private:
