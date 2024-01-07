@@ -688,7 +688,7 @@ namespace oxen::quic::test
         REQUIRE(server_closed.wait());
     };
 
-    TEST_CASE("004 - Subclassing Stream, server stream extraction", "[004][server][extraction]")
+    TEST_CASE("004 - BTRequestStream, server stream extraction", "[004][server][extraction]")
     {
         Network test_net{};
         Address server_local{};
@@ -758,7 +758,7 @@ namespace oxen::quic::test
         REQUIRE(client_handler.wait());
     };
 
-    TEST_CASE("004 - Subclassing Stream, server extracts queued streams", "[004][server][queue]")
+    TEST_CASE("004 - BTRequestStream, server extracts queued streams", "[004][server][queue]")
     {
         Network test_net{};
         Address server_local{};
@@ -805,6 +805,75 @@ namespace oxen::quic::test
         REQUIRE(server_handler.wait());
 
         server_bt->command("test_endpoint"s, "hi"s);
+        REQUIRE(client_handler.wait());
+    };
+
+    TEST_CASE("004 - BTRequestStream, send queue functionality", "[004][sendqueue]")
+    {
+        Network test_net{};
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        std::shared_ptr<BTRequestStream> server_bt, client_bt;
+        std::shared_ptr<connection_interface> server_ci, client_ci;
+
+        int n_reqs{5};
+        std::atomic<int> server_counter{0};
+
+        auto server_handler = [&](message msg) {
+            REQUIRE(msg.body() == TEST_BODY);
+            server_counter += 1;
+
+            log::debug(log_cat, "Server received request {} of {}", server_counter.load(), n_reqs);
+
+            if (server_counter == n_reqs)
+            {
+                log::debug(log_cat, "Server responding to client with new request");
+                server_bt->command(TEST_ENDPOINT, TEST_BODY);
+            }
+        };
+
+        auto client_handler = callback_waiter{[](message msg) {
+            log::debug(log_cat, "Client received server request!");
+            REQUIRE(msg.body() == TEST_BODY);
+        }};
+
+        server_tls->set_key_verify_callback([&](const ustring_view&, const ustring_view&) {
+            // In order to test the queueing ability of streams, we need to attempt to send things
+            // from the client side PRIOR to connection completion. Using the TLS verification callback
+            // is the improper and hacky way to do this, but will function fine for the purposes of this
+            // test case. Do not actually do this!
+
+            client_bt = client_ci->open_stream<BTRequestStream>();
+            client_bt->register_command(TEST_ENDPOINT, client_handler);
+
+            for (int i = 0; i < n_reqs; ++i)
+                client_bt->command(TEST_ENDPOINT, TEST_BODY);
+
+            REQUIRE(client_bt->num_pending() == (size_t)n_reqs);
+
+            return true;
+        });
+
+        auto server_established = callback_waiter{[&](connection_interface& ci) {
+            server_bt = ci.queue_incoming_stream<BTRequestStream>();
+            server_bt->register_command(TEST_ENDPOINT, server_handler);
+        }};
+
+        auto client_established = callback_waiter{[&](connection_interface&) {}};
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_established);
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        client_ci = client_endpoint->connect(client_remote, client_tls, client_established);
+
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
         REQUIRE(client_handler.wait());
     };
 

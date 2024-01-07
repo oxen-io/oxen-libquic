@@ -72,6 +72,7 @@ namespace oxen::quic
         virtual bool is_empty() const = 0;
         virtual std::shared_ptr<Stream> get_stream() = 0;
         virtual std::vector<ngtcp2_vec> pending() = 0;
+        virtual size_t num_pending() const = 0;
         virtual prepared_datagram pending_datagram(bool) = 0;
         virtual int64_t stream_id() const = 0;
         virtual bool is_closing() const = 0;
@@ -193,6 +194,8 @@ namespace oxen::quic
         buffer_que send_buffer;
 
         bool is_empty() const override { return send_buffer.empty(); }
+
+        size_t num_pending() const override { return send_buffer.size(); }
 
         prepared_datagram pending_datagram(bool r) override;
 

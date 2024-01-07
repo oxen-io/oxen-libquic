@@ -22,6 +22,9 @@ namespace oxen::quic
 
     using namespace oxenc::literals;
 
+    inline const std::string TEST_ENDPOINT = "test_endpoint"s;
+    inline const std::string TEST_BODY = "test_body"s;
+
     namespace test::defaults
     {
         inline std::pair<std::string, std::string> CLIENT_KEYS, SERVER_KEYS;
