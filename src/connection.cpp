@@ -364,7 +364,7 @@ namespace oxen::quic
                 log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", str->_stream_id);
                 str->set_ready();
                 popped += 1;
-                streams[str->_stream_id] = std::move(str);
+                _streams[str->_stream_id] = std::move(str);
                 pending_streams.pop_front();
             }
             else
@@ -401,7 +401,7 @@ namespace oxen::quic
             stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
-            auto& str = stream_queue[stream->_stream_id];
+            auto& str = _stream_queue[stream->_stream_id];
             str = std::move(stream);
             return str;
         });
@@ -435,7 +435,7 @@ namespace oxen::quic
             {
                 log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
                 stream->set_ready();
-                auto& strm = streams[stream->_stream_id];
+                auto& strm = _streams[stream->_stream_id];
                 strm = std::move(stream);
                 return strm;
             }
@@ -450,10 +450,10 @@ namespace oxen::quic
     std::shared_ptr<Stream> Connection::get_stream_impl(int64_t id)
     {
         return _endpoint.call_get([this, id]() -> std::shared_ptr<Stream> {
-            if (auto it = streams.find(id); it != streams.end())
+            if (auto it = _streams.find(id); it != _streams.end())
                 return it->second;
 
-            if (auto it = stream_queue.find(id); it != stream_queue.end())
+            if (auto it = _stream_queue.find(id); it != _stream_queue.end())
                 return it->second;
 
             return nullptr;
@@ -574,14 +574,14 @@ namespace oxen::quic
         }
 
         std::list<IOChannel*> channels;
-        if (!streams.empty())
+        if (!_streams.empty())
         {
             // Start from a random stream so that we aren't favouring early streams by potentially
             // giving them more opportunities to send packets.
             auto mid = std::next(
-                    streams.begin(), std::uniform_int_distribution<size_t>{0, streams.size() - 1}(stream_start_rng));
+                    _streams.begin(), std::uniform_int_distribution<size_t>{0, _streams.size() - 1}(stream_start_rng));
 
-            for (auto it = mid; it != streams.end(); ++it)
+            for (auto it = mid; it != _streams.end(); ++it)
             {
                 auto& stream_ptr = it->second;
                 if (stream_ptr and not stream_ptr->_sent_fin)
@@ -595,7 +595,7 @@ namespace oxen::quic
                 channels.push_back(datagrams.get());
             }
 
-            for (auto it = streams.begin(); it != mid; ++it)
+            for (auto it = _streams.begin(); it != mid; ++it)
             {
                 auto& stream_ptr = it->second;
                 if (stream_ptr and not stream_ptr->_sent_fin)
@@ -843,15 +843,15 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::info(log_cat, "New stream ID:{}", id);
 
-        if (auto itr = stream_queue.find(id); itr != stream_queue.end())
+        if (auto itr = _stream_queue.find(id); itr != _stream_queue.end())
         {
             log::debug(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
 
             auto& s = itr->second;
             s->set_ready();
 
-            [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(s));
-            stream_queue.erase(itr);
+            [[maybe_unused]] auto [it, ins] = _streams.emplace(id, std::move(s));
+            _stream_queue.erase(itr);
             assert(ins);
             return 0;
         }
@@ -871,7 +871,7 @@ namespace oxen::quic
             return 0;
         }
 
-        [[maybe_unused]] auto [it, ins] = streams.emplace(id, std::move(stream));
+        [[maybe_unused]] auto [it, ins] = _streams.emplace(id, std::move(stream));
         assert(ins);
         log::info(log_cat, "Created new incoming stream {}", id);
         return 0;
@@ -882,9 +882,9 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(ngtcp2_is_bidi_stream(id));
         log::info(log_cat, "Stream {} closed with code {}", id, app_code);
-        auto it = streams.find(id);
+        auto it = _streams.find(id);
 
-        if (it == streams.end())
+        if (it == _streams.end())
             return;
 
         auto& stream = *it->second;
@@ -898,7 +898,7 @@ namespace oxen::quic
         }
 
         log::info(log_cat, "Erasing stream {}", id);
-        streams.erase(it);
+        _streams.erase(it);
 
         if (!ngtcp2_conn_is_local_stream(conn.get(), id))
             ngtcp2_conn_extend_max_streams_bidi(conn.get(), 1);
@@ -908,7 +908,7 @@ namespace oxen::quic
 
     int Connection::stream_ack(int64_t id, size_t size)
     {
-        if (auto it = streams.find(id); it != streams.end())
+        if (auto it = _streams.find(id); it != _streams.end())
         {
             it->second->acknowledge(size);
             return 0;
@@ -1353,7 +1353,7 @@ namespace oxen::quic
 
     void Connection::check_stream_timeouts()
     {
-        for (const auto* s : {&streams, &stream_queue})
+        for (const auto* s : {&_streams, &_stream_queue})
             for (const auto& [id, stream] : *s)
                 stream->check_timeouts();
         for (const auto& s : pending_streams)

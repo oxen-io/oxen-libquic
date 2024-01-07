@@ -47,12 +47,12 @@ namespace oxen::quic
 
         bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
         bool is_stream() const override { return true; }
-
+        bool is_ready() const { return ready; }
+        bool is_empty() const override { return user_buffers.empty(); }
+        size_t num_pending() const override { return user_buffers.size(); }
         int64_t stream_id() const override { return _stream_id; }
         const ConnectionID& conn_id() const;
-
         bool has_unsent() const override { return not is_empty(); }
-
         bool is_closing() const override { return _is_closing; }
         bool sent_fin() const override { return _sent_fin; }
         void set_fin(bool v) override { _sent_fin = v; }
@@ -62,7 +62,6 @@ namespace oxen::quic
         void close(uint64_t app_err_code = 0);
 
         void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
-
         void set_stream_close_cb(stream_close_callback cb) { close_callback = std::move(cb); }
 
         stream_data_callback data_callback;
@@ -82,7 +81,7 @@ namespace oxen::quic
         }
 
         // Called immediately after set_ready so that a subclass can do thing as soon as the stream
-        // becomes ready.  The default does nothing.
+        // becomes ready. \The default does nothing.
         virtual void on_ready() {}
 
         /// Called periodically to check if anything needs to be timed out.  The default does
@@ -105,8 +104,6 @@ namespace oxen::quic
         int64_t _stream_id;
 
         const Connection& get_conn() const { return conn; }
-
-        bool is_empty() const override { return user_buffers.empty(); }
 
         void wrote(size_t bytes) override;
 

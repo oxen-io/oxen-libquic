@@ -175,7 +175,8 @@ namespace oxen::quic
         }
 
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
-        virtual size_t active_streams() const = 0;
+        virtual size_t num_streams_active() const = 0;
+        virtual size_t num_streams_pending() const = 0;
         virtual uint64_t get_max_streams() const = 0;
         virtual uint64_t get_streams_available() const = 0;
         virtual size_t get_max_datagram_size() const = 0;
@@ -250,7 +251,8 @@ namespace oxen::quic
 
         Direction direction() const override { return dir; }
 
-        size_t active_streams() const override { return streams.size(); }
+        size_t num_streams_active() const override { return _streams.size(); }
+        size_t num_streams_pending() const override { return pending_streams.size(); }
 
         void halt_events();
         bool is_closing() const { return closing; }
@@ -366,8 +368,8 @@ namespace oxen::quic
         std::shared_ptr<Stream> get_stream_impl(int64_t id) override;
 
         // holds a mapping of active streams
-        std::map<int64_t, std::shared_ptr<Stream>> streams;
-        std::map<int64_t, std::shared_ptr<Stream>> stream_queue;
+        std::map<int64_t, std::shared_ptr<Stream>> _streams;
+        std::map<int64_t, std::shared_ptr<Stream>> _stream_queue;
 
         int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
 
