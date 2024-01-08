@@ -230,6 +230,8 @@ namespace oxen::quic
 
         const Address& remote() const { return conn.remote(); }
 
+        size_t num_pending() const { return user_buffers.size(); }
+
       private:
         void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
         {
