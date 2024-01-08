@@ -48,13 +48,6 @@ namespace oxen::quic
 
     extern "C"
     {
-        int gnutls_callback_wrapper(
-                gnutls_session_t session,
-                unsigned int htype,
-                unsigned int when,
-                unsigned int incoming,
-                const gnutls_datum_t* msg);
-
         int cert_verify_callback_gnutls(gnutls_session_t g_session);
 
         inline void gnutls_log(int level, const char* str)
@@ -297,21 +290,11 @@ namespace oxen::quic
 
         gnutls_certificate_credentials_t cred;
 
-        struct gnutls_callback_wrapper client_tls_hook
-        {};
-        struct gnutls_callback_wrapper server_tls_hook
-        {};
-
         key_verify_callback key_verify;
 
         gnutls_priority_t priority_cache;
 
         void load_keys(x509_loader& seed, x509_loader& pk);
-
-        void set_client_tls_hook(
-                gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
-        void set_server_tls_hook(
-                gnutls_callback func, unsigned int htype = 20, unsigned int when = 1, unsigned int incoming = 0);
 
         void set_key_verify_callback(key_verify_callback cb) { key_verify = std::move(cb); }
 
@@ -322,7 +305,7 @@ namespace oxen::quic
 
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string sk);
 
-        std::unique_ptr<TLSSession> make_session(bool is_client, const std::vector<ustring>& alpns) override;
+        std::unique_ptr<TLSSession> make_session(Connection& c, const std::vector<ustring>& alpns) override;
     };
 
     class GNUTLSSession : public TLSSession
@@ -332,6 +315,8 @@ namespace oxen::quic
 
       private:
         gnutls_session_t session;
+        gnutls_datum_t session_ticket_key;
+        gnutls_anti_replay_t anti_replay;
 
         bool is_client;
 
@@ -339,11 +324,10 @@ namespace oxen::quic
 
         gnutls_key _remote_key{};
 
-        void set_tls_hook_functions();  // TODO: which and when?
       public:
         GNUTLSSession(
                 GNUTLSCreds& creds,
-                bool is_client,
+                Connection& c,
                 const std::vector<ustring>& alpns,
                 std::optional<gnutls_key> expected_key = std::nullopt);
 
@@ -351,20 +335,22 @@ namespace oxen::quic
 
         void* get_session() override { return session; };
 
+        void* get_anti_replay() const override { return anti_replay; }
+
+        const void* get_session_ticket_key() const override { return &session_ticket_key; }
+
+        bool get_early_data_accepted() const override
+        {
+            return gnutls_session_get_flags(session) & GNUTLS_SFLAGS_EARLY_DATA;
+        }
+
         ustring_view remote_key() const override { return _remote_key.view(); }
 
         ustring_view selected_alpn() override;
 
-        int do_tls_callback(
-                gnutls_session_t session,
-                unsigned int htype,
-                unsigned int when,
-                unsigned int incoming,
-                const gnutls_datum_t* msg) const;
-
-        int do_post_handshake(gnutls_session_t session);
-
         bool validate_remote_key();
+
+        int send_session_ticket() override;
 
         void set_expected_remote_key(ustring key) override { _expected_remote_key(key); }
     };

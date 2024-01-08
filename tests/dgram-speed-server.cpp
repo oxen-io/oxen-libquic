@@ -65,14 +65,6 @@ int main(int argc, char* argv[])
 
     std::shared_ptr<Endpoint> server;
 
-    gnutls_callback outbound_tls_cb =
-            [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                log::debug(test_cat, "Calling server TLS callback... handshake completed...");
-                return 0;
-            };
-
-    server_tls->set_server_tls_hook(outbound_tls_cb);
-
     dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring_view data) {
         if (dgram_data.n_expected == 0)
         {

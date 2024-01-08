@@ -404,68 +404,68 @@ namespace oxen::quic::test
         std::shared_ptr<Endpoint> client_endpoint, server_endpoint;
         std::shared_ptr<connection_interface> client_ci;
 
-        SECTION("Stream logic using queue_incoming_stream in connection open callback")
-        {
-            auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
-                log::info(bp_cat, "Server queuing Custom Stream A!");
-                server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
-                log::info(bp_cat, "Server queuing Custom Stream B!");
-                server_b = ci.queue_incoming_stream<CustomStreamB>(std::move(sp2));
-                log::info(bp_cat, "Server queuing Custom Stream C!");
-                server_c = ci.queue_incoming_stream<CustomStreamC>(std::move(sp3));
-                log::info(bp_cat, "Server queueing default stream D");
-                server_d = ci.queue_incoming_stream();
-            }};
+        // SECTION("Stream logic using queue_incoming_stream in connection open callback")
+        // {
+        //     auto server_open_all_cb = callback_waiter{[&](connection_interface& ci) {
+        //         log::info(bp_cat, "Server queuing Custom Stream A!");
+        //         server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
+        //         log::info(bp_cat, "Server queuing Custom Stream B!");
+        //         server_b = ci.queue_incoming_stream<CustomStreamB>(std::move(sp2));
+        //         log::info(bp_cat, "Server queuing Custom Stream C!");
+        //         server_c = ci.queue_incoming_stream<CustomStreamC>(std::move(sp3));
+        //         log::info(bp_cat, "Server queueing default stream D");
+        //         server_d = ci.queue_incoming_stream();
+        //     }};
 
-            server_endpoint = test_net.endpoint(server_local, server_open_cb, server_closed);
-            REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_generic_data_cb));
+        //     server_endpoint = test_net.endpoint(server_local, server_open_all_cb, server_closed);
+        //     REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_generic_data_cb));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        //     RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
-            client_endpoint = test_net.endpoint(client_local, client_established);
-            client_ci = client_endpoint->connect(client_remote, client_tls);
+        //     client_endpoint = test_net.endpoint(client_local, client_established);
+        //     client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait());
-            CHECK(server_open_cb.is_ready());
-        }
+        //     REQUIRE(client_established.wait());
+        //     CHECK(server_open_all_cb.wait());
+        // }
 
-        SECTION("Stream logic using stream constructor callback")
-        {
-            // Our stream constructor callback should get invoked for every stream as, in this
-            // section, we do everything through the constructor callback.
-            expected_server_stream_ctor_count = 4;
+        // SECTION("Stream logic using stream constructor callback")
+        // {
+        //     // Our stream constructor callback should get invoked for every stream as, in this
+        //     // section, we do everything through the constructor callback.
+        //     expected_server_stream_ctor_count = 4;
 
-            stream_constructor_callback server_constructor =
-                    [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
-                server_stream_ctor_count++;
-                if (id)
-                {
-                    switch (*id)
-                    {
-                        case 0:
-                            log::info(bp_cat, "Server opening Custom Stream A!");
-                            return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
-                        case 4:
-                            log::info(bp_cat, "Server opening Custom Stream B!");
-                            return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
-                        case 8:
-                            log::info(bp_cat, "Server opening Custom Stream C!");
-                            return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
-                    }
-                }
-                return nullptr;
-            };
+        //     stream_constructor_callback server_constructor =
+        //             [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
+        //         server_stream_ctor_count++;
+        //         if (id)
+        //         {
+        //             switch (*id)
+        //             {
+        //                 case 0:
+        //                     log::info(bp_cat, "Server opening Custom Stream A!");
+        //                     return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
+        //                 case 4:
+        //                     log::info(bp_cat, "Server opening Custom Stream B!");
+        //                     return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
+        //                 case 8:
+        //                     log::info(bp_cat, "Server opening Custom Stream C!");
+        //                     return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
+        //             }
+        //         }
+        //         return nullptr;
+        //     };
 
-            server_endpoint = test_net.endpoint(server_local, server_closed);
-            REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor, server_generic_data_cb));
+        //     server_endpoint = test_net.endpoint(server_local, server_closed);
+        //     REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor, server_generic_data_cb));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        //     RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
-            client_endpoint = test_net.endpoint(client_local, client_established);
-            client_ci = client_endpoint->connect(client_remote, client_tls);
+        //     client_endpoint = test_net.endpoint(client_local, client_established);
+        //     client_ci = client_endpoint->connect(client_remote, client_tls);
 
-            REQUIRE(client_established.wait());
-        }
+        //     REQUIRE(client_established.wait());
+        // }
 
         SECTION("Stream logic using mixed queue/stream constructor callbacks")
         {

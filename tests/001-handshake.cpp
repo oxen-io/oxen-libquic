@@ -283,4 +283,8 @@ namespace oxen::quic::test
         CHECK(server_established.wait());
         CHECK(client_ci->is_validated());
     };
+
+    TEST_CASE("001 - Resumption", "[001][resumption]"){
+
+    };
 }  // namespace oxen::quic::test

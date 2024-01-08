@@ -187,7 +187,7 @@ namespace oxen::quic
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
-        virtual ustring_view remote_key() const = 0;
+        virtual std::optional<ustring_view> remote_key() const = 0;
         bool is_inbound() const { return direction() == Direction::INBOUND; }
         bool is_outbound() const { return direction() == Direction::OUTBOUND; }
         std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
@@ -247,7 +247,7 @@ namespace oxen::quic
 
         TLSSession* get_session() const;
 
-        ustring_view remote_key() const override;
+        std::optional<ustring_view> remote_key() const override;
 
         Direction direction() const override { return dir; }
 
@@ -296,6 +296,16 @@ namespace oxen::quic
         connection_established_callback conn_established_cb;
         connection_closed_callback conn_closed_cb;
 
+        void early_data_rejected();
+
+        void set_remote_addr(const ngtcp2_addr& new_remote);
+
+        int client_handshake_completed();
+
+        int server_handshake_completed();
+
+        int server_path_validation(const ngtcp2_path* path);
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -322,6 +332,8 @@ namespace oxen::quic
         std::atomic<bool> _congested{false};
         bool _is_validated{false};
 
+        std::optional<ustring> remote_pubkey;
+
         struct connection_deleter
         {
             inline void operator()(ngtcp2_conn* c) const { ngtcp2_conn_del(c); }
@@ -347,6 +359,8 @@ namespace oxen::quic
         std::array<size_t, DATAGRAM_BATCH_SIZE> send_buffer_size;
         uint8_t send_ecn = 0;
         size_t n_packets = 0;
+
+        std::array<uint8_t, NGTCP2_CRYPTO_MAX_REGULAR_TOKENLEN> static_secret;
 
         void schedule_packet_retransmit(std::chrono::steady_clock::time_point ts);
 

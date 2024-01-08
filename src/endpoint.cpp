@@ -345,6 +345,33 @@ namespace oxen::quic
             log::warning(log_cat, "Error: could not delete connection [ID: {}]; could not find", *cid.data);
     }
 
+    int Endpoint::validate_anti_replay(ustring key, ustring data, time_t /* exp */)
+    {
+        if (auto itr = anti_replay_db.find(key); itr != anti_replay_db.end())
+        {
+            auto& entry = itr->second;
+
+            if (entry == data)
+                return GNUTLS_E_DB_ENTRY_EXISTS;
+        }
+
+        anti_replay_db[std::move(key)] = std::move(data);
+        return 0;
+    }
+
+    void Endpoint::store_0rtt_transport_params(ustring remote_pk, ustring encoded_params)
+    {
+        encoded_transport_params.insert_or_assign(remote_pk, std::move(encoded_params));
+    }
+
+    std::optional<ustring> Endpoint::get_0rtt_transport_params(ustring remote_pk)
+    {
+        if (auto itr = encoded_transport_params.find(remote_pk); itr != encoded_transport_params.end())
+            return itr->second;
+
+        return std::nullopt;
+    }
+
     void Endpoint::connection_established(connection_interface& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());

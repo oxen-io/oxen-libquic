@@ -235,6 +235,12 @@ namespace oxen::quic
 
         void connection_established(connection_interface& conn);
 
+        int validate_anti_replay(ustring key, ustring data, time_t exp);
+
+        void store_0rtt_transport_params(ustring remote_pk, ustring encoded_params);
+
+        std::optional<ustring> get_0rtt_transport_params(ustring remote_pk);
+
         int _rbufsize{4096};
 
       private:
@@ -253,6 +259,10 @@ namespace oxen::quic
         std::vector<ustring> outbound_alpns;
         std::vector<ustring> inbound_alpns;
         std::chrono::nanoseconds handshake_timeout{5s};
+
+        std::map<ustring, ustring> anti_replay_db;
+
+        std::map<ustring, ustring> encoded_transport_params;
 
         void _init_internals();
 

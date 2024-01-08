@@ -37,6 +37,8 @@ namespace oxen::quic
         explicit Address(const sockaddr_in6* s) : Address{reinterpret_cast<const sockaddr*>(s), sizeof(sockaddr_in6)} {}
         Address(const std::string& addr, uint16_t port);
 
+        explicit Address(const ngtcp2_addr& addr);
+
         // Assignment from a sockaddr pointer; we copy the sockaddr's contents
         template <
                 typename T,
@@ -314,6 +316,8 @@ namespace oxen::quic
         Path() = default;
         Path(const Address& l, const Address& r) : local{l}, remote{r} {}
         Path(const Path& p) : Path{p.local, p.remote} {}
+
+        void set_new_remote(const ngtcp2_addr& new_remote);
 
         Path& operator=(const Path& p)
         {
