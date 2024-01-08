@@ -24,7 +24,7 @@ namespace oxen::quic
 
     namespace test::defaults
     {
-        extern std::pair<std::string, std::string> CLIENT_KEYS, SERVER_KEYS;
+        inline std::pair<std::string, std::string> CLIENT_KEYS, SERVER_KEYS;
         inline const std::string& CLIENT_SEED = CLIENT_KEYS.first;
         inline const std::string& CLIENT_PUBKEY = CLIENT_KEYS.second;
         inline const std::string& SERVER_SEED = SERVER_KEYS.first;

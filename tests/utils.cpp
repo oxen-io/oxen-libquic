@@ -5,9 +5,6 @@
 namespace oxen::quic
 {
 
-    std::pair<std::string, std::string> test::defaults::CLIENT_KEYS = generate_ed25519();
-    std::pair<std::string, std::string> test::defaults::SERVER_KEYS = generate_ed25519();
-
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
         auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);
