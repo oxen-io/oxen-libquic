@@ -32,7 +32,8 @@ option(BUILD_SHARED_LIBS "Build as shared library" OFF)
 option(BUILD_STATIC_DEPS "Download, build, and statically link against core dependencies" OFF)
 option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for development, on for release" OFF)
 option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
-option(LIBQUIC_BUILD_TESTS "Build libquic test suite and programs" ${libquic_IS_TOPLEVEL_PROJECT})
+option(LIBQUIC_BUILD_TESTS "Build libquic test suite" ${libquic_IS_TOPLEVEL_PROJECT})
+option(LIBQUIC_BUILD_SPEEDTEST "Build libquic speedtest programs" ${libquic_IS_TOPLEVEL_PROJECT})
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -102,6 +103,6 @@ target_link_libraries(libquic_internal INTERFACE libquic_internal-warnings)
 add_subdirectory(external)
 add_subdirectory(src)
 
-if(LIBQUIC_BUILD_TESTS)
+if(LIBQUIC_BUILD_TESTS OR LIBQUIC_BUILD_SPEEDTEST)
     add_subdirectory(tests)
 endif()

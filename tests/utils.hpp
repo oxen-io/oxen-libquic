@@ -12,6 +12,8 @@
 #include <quic/utils.hpp>
 #include <string>
 
+#include "oxenc/base64.h"
+
 namespace oxen::quic
 {
     extern bool disable_ipv6, disable_rotating_buffer;
@@ -22,50 +24,35 @@ namespace oxen::quic
 
     namespace test::defaults
     {
-        inline const std::string CLIENT_SEED = "468e7ed2cd914ca44568e7189245c7b8e5488404fc88a4019c73b51d9dbc48a5"_hex;
-        inline const std::string CLIENT_PUBKEY = "626136fe40c8860ee5bdc57fd9f15a03ef6777bb9237c18fc4d7ef2aacfe4f88"_hex;
-        inline const std::string SERVER_SEED = "fefbb50cdd4cde3be0ae75042c44ff42b026def4fd6be4fb1dc6e81ea0480c9b"_hex;
-        inline const std::string SERVER_PUBKEY = "d580d5c68937095ea997f6a88f07a86cdd26dfa0d7d268e80ea9bbb5f3ca0304"_hex;
+        inline std::pair<std::string, std::string> CLIENT_KEYS, SERVER_KEYS;
+        inline const std::string& CLIENT_SEED = CLIENT_KEYS.first;
+        inline const std::string& CLIENT_PUBKEY = CLIENT_KEYS.second;
+        inline const std::string& SERVER_SEED = SERVER_KEYS.first;
+        inline const std::string& SERVER_PUBKEY = SERVER_KEYS.second;
 
-        inline auto tls_creds_from_ed_keys()
-        {
-            auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);
-            auto server = GNUTLSCreds::make_from_ed_keys(SERVER_SEED, SERVER_PUBKEY);
-
-            return std::make_pair(std::move(client), std::move(server));
-        }
+        std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> tls_creds_from_ed_keys();
     }  // namespace test::defaults
 
-    inline void add_log_opts(CLI::App& cli, std::string& file, std::string& level)
+    // Generates a random Ed25519 keypair for testing purposes.  Returned values are the 32-byte
+    // seed and 32-byte pubkey.
+    std::pair<std::string, std::string> generate_ed25519();
+
+    // Takes a hex- or base64-encoded byte value of the given byte size and returns the bytes.
+    // Returns nullopt if the encoded value is not a valid byte encoding of the given size.
+    template <typename Char = char>
+    inline std::optional<std::basic_string<Char>> decode_bytes(std::string_view encoded, size_t size = 32)
     {
-        file = "stderr";
-        level = "debug";
-
-        cli.add_option("-l,--log-file", file, "Log output filename, or one of stdout/-/stderr/syslog.")
-                ->type_name("FILE")
-                ->capture_default_str();
-
-        cli.add_option("-L,--log-level", level, "Log verbosity level; one of trace, debug, info, warn, error, critical, off")
-                ->type_name("LEVEL")
-                ->capture_default_str()
-                ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error", "critical", "off"}));
+        if (encoded.size() == size * 2 && oxenc::is_hex(encoded))
+            return oxenc::from_hex<Char>(encoded);
+        if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(32, true) &&
+            oxenc::is_base64(encoded))
+            return oxenc::from_base64<Char>(encoded);
+        return std::nullopt;
     }
 
-    inline void setup_logging(std::string out, const std::string& level)
-    {
-        log::Level lvl = log::level_from_string(level);
+    void add_log_opts(CLI::App& cli, std::string& file, std::string& level);
 
-        constexpr std::array print_vals = {"stdout", "-", "", "stderr", "nocolor", "stdout-nocolor", "stderr-nocolor"};
-        log::Type type;
-        if (std::count(print_vals.begin(), print_vals.end(), out))
-            type = log::Type::Print;
-        else if (out == "syslog")
-            type = log::Type::System;
-        else
-            type = log::Type::File;
-
-        logger_config(out, type, lvl);
-    }
+    void setup_logging(std::string out, const std::string& level);
 
     /// RAII class that resets the log level for the given category while the object is alive, then
     /// resets it to what it was at construction when the object is destroyed.
@@ -88,7 +75,7 @@ namespace oxen::quic
         {}
     };
     /// Same as above, but only lowers the log level to a more frivolous cutoff (leaving it alone if
-    /// already higher).
+    /// already lower).
     struct log_level_lowerer : log_level_override
     {
         log_level_lowerer(log::Level l, std::string category = "quic") :
@@ -111,48 +98,7 @@ namespace oxen::quic
         return true;
     }
 
-    inline std::pair<std::string, uint16_t> parse_addr(
-            std::string_view addr, std::optional<uint16_t> default_port = std::nullopt)
-    {
-        std::pair<std::string, uint16_t> result;
-        if (auto p = addr.find_last_not_of("0123456789");
-            p != std::string_view::npos && p + 2 <= addr.size() && addr[p] == ':')
-        {
-            if (!parse_int(addr.substr(p + 1), result.second))
-                throw std::invalid_argument{"Invalid address: could not parse port"};
-            addr.remove_suffix(addr.size() - p);
-        }
-        else if (default_port)
-        {
-            result.second = *default_port;
-        }
-        else
-        {
-            throw std::invalid_argument{"Invalid address: no port was specified and there is no default"};
-        }
-
-        bool had_sq_brackets = false;
-        if (!addr.empty() && addr.front() == '[' && addr.back() == ']')
-        {
-            addr.remove_prefix(1);
-            addr.remove_suffix(1);
-            had_sq_brackets = true;
-        }
-
-        if (auto p = addr.find_first_not_of("0123456789."); p != std::string_view::npos)
-        {
-            if (auto q = addr.find_first_not_of("0123456789abcdef:."); q != std::string_view::npos)
-                throw std::invalid_argument{"Invalid address: does not look like IPv4 or IPv6!"};
-            else if (!had_sq_brackets)
-                throw std::invalid_argument{"Invalid address: IPv6 addresses require [...] square brackets"};
-        }
-
-        if (addr.empty())
-            addr = "::";
-
-        result.first = addr;
-        return result;
-    }
+    std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
     template <typename F>
     auto require_future(F& f, std::chrono::milliseconds timeout = 1s)

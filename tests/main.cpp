@@ -26,5 +26,8 @@ int main(int argc, char* argv[])
 
     oxen::quic::setup_logging(log_file, log_level);
 
+    oxen::quic::test::defaults::CLIENT_KEYS = oxen::quic::generate_ed25519();
+    oxen::quic::test::defaults::SERVER_KEYS = oxen::quic::generate_ed25519();
+
     return session.run();
 }
