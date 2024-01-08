@@ -49,7 +49,6 @@ namespace oxen::quic
         bool is_stream() const override { return true; }
         bool is_ready() const { return ready; }
         bool is_empty() const override { return user_buffers.empty(); }
-        size_t num_pending() const override { return user_buffers.size(); }
         int64_t stream_id() const override { return _stream_id; }
         const ConnectionID& conn_id() const;
         bool has_unsent() const override { return not is_empty(); }
@@ -81,7 +80,7 @@ namespace oxen::quic
         }
 
         // Called immediately after set_ready so that a subclass can do thing as soon as the stream
-        // becomes ready. \The default does nothing.
+        // becomes ready. The default does nothing.
         virtual void on_ready() {}
 
         /// Called periodically to check if anything needs to be timed out.  The default does
@@ -91,9 +90,9 @@ namespace oxen::quic
 
         void send_impl(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
 
-      private:
         stream_buffer user_buffers;
 
+      private:
         std::vector<ngtcp2_vec> pending() override;
 
         size_t unacked_size{0};
