@@ -22,6 +22,16 @@ namespace oxen::quic
 
     class BTRequestStream;
 
+    // Exception type to throw from a handler to have a method-not-found error returned as a
+    // response to the message.  The `what()` value is not actually used: we send back a string that
+    // includes the requested method name in the error.  The main use of this exception is when
+    // using a generic handler to use the exact same error behaviour as if `register_command` were
+    // being used and the command didn't exist, but individual handlers could use it as well.
+    class no_such_endpoint : public std::exception
+    {
+        const char* what() const noexcept override { return "endpoint does not exist"; }
+    };
+
     struct message
     {
         friend class BTRequestStream;
@@ -47,11 +57,15 @@ namespace oxen::quic
         message(BTRequestStream& bp, bstring req, bool is_timeout = false);
 
       public:
+        inline static constexpr auto TYPE_REPLY = "R"sv;
+        inline static constexpr auto TYPE_ERROR = "E"sv;
+        inline static constexpr auto TYPE_COMMAND = "C"sv;
+
         void respond(bstring_view body, bool error = false);
         void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
 
         const bool timed_out{false};
-        bool is_error() const { return type() == "E"sv; }
+        bool is_error() const { return type() == TYPE_ERROR; }
 
         //  To be used to determine if the message was a result of an error or timeout; equivalent
         //  to checking that both .timed_out and .is_error() are false.
@@ -159,6 +173,7 @@ namespace oxen::quic
         std::deque<std::shared_ptr<sent_request>> sent_reqs;
 
         std::unordered_map<std::string, std::function<void(message)>> func_map;
+        std::function<void(message)> generic_handler;
 
         bstring buf;
         std::string size_buf;
@@ -224,6 +239,10 @@ namespace oxen::quic
 
         void closed(uint64_t app_code) override;
 
+        /// Registers an individual command to be recognized by this BTRequestStream object.  Can be
+        /// called multiple times to set up multiple commands.  As an alternative (or supplement)
+        /// you can also specify a single handler during construction to be called for any invoked
+        /// commands that are not created via `register_command` calls.
         void register_command(std::string endpoint, std::function<void(message)>);
 
         const Address& local() const { return conn.local(); }
@@ -231,10 +250,20 @@ namespace oxen::quic
         const Address& remote() const { return conn.remote(); }
 
       private:
+        // Optional constructor argument: stream close callback
         void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
         {
             log::debug(bp_cat, "Bparser set user-provided close callback!");
             close_callback = std::move(close_cb);
+        }
+
+        // Optional constructor argument: generic request handler.  If set, this is invoked for all
+        // incoming requests to endpoints that do not have a `register_command`.  (And so if
+        // `register_command` is not used at all, this can handle all endpoint).
+        void handle_bp_opt(std::function<void(oxen::quic::message m)> request_handler)
+        {
+            log::debug(bp_cat, "Bparser set generic request handler");
+            generic_handler = std::move(request_handler);
         }
 
         void handle_input(message msg);

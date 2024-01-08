@@ -628,4 +628,64 @@ namespace oxen::quic::test
         }
     }
 
+    TEST_CASE("002 - BParser generic request handler", "[002][bparser][generic]")
+    {
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        std::mutex mut;
+        std::promise<void> prom;
+        auto done = prom.get_future();
+
+        auto handler1 = [&](message m) { m.respond("h1-{}"_format(m.endpoint())); };
+
+        auto handler2 = [&](message) { throw no_such_endpoint{}; };
+
+        auto handler_generic = [&](message m) {
+            if (m.endpoint() == "nuh uh")
+                throw no_such_endpoint{};
+            m.respond("hg-{}"_format(m.endpoint()));
+        };
+
+        auto server_conn_est = [&](connection_interface& c) {
+            auto s = c.queue_incoming_stream<BTRequestStream>(handler_generic);
+            s->register_command("ep1"s, handler1);
+            s->register_command("ep2"s, handler2);
+            return s;
+        };
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_conn_est);
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+        std::unordered_multiset<std::string> responses, errors;
+        auto resp_handler = [&](message m) {
+            log::critical(log_cat, "okay, {}: {}", m.is_error(), m.body());
+            if (m)
+                responses.insert(m.body_str());
+            else
+                errors.insert(m.body_str());
+            if (responses.size() + errors.size() >= 4)
+                prom.set_value();
+        };
+
+        std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
+        client_bp->command("ep1", "", resp_handler);
+        client_bp->command("ep2", "", resp_handler);
+        client_bp->command("ep3", "", resp_handler);
+        client_bp->command("nuh uh", "", resp_handler);
+
+        REQUIRE(done.wait_for(5s) == std::future_status::ready);
+        CHECK(responses == std::unordered_multiset{{"h1-ep1"s, "hg-ep3"s}});
+        CHECK(errors == std::unordered_multiset{{"Invalid endpoint 'nuh uh'"s, "Invalid endpoint 'ep2'"s}});
+    }
+
 }  // namespace oxen::quic::test
