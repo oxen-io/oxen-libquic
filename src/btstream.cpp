@@ -92,6 +92,12 @@ namespace oxen::quic
                 [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
     }
 
+    void BTRequestStream::register_command_fallback(std::function<void(message)> request_handler)
+    {
+        log::debug(bp_cat, "Bparser set generic request handler");
+        endpoint.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
+    }
+
     void BTRequestStream::handle_input(message msg)
     {
         log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.type());
@@ -139,12 +145,12 @@ namespace oxen::quic
         }
         catch (const no_such_endpoint&)
         {
-            log::critical(bp_cat, "No handler found for endpoint {}, returning error response", msg.endpoint());
+            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", msg.endpoint());
             respond(req_id, convert_sv<std::byte, char>("Invalid endpoint '{}'"_format(ep)), true);
         }
         catch (const std::exception& e)
         {
-            log::critical(
+            log::error(
                     bp_cat,
                     "Handler for {} threw an uncaught exception ({}); returning a generic error message",
                     msg.endpoint(),

@@ -245,6 +245,12 @@ namespace oxen::quic
         /// commands that are not created via `register_command` calls.
         void register_command(std::string endpoint, std::function<void(message)>);
 
+        /// Registered (or replaces) the fallback command handler that is invoked if the requested
+        /// endpoint does not match any endpoint set up with `register_command`.  If no individual
+        /// `register_command` endpoints are set up at all then this becomes the single callback to
+        /// invoke for all incoming commands.
+        void register_command_fallback(std::function<void(message)> request_handler);
+
         const Address& local() const { return conn.local(); }
 
         const Address& remote() const { return conn.remote(); }
@@ -257,10 +263,9 @@ namespace oxen::quic
             close_callback = std::move(close_cb);
         }
 
-        // Optional constructor argument: generic request handler.  If set, this is invoked for all
-        // incoming requests to endpoints that do not have a `register_command`.  (And so if
-        // `register_command` is not used at all, this can handle all endpoint).
-        void handle_bp_opt(std::function<void(oxen::quic::message m)> request_handler)
+        // Optional constructor argument: generic request handler.  Providing it in the constructor
+        // is equivalent to calling register_command_fallback() with the lambda.
+        void handle_bp_opt(std::function<void(message m)> request_handler)
         {
             log::debug(bp_cat, "Bparser set generic request handler");
             generic_handler = std::move(request_handler);

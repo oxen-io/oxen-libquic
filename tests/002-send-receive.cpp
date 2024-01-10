@@ -637,7 +637,6 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{};
 
-        std::mutex mut;
         std::promise<void> prom;
         auto done = prom.get_future();
 
@@ -651,12 +650,24 @@ namespace oxen::quic::test
             m.respond("hg-{}"_format(m.endpoint()));
         };
 
-        auto server_conn_est = [&](connection_interface& c) {
-            auto s = c.queue_incoming_stream<BTRequestStream>(handler_generic);
-            s->register_command("ep1"s, handler1);
-            s->register_command("ep2"s, handler2);
-            return s;
-        };
+        std::function<void(connection_interface&)> server_conn_est;
+        SECTION("generic handler via constructor")
+        {
+            server_conn_est = [&](connection_interface& c) {
+                auto s = c.queue_incoming_stream<BTRequestStream>(std::move(handler_generic));
+                s->register_command("ep1"s, handler1);
+                s->register_command("ep2"s, handler2);
+            };
+        }
+        SECTION("generic handler via method")
+        {
+            server_conn_est = [&](connection_interface& c) {
+                auto s = c.queue_incoming_stream<BTRequestStream>();
+                s->register_command("ep1"s, handler1);
+                s->register_command("ep2"s, handler2);
+                s->register_command_fallback(std::move(handler_generic));
+            };
+        }
 
         auto server_endpoint = test_net.endpoint(server_local);
         server_endpoint->listen(server_tls, server_conn_est);
@@ -668,7 +679,6 @@ namespace oxen::quic::test
 
         std::unordered_multiset<std::string> responses, errors;
         auto resp_handler = [&](message m) {
-            log::critical(log_cat, "okay, {}: {}", m.is_error(), m.body());
             if (m)
                 responses.insert(m.body_str());
             else
