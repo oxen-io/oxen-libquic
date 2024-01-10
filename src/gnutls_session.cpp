@@ -4,6 +4,12 @@
 
 namespace oxen::quic
 {
+    /*
+        Client session resumption requires:
+            gnutls_session_set_data to be called in TLSsession creation
+            gnutls_session_get_data2 to be called in hook function after handshake completion
+    */
+
     extern "C"
     {
         int anti_replay_db_add_func(void* dbf, time_t exp_time, const gnutls_datum_t* key, const gnutls_datum_t* data)

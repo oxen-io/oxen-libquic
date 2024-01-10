@@ -291,11 +291,18 @@ namespace oxen::quic
         return "{}:{}"_format(buf, port());
     }
 
-    void Path::set_new_remote(const ngtcp2_addr& new_remote)
+    void Path::set_new_remote(const ngtcp2_addr& new_remote, uint16_t p)
     {
         memcpy(_path.remote.addr, new_remote.addr, new_remote.addrlen);
         _path.remote.addrlen = new_remote.addrlen;
-        remote = Address{new_remote};
+        remote = Address{_path.remote.addr, _path.remote.addrlen, p};
+    }
+
+    void Path::set_new_local(const ngtcp2_addr& new_local, uint16_t p)
+    {
+        memcpy(_path.local.addr, new_local.addr, new_local.addrlen);
+        _path.local.addrlen = new_local.addrlen;
+        local = Address{_path.local.addr, _path.local.addrlen, p};
     }
 
     std::string Path::to_string() const

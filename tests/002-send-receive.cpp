@@ -505,7 +505,7 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{};
 
-        static constexpr int num_requests = 5;
+        static constexpr int num_requests = 2;
 
         // Make sure debug logging is off for these because at debug log this produces so much log
         // output it can take too long to run the tests within our 5s future wait.

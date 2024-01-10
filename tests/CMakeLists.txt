@@ -30,6 +30,7 @@ if(LIBQUIC_BUILD_TESTS)
         007-datagrams.cpp
         008-conn_hooks.cpp
         009-alpns.cpp
+        010-migration.cpp
 
         main.cpp
     )

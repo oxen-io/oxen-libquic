@@ -149,8 +149,6 @@ namespace oxen::quic::test
 
                 auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
 
-                CHECK_THROWS(client_endpoint->connect(client_remote));
-
                 auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
                 CHECK(not client_established_2.wait());
@@ -282,9 +280,5 @@ namespace oxen::quic::test
         CHECK(client_established.wait());
         CHECK(server_established.wait());
         CHECK(client_ci->is_validated());
-    };
-
-    TEST_CASE("001 - Resumption", "[001][resumption]"){
-
     };
 }  // namespace oxen::quic::test

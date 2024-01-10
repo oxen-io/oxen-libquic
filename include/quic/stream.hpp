@@ -33,6 +33,7 @@ namespace oxen::quic
 
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
+        friend class TestHelper;
         friend class Connection;
         friend class Network;
 

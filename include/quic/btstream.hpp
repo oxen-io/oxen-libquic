@@ -167,6 +167,8 @@ namespace oxen::quic
 
     class BTRequestStream : public Stream
     {
+        friend class TestHelper;
+
       private:
         // outgoing requests awaiting response
         // We use shared_ptr's so we can lambda capture it, though it is not actually shared

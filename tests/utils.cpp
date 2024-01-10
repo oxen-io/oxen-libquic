@@ -4,6 +4,58 @@
 
 namespace oxen::quic
 {
+    void TestHelper::migrate_connection(Connection& conn, Address new_bind)
+    {
+        auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
+            conn._endpoint.handle_packet(packet);
+        });
+
+        auto& new_addr = new_sock->address();
+        Path new_path{new_addr, conn._path.remote};
+
+        conn.set_local_addr(new_addr);
+        conn._endpoint.set_local(new_addr);
+
+        current_sock.swap(new_sock);
+        auto rv = ngtcp2_conn_initiate_migration(conn, conn._path, get_timestamp().count());
+        log::trace(log_cat, "{}", ngtcp2_strerror(rv));
+    }
+
+    void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
+    {
+        auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
+            conn._endpoint.handle_packet(packet);
+        });
+
+        auto& new_addr = new_sock->address();
+        Path new_path{new_addr, conn._path.remote};
+
+        conn.set_local_addr(new_addr);
+        conn._endpoint.set_local(new_addr);
+
+        current_sock.swap(new_sock);
+        auto rv = ngtcp2_conn_initiate_immediate_migration(conn, conn._path, get_timestamp().count());
+        log::trace(log_cat, "{}", ngtcp2_strerror(rv));
+    }
+
+    void TestHelper::nat_rebinding(Connection& conn, Address new_bind)
+    {
+        auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
+            conn._endpoint.handle_packet(packet);
+        });
+
+        auto& new_addr = new_sock->address();
+        Path new_path{new_addr, conn._path.remote};
+
+        conn.set_local_addr(new_addr);
+        conn._endpoint.set_local(new_addr);
+
+        current_sock.swap(new_sock);
+        ngtcp2_conn_set_local_addr(conn, &new_addr._addr);
+    }
 
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
