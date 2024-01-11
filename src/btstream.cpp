@@ -32,7 +32,7 @@ namespace oxen::quic
         }
     }
 
-    void message::respond(bstring_view body, bool error)
+    void message::respond(bstring_view body, bool error) const
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 

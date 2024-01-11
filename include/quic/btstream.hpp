@@ -61,8 +61,8 @@ namespace oxen::quic
         inline static constexpr auto TYPE_ERROR = "E"sv;
         inline static constexpr auto TYPE_COMMAND = "C"sv;
 
-        void respond(bstring_view body, bool error = false);
-        void respond(std::string_view body, bool error = false) { respond(convert_sv<std::byte>(body), error); }
+        void respond(bstring_view body, bool error = false) const;
+        void respond(std::string_view body, bool error = false) const { respond(convert_sv<std::byte>(body), error); }
 
         const bool timed_out{false};
         bool is_error() const { return type() == TYPE_ERROR; }
