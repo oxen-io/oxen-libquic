@@ -249,7 +249,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test_endpoint"s, server_bp_cb);
+                s->register_handler("test_endpoint"s, server_bp_cb);
                 return s;
             };
 
@@ -288,7 +288,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test_endpoint"s, server_bp_cb);
+                s->register_handler("test_endpoint"s, server_bp_cb);
                 return s;
             };
 
@@ -332,7 +332,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test_endpoint"s, server_bp_cb);
+                s->register_handler("test_endpoint"s, server_bp_cb);
                 return s;
             };
 
@@ -391,7 +391,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test"s, server_bp_cb);
+                s->register_handler("test"s, server_bp_cb);
                 return s;
             };
 
@@ -471,7 +471,7 @@ namespace oxen::quic::test
 
         stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
             auto s = e.make_shared<BTRequestStream>(c, e);
-            s->register_command("test_endpoint"s, server_handler);
+            s->register_handler("test_endpoint"s, server_handler);
             return s;
         };
 
@@ -549,7 +549,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test_endpoint"s, server_handler);
+                s->register_handler("test_endpoint"s, server_handler);
                 return s;
             };
 
@@ -590,7 +590,7 @@ namespace oxen::quic::test
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_command("test_endpoint"s, server_handler);
+                s->register_handler("test_endpoint"s, server_handler);
                 return s;
             };
 
@@ -655,17 +655,17 @@ namespace oxen::quic::test
         {
             server_conn_est = [&](connection_interface& c) {
                 auto s = c.queue_incoming_stream<BTRequestStream>(std::move(handler_generic));
-                s->register_command("ep1"s, handler1);
-                s->register_command("ep2"s, handler2);
+                s->register_handler("ep1"s, handler1);
+                s->register_handler("ep2"s, handler2);
             };
         }
         SECTION("generic handler via method")
         {
             server_conn_est = [&](connection_interface& c) {
                 auto s = c.queue_incoming_stream<BTRequestStream>();
-                s->register_command("ep1"s, handler1);
-                s->register_command("ep2"s, handler2);
-                s->register_command_fallback(std::move(handler_generic));
+                s->register_handler("ep1"s, handler1);
+                s->register_handler("ep2"s, handler2);
+                s->register_generic_handler(std::move(handler_generic));
             };
         }
 

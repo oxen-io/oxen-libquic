@@ -86,13 +86,13 @@ namespace oxen::quic
         close_callback(*this, app_code);
     }
 
-    void BTRequestStream::register_command(std::string ep, std::function<void(message)> func)
+    void BTRequestStream::register_handler(std::string ep, std::function<void(message)> func)
     {
         endpoint.call(
                 [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
     }
 
-    void BTRequestStream::register_command_fallback(std::function<void(message)> request_handler)
+    void BTRequestStream::register_generic_handler(std::function<void(message)> request_handler)
     {
         log::debug(bp_cat, "Bparser set generic request handler");
         endpoint.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
@@ -130,7 +130,7 @@ namespace oxen::quic
         {
             if (!func_map.empty())
             {
-                if (auto itr = func_map.find(msg.endpoint_str()); itr != func_map.end())
+                if (auto itr = func_map.find(ep); itr != func_map.end())
                 {
                     log::debug(bp_cat, "Executing request endpoint {}", msg.endpoint());
                     return itr->second(std::move(msg));

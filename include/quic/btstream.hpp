@@ -239,17 +239,16 @@ namespace oxen::quic
 
         void closed(uint64_t app_code) override;
 
-        /// Registers an individual command to be recognized by this BTRequestStream object.  Can be
-        /// called multiple times to set up multiple commands.  As an alternative (or supplement)
-        /// you can also specify a single handler during construction to be called for any invoked
-        /// commands that are not created via `register_command` calls.
-        void register_command(std::string endpoint, std::function<void(message)>);
+        /// Registers an individual endpoint to be recognized by this BTRequestStream object.  Can be
+        /// called multiple times to set up multiple commands.  See also register_generic_handler.
+        void register_handler(std::string endpoint, std::function<void(message)>);
 
-        /// Registered (or replaces) the fallback command handler that is invoked if the requested
-        /// endpoint does not match any endpoint set up with `register_command`.  If no individual
-        /// `register_command` endpoints are set up at all then this becomes the single callback to
-        /// invoke for all incoming commands.
-        void register_command_fallback(std::function<void(message)> request_handler);
+        /// Registered (or replaces) the generic handler that is invoked if the requested endpoint
+        /// does not match any endpoint set up with `register_handler`.  If no individual
+        /// `register_handler` endpoints are set up at all then this becomes the single callback to
+        /// invoke for all incoming commands.  This handler should throw a `no_such_endpoint`
+        /// exception if the endpoint in this message should be considered not found.
+        void register_generic_handler(std::function<void(message)> request_handler);
 
         const Address& local() const { return conn.local(); }
 
