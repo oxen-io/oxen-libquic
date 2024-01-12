@@ -23,7 +23,7 @@ namespace oxen::quic
             req_type = get_location(data, btlc.consume_string_view());
             req_id = btlc.consume_integer<int64_t>();
 
-            if (type() == "C")
+            if (type() == TYPE_COMMAND)
                 ep = get_location(data, btlc.consume_string_view());
 
             req_body = get_location(data, btlc.consume_string_view());
@@ -32,7 +32,7 @@ namespace oxen::quic
         }
     }
 
-    void message::respond(bstring_view body, bool error)
+    void message::respond(bstring_view body, bool error) const
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -86,17 +86,23 @@ namespace oxen::quic
         close_callback(*this, app_code);
     }
 
-    void BTRequestStream::register_command(std::string ep, std::function<void(message)> func)
+    void BTRequestStream::register_handler(std::string ep, std::function<void(message)> func)
     {
         endpoint.call(
                 [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
+    }
+
+    void BTRequestStream::register_generic_handler(std::function<void(message)> request_handler)
+    {
+        log::debug(bp_cat, "Bparser set generic request handler");
+        endpoint.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
     }
 
     void BTRequestStream::handle_input(message msg)
     {
         log::trace(bp_cat, "{} called to handle {} input", __PRETTY_FUNCTION__, msg.type());
 
-        if (auto type = msg.type(); type == "R" || type == "E")
+        if (auto type = msg.type(); type == message::TYPE_REPLY || type == message::TYPE_ERROR)
         {
             log::trace(log_cat, "Looking for request with req_id={}", msg.req_id);
             // Iterate using forward iterators, s.t. we go highest (newest) rids to lowest (oldest) rids.
@@ -116,10 +122,40 @@ namespace oxen::quic
             }
         }
 
-        if (auto itr = func_map.find(msg.endpoint_str()); itr != func_map.end())
+        // `msg` likely isn't valid in the exception handlers below, so extract what we need to
+        // send a response anyway:
+        const auto req_id = msg.req_id;
+        const auto ep = msg.endpoint_str();
+        try
         {
-            log::debug(bp_cat, "Executing request endpoint {}", msg.endpoint());
-            itr->second(std::move(msg));
+            if (!func_map.empty())
+            {
+                if (auto itr = func_map.find(ep); itr != func_map.end())
+                {
+                    log::debug(bp_cat, "Executing request endpoint {}", msg.endpoint());
+                    return itr->second(std::move(msg));
+                }
+            }
+            if (generic_handler)
+            {
+                log::debug(bp_cat, "Executing generic request handler for endpoint {}", msg.endpoint());
+                return generic_handler(std::move(msg));
+            }
+            throw no_such_endpoint{};
+        }
+        catch (const no_such_endpoint&)
+        {
+            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", msg.endpoint());
+            respond(req_id, convert_sv<std::byte, char>("Invalid endpoint '{}'"_format(ep)), true);
+        }
+        catch (const std::exception& e)
+        {
+            log::error(
+                    bp_cat,
+                    "Handler for {} threw an uncaught exception ({}); returning a generic error message",
+                    msg.endpoint(),
+                    e.what());
+            respond(req_id, "An error occurred while processing the request"_bsv, true);
         }
     }
 
@@ -193,7 +229,7 @@ namespace oxen::quic
     {
         oxenc::bt_list_producer btlp;
 
-        btlp.append("C");
+        btlp.append(message::TYPE_COMMAND);
         btlp.append(rid);
         btlp.append(endpoint);
         btlp.append(body);
@@ -205,7 +241,7 @@ namespace oxen::quic
     {
         oxenc::bt_list_producer btlp;
 
-        btlp.append(error ? "E" : "R");
+        btlp.append(error ? message::TYPE_ERROR : message::TYPE_REPLY);
         btlp.append(rid);
         btlp.append(body);
 

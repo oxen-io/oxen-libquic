@@ -705,7 +705,7 @@ namespace oxen::quic::test
 
         auto client_established = callback_waiter{[&](connection_interface& ci) {
             client_extracted = ci.open_stream<BTRequestStream>();
-            client_extracted->register_command("test_endpoint"s, client_handler);
+            client_extracted->register_handler("test_endpoint"s, client_handler);
         }};
 
         stream_constructor_callback server_constructor =
@@ -715,7 +715,7 @@ namespace oxen::quic::test
                 if (*id == 0)
                 {
                     server_extracted = e.make_shared<BTRequestStream>(c, e);
-                    server_extracted->register_command("test_endpoint"s, server_handler);
+                    server_extracted->register_handler("test_endpoint"s, server_handler);
                     return server_extracted;
                 }
                 else
@@ -775,7 +775,7 @@ namespace oxen::quic::test
 
         auto server_established = callback_waiter{[&](connection_interface& ci) {
             server_bt = ci.queue_incoming_stream<BTRequestStream>();
-            server_bt->register_command("test_endpoint"s, server_handler);
+            server_bt->register_handler("test_endpoint"s, server_handler);
         }};
 
         auto client_established = callback_waiter{[&](connection_interface&) {}};
@@ -792,7 +792,7 @@ namespace oxen::quic::test
         REQUIRE(server_established.wait());
 
         client_bt = client_ci->open_stream<BTRequestStream>();
-        client_bt->register_command("test_endpoint"s, client_handler);
+        client_bt->register_handler("test_endpoint"s, client_handler);
         REQUIRE(client_bt->stream_id() == 0);
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
