@@ -164,7 +164,7 @@ namespace oxen::quic
         virtual size_t get_max_datagram_size() const = 0;
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
-        virtual const ConnectionID& scid() const = 0;
+        virtual const ReferenceID& rid() const = 0;
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
@@ -248,8 +248,7 @@ namespace oxen::quic
         void set_draining() { draining = true; }
         stream_data_callback get_default_data_callback() const;
 
-        const ConnectionID& scid() const override { return _source_cid; }
-        const ConnectionID& dcid() const { return _dest_cid; }
+        const ReferenceID& rid() const override { return _ref_id; }
 
         bool is_outbound() const override { return _is_outbound; }
         bool is_inbound() const override { return not is_outbound(); }

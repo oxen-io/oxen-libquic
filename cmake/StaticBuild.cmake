@@ -169,7 +169,6 @@ if(_winver)
   set(deps_CXXFLAGS "${deps_CXXFLAGS} -D_WIN32_WINNT=${_winver}")
 endif()
 
-
 if("${CMAKE_GENERATOR}" STREQUAL "Unix Makefiles")
   set(_make $(MAKE))
 else()

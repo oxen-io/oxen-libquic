@@ -14,7 +14,7 @@ namespace oxen::quic
     }
 
     message::message(BTRequestStream& bp, bstring req, bool is_timeout) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, cid{bp.conn_id()}, timed_out{is_timeout}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, _rid{bp.rid()}, timed_out{is_timeout}
     {
         if (!is_timeout)
         {

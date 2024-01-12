@@ -149,8 +149,8 @@ namespace oxen::quic
 
         log::debug(
                 log_cat,
-                "Dropping connection (CID: {}), Reason: {}",
-                conn.scid(),
+                "Dropping connection ({}), Reason: {}",
+                conn.rid(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
         // prioritize connection level callback over endpoint level
@@ -167,7 +167,7 @@ namespace oxen::quic
 
         draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
-        log::debug(log_cat, "Connection CID: {} marked as draining", conn.scid());
+        log::debug(log_cat, "Connection ({}) marked as draining", conn.rid());
     }
 
     void Endpoint::handle_packet(const Packet& pkt)
@@ -221,8 +221,8 @@ namespace oxen::quic
 
         log::debug(
                 log_cat,
-                "Dropping connection (CID: {}), Reason: {}",
-                conn.scid(),
+                "Dropping connection ({}), Reason: {}",
+                conn.rid(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
         // prioritize connection level callback over endpoint level
@@ -240,18 +240,6 @@ namespace oxen::quic
         delete_connection(conn);
     }
 
-    void Endpoint::close_connection(ConnectionID cid, io_error ec, std::optional<std::string> msg)
-    {
-        if (!msg)
-            msg = ec.strerror();
-        call([this, cid = std::move(cid), ec = std::move(ec), msg = std::move(*msg)]() mutable {
-            if (auto maybe = get_conn(cid))
-                _close_connection(*maybe, std::move(ec), std::move(msg));
-            else
-                log::warning(log_cat, "Could not find connection (CID: {}) for closure", cid);
-        });
-    }
-
     void Endpoint::close_connection(Connection& conn, io_error ec, std::optional<std::string> msg)
     {
         if (!msg)
@@ -263,7 +251,7 @@ namespace oxen::quic
 
     void Endpoint::_close_connection(Connection& conn, io_error ec, std::string msg)
     {
-        log::debug(log_cat, "Closing connection (CID: {})", *conn.scid().data);
+        log::debug(log_cat, "Closing connection ({})", conn.rid());
 
         assert(in_event_loop());
 
@@ -278,9 +266,9 @@ namespace oxen::quic
         {
             log::info(
                     log_cat,
-                    "Connection (CID: {}) passed idle expiry timer; closing now without close "
+                    "Connection ({}) passed idle expiry timer; closing now without close "
                     "packet",
-                    *conn.scid().data);
+                    conn.rid());
             drop_connection(conn);
             return;
         }
@@ -290,10 +278,7 @@ namespace oxen::quic
         //  https://github.com/ngtcp2/ngtcp2/issues/670#issuecomment-1417300346
         if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
-            log::info(
-                    log_cat,
-                    "Connection (CID: {}) passed idle expiry timer; closing now with close packet",
-                    *conn.scid().data);
+            log::info(log_cat, "Connection ({}) passed idle expiry timer; closing now with close packet", conn.rid());
         }
 
         // prioritize connection level callback over endpoint level
@@ -341,9 +326,9 @@ namespace oxen::quic
             {
                 log::warning(
                         log_cat,
-                        "Error: failed to send close packet [{}]; removing connection [CID: {}]",
+                        "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
-                        conn.scid());
+                        conn.rid());
                 delete_connection(conn);
             }
         });
@@ -608,7 +593,7 @@ namespace oxen::quic
 
     void Endpoint::connection_established(connection_interface& conn)
     {
-        log::trace(log_cat, "Connection established, calling user callback [ID: {}]", conn.scid());
+        log::trace(log_cat, "Connection established, calling user callback ({})", conn.rid());
 
         if (connection_established_cb)
             connection_established_cb(conn);
@@ -859,6 +844,14 @@ namespace oxen::quic
         // Propagate the timeout check to connections, to be propagated to streams
         for (auto& [cid, conn] : conns)
             conn->check_stream_timeouts();
+    }
+
+    std::shared_ptr<connection_interface> Endpoint::get_conn(ReferenceID rid)
+    {
+        if (auto it = conns.find(rid); it != conns.end())
+            return it->second;
+
+        return nullptr;
     }
 
     Connection* Endpoint::get_conn(const ConnectionID& id)

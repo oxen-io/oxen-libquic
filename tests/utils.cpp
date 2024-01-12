@@ -57,6 +57,12 @@ namespace oxen::quic
         ngtcp2_conn_set_local_addr(conn, &new_addr._addr);
     }
 
+    Connection* TestHelper::get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& _conn)
+    {
+        auto* conn = static_cast<Connection*>(_conn.get());
+        return ep->get_conn(conn->_source_cid);
+    }
+
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
         auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);

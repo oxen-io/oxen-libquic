@@ -33,6 +33,12 @@ if(WIN32)
     target_link_libraries(quic PUBLIC ws2_32)
 endif()
 
+if(BUILD_STATIC_DEPS AND MINGW)
+    set_source_files_properties(
+        gnutls_creds.cpp gnutls_session.cpp
+        PROPERTIES COMPILE_DEFINITIONS GNUTLS_INTERNAL_BUILD)
+endif()
+
 set(libquic_send_default "sendmsg")
 set(libquic_recvmmsg_default OFF)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

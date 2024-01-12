@@ -17,7 +17,6 @@ else()
 endif()
 
 if(LIBQUIC_BUILD_TESTS)
-
     add_subdirectory(Catch2)
 
     add_executable(alltests
@@ -39,7 +38,6 @@ if(LIBQUIC_BUILD_TESTS)
 endif()
 
 if(LIBQUIC_BUILD_SPEEDTEST)
-
     foreach(x speedtest-client speedtest-server dgram-speed-client dgram-speed-server)
         add_executable(${x} ${x}.cpp)
         target_link_libraries(${x} PRIVATE tests_common)

@@ -50,7 +50,7 @@ namespace oxen::quic
         substr_location req_body{};
 
         std::weak_ptr<BTRequestStream> return_sender;
-        ConnectionID cid;
+        ReferenceID _rid;
 
         // - `is_timeout` should be true if this is being constructed as a non-response because we
         //   didn't get any reply from the other side in time.
@@ -106,7 +106,7 @@ namespace oxen::quic
             return std::basic_string<Char>{body<Char>()};
         }
 
-        const ConnectionID& scid() const { return cid; }
+        const ReferenceID& conn_rid() const { return _rid; }
 
         std::shared_ptr<BTRequestStream> stream() const
         {

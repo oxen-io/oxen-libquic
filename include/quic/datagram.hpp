@@ -1,5 +1,6 @@
 #pragma once
 
+#include "connection_ids.hpp"
 #include "messages.hpp"
 #include "udp.hpp"
 #include "utils.hpp"
@@ -17,7 +18,7 @@ namespace oxen::quic
         dgram_interface(Connection& c);
         connection_interface& ci;
 
-        const ConnectionID& conn_id() const;
+        const ReferenceID& rid() const;
 
         std::shared_ptr<connection_interface> get_conn_interface();
 

@@ -212,7 +212,7 @@ namespace oxen::quic::test
         for (auto& f : send_futures)
             REQUIRE(f.get());
 
-        auto* conn = client_endpoint->get_conn(conn_interface->scid());
+        auto* conn = TestHelper::get_conn(client_endpoint, conn_interface);
 
         REQUIRE(conn);
 
@@ -857,7 +857,7 @@ namespace oxen::quic::test
             // test case. Do not actually do this!
 
             client_bt = client_ci->open_stream<BTRequestStream>();
-            client_bt->register_command(TEST_ENDPOINT, client_handler);
+            client_bt->register_handler(TEST_ENDPOINT, client_handler);
 
             for (int i = 0; i < n_reqs; ++i)
                 client_bt->command(TEST_ENDPOINT, TEST_BODY);
@@ -869,7 +869,7 @@ namespace oxen::quic::test
 
         auto server_established = callback_waiter{[&](connection_interface& ci) {
             server_bt = ci.queue_incoming_stream<BTRequestStream>();
-            server_bt->register_command(TEST_ENDPOINT, server_handler);
+            server_bt->register_handler(TEST_ENDPOINT, server_handler);
         }};
 
         auto client_established = callback_waiter{[&](connection_interface&) {}};

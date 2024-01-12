@@ -35,6 +35,8 @@ namespace oxen::quic
         static void nat_rebinding(Connection& conn, Address new_bind);
 
         static void set_endpoint_local_addr(Endpoint& ep, Address new_local);
+
+        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& conn);
     };
 
     namespace test::defaults

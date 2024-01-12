@@ -192,9 +192,6 @@ namespace oxen::quic
 
         void handle_packet(const Packet& pkt);
 
-        // Query by connection id; returns nullptr if not found.
-        Connection* get_conn(const ConnectionID& ID);
-
         bool in_event_loop() const;
 
         /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
@@ -220,8 +217,6 @@ namespace oxen::quic
         void drop_connection(Connection& conn);
 
         void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
-
-        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
         const Address& local() const { return _local; }
 
@@ -260,7 +255,7 @@ namespace oxen::quic
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        Connection* fetch_associated_conn(ngtcp2_cid* cid);
+        std::shared_ptr<connection_interface> get_conn(ReferenceID rid);
 
         int _rbufsize{4096};
 
@@ -293,6 +288,8 @@ namespace oxen::quic
 
         std::map<ustring, ustring> path_validation_tokens;
 
+        Connection* fetch_associated_conn(ngtcp2_cid* cid);
+
         ReferenceID next_reference_id();
 
         void _init_internals();
@@ -309,8 +306,9 @@ namespace oxen::quic
 
         void _close_connection(Connection& conn, io_error ec, std::string msg);
 
-        // Test method!
+        // Test methods
         void set_local(Address new_local) { _local = new_local; }
+        Connection* get_conn(const ConnectionID& ID);
 
         /// Connection Containers
         ///

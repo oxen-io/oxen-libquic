@@ -51,7 +51,7 @@ namespace oxen::quic
         bool is_ready() const { return ready; }
         bool is_empty() const override { return user_buffers.empty(); }
         int64_t stream_id() const override { return _stream_id; }
-        const ConnectionID& conn_id() const;
+        const ReferenceID& rid() const;
         bool has_unsent() const override { return not is_empty(); }
         bool is_closing() const override { return _is_closing; }
         bool sent_fin() const override { return _sent_fin; }

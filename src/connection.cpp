@@ -467,7 +467,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
-        log::debug(log_cat, "Connection (CID: {}) io trigger/retransmit timer events halted", scid());
+        log::debug(log_cat, "Connection ({}) io trigger/retransmit timer events halted", rid());
     }
 
     void Connection::packet_io_ready()
@@ -486,9 +486,9 @@ namespace oxen::quic
         {
             log::trace(
                     log_cat,
-                    "Note: {} CID-{} in closing period; dropping packet",
+                    "Note: {} connection {} in closing period; dropping packet",
                     is_inbound() ? "server" : "client",
-                    scid());
+                    rid());
             return;
         }
 
@@ -516,30 +516,30 @@ namespace oxen::quic
                 packet_io_ready();
                 break;
             case NGTCP2_ERR_DRAINING:
-                log::trace(log_cat, "Note: CID-{} is draining; signaling endpoint to drain connection", scid());
+                log::trace(log_cat, "Note: {} is draining; signaling endpoint to drain connection", rid());
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint draining CID: {}", scid());
+                    log::debug(log_cat, "Endpoint draining connection {}", rid());
                     _endpoint.drain_connection(*this);
                 });
                 break;
             case NGTCP2_ERR_PROTO:
                 log::trace(
                         log_cat,
-                        "Note: CID-{} encountered error {}; signaling endpoint to close connection",
-                        scid(),
+                        "Note: {} encountered error {}; signaling endpoint to close connection",
+                        rid(),
                         ngtcp2_strerror(rv));
-                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                log::debug(log_cat, "Endpoint closing {}", rid());
                 _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"s);
                 break;
             case NGTCP2_ERR_DROP_CONN:
                 // drop connection without calling ngtcp2_conn_write_connection_close()
                 log::trace(
                         log_cat,
-                        "Note: CID-{} encountered ngtcp2 error {}; signaling endpoint to delete connection",
-                        scid(),
+                        "Note: {} encountered ngtcp2 error {}; signaling endpoint to delete connection",
+                        rid(),
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint deleting CID: {}", scid());
+                    log::debug(log_cat, "Endpoint deleting {}", rid());
                     _endpoint.drop_connection(*this);
                 });
                 break;
@@ -547,24 +547,24 @@ namespace oxen::quic
                 // drop conn without calling ngtcp2_conn_write_connection_close()
                 log::trace(
                         log_cat,
-                        "Note: {} CID-{} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
+                        "Note: {} {} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
                         "connection",
                         direction_str(),
-                        scid(),
+                        rid(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint deleting CID: {}", scid());
+                    log::debug(log_cat, "Endpoint deleting {}", rid());
                     _endpoint.drop_connection(*this);
                 });
                 break;
             default:
                 log::trace(
                         log_cat,
-                        "Note: CID-{} encountered error {}; signaling endpoint to close connection",
-                        scid(),
+                        "Note: {} encountered error {}; signaling endpoint to close connection",
+                        rid(),
                         ngtcp2_strerror(rv));
-                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                log::debug(log_cat, "Endpoint closing {}", rid());
                 _endpoint.close_connection(*this, io_error{rv});
                 break;
         }
@@ -774,7 +774,7 @@ namespace oxen::quic
                 pkt_updater->cancel();
 
             _endpoint.call([this]() {
-                log::debug(log_cat, "Endpoint deleting CID: {}", scid());
+                log::debug(log_cat, "Endpoint deleting {}", rid());
                 _endpoint.drop_connection(*this);
             });
 
@@ -1288,7 +1288,7 @@ namespace oxen::quic
             }
             if (!good)
             {
-                log::debug(log_cat, "Endpoint closing CID: {}", scid());
+                log::debug(log_cat, "Endpoint closing {}", rid());
                 _endpoint.close_connection(*this, io_error{DATAGRAM_ERROR_EXCEPTION});
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
