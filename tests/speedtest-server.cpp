@@ -76,7 +76,7 @@ int main(int argc, char* argv[])
         ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
     };
 
-    std::map<ReferenceID, std::map<int64_t, stream_info>> csd;
+    std::map<ConnectionID, std::map<int64_t, stream_info>> csd;
 
     stream_data_callback stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.conn.reference_id()];

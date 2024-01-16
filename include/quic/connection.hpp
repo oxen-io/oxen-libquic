@@ -164,7 +164,7 @@ namespace oxen::quic
         virtual size_t get_max_datagram_size() const = 0;
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
-        virtual const ReferenceID& rid() const = 0;
+        virtual const ConnectionID& reference_id() const = 0;
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
@@ -218,9 +218,9 @@ namespace oxen::quic
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
-                ReferenceID rid,
-                const ConnectionID& scid,
-                const ConnectionID& dcid,
+                ConnectionID rid,
+                const quic_cid& scid,
+                const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
@@ -247,8 +247,6 @@ namespace oxen::quic
         bool is_draining() const { return draining; }
         void set_draining() { draining = true; }
         stream_data_callback get_default_data_callback() const;
-
-        const ReferenceID& rid() const override { return _ref_id; }
 
         bool is_outbound() const override { return _is_outbound; }
         bool is_inbound() const override { return not is_outbound(); }
@@ -288,13 +286,11 @@ namespace oxen::quic
 
         void early_data_rejected();
 
-        void set_remote_addr(const ngtcp2_addr& new_remote, uint16_t p);
+        void set_remote_addr(const ngtcp2_addr& new_remote);
 
-        void set_local_addr(const ngtcp2_addr& new_local, uint16_t p);
+        void store_associated_cid(const quic_cid& cid);
 
-        void store_associated_cid(const ConnectionID& cid);
-
-        std::unordered_set<ConnectionID>& associated_cids() { return _associated_cids; }
+        std::unordered_set<quic_cid>& associated_cids() { return _associated_cids; }
 
         int client_handshake_completed();
 
@@ -306,16 +302,16 @@ namespace oxen::quic
 
         const uint8_t* static_secret();
 
-        const ReferenceID& reference_id() { return _ref_id; }
+        const ConnectionID& reference_id() const override { return _ref_id; }
 
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
         Connection(
                 Endpoint& ep,
-                ReferenceID rid,
-                const ConnectionID& scid,
-                const ConnectionID& dcid,
+                ConnectionID rid,
+                const quic_cid& scid,
+                const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
@@ -330,12 +326,12 @@ namespace oxen::quic
         Direction dir;
         bool _is_outbound;
 
-        const ReferenceID _ref_id;
+        const ConnectionID _ref_id;
 
-        std::unordered_set<ConnectionID> _associated_cids;
+        std::unordered_set<quic_cid> _associated_cids;
 
-        const ConnectionID _source_cid;
-        ConnectionID _dest_cid;
+        const quic_cid _source_cid;
+        quic_cid _dest_cid;
 
         Path _path;
 

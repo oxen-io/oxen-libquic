@@ -23,9 +23,9 @@ namespace oxen::quic
 
     dgram_interface::dgram_interface(Connection& c) : ci{c} {}
 
-    const ReferenceID& dgram_interface::rid() const
+    const ConnectionID& dgram_interface::reference_id() const
     {
-        return ci.rid();
+        return ci.reference_id();
     }
 
     std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
@@ -60,7 +60,7 @@ namespace oxen::quic
             log::trace(
                     log_cat,
                     "Connection ({}) sending {} datagram: {}",
-                    conn.rid(),
+                    conn.reference_id(),
                     _packet_splitting ? "split" : "whole",
                     buffer_printer{data});
 

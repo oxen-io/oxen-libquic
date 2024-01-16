@@ -20,7 +20,7 @@ namespace oxen::quic
     class Stream;
     class Endpoint;
     class Connection;
-    struct ConnectionID;
+    struct quic_cid;
 
     // Stream callbacks
     using stream_data_callback = std::function<void(Stream&, bstring_view)>;
@@ -51,7 +51,7 @@ namespace oxen::quic
         bool is_ready() const { return ready; }
         bool is_empty() const override { return user_buffers.empty(); }
         int64_t stream_id() const override { return _stream_id; }
-        const ReferenceID& rid() const;
+        const ConnectionID& reference_id() const;
         bool has_unsent() const override { return not is_empty(); }
         bool is_closing() const override { return _is_closing; }
         bool sent_fin() const override { return _sent_fin; }

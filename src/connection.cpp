@@ -276,10 +276,8 @@ namespace oxen::quic
 
         if (conn.is_outbound())
         {
-            log::trace(log_cat, "Client updating local addr...");
-            conn.set_local_addr(path->local, conn.path().local.port());
             log::trace(log_cat, "Client updating remote addr...");
-            conn.set_remote_addr(path->remote, conn.path().remote.port());
+            conn.set_remote_addr(path->remote);
 
             return 0;
         }
@@ -436,14 +434,9 @@ namespace oxen::quic
         close_connection();
     }
 
-    void Connection::set_remote_addr(const ngtcp2_addr& new_remote, uint16_t p)
+    void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
     {
-        _endpoint.call([this, new_remote, p]() { _path.set_new_remote(new_remote, p); });
-    }
-
-    void Connection::set_local_addr(const ngtcp2_addr& new_local, uint16_t p)
-    {
-        _endpoint.call([this, new_local, p]() { _path.set_new_local(new_local, p); });
+        _endpoint.call([this, new_remote]() { _path.set_new_remote(new_remote); });
     }
 
     void Connection::set_local_addr(Address new_local)
@@ -454,7 +447,7 @@ namespace oxen::quic
         });
     }
 
-    void Connection::store_associated_cid(const ConnectionID& cid)
+    void Connection::store_associated_cid(const quic_cid& cid)
     {
         log::debug(log_cat, "Connection (RID:{}) storing associated cid:{}", _ref_id, cid);
         _associated_cids.insert(cid);
@@ -475,7 +468,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
-        log::debug(log_cat, "Connection ({}) io trigger/retransmit timer events halted", rid());
+        log::debug(log_cat, "Connection ({}) io trigger/retransmit timer events halted", reference_id());
     }
 
     void Connection::packet_io_ready()
@@ -496,7 +489,7 @@ namespace oxen::quic
                     log_cat,
                     "Note: {} connection {} in closing period; dropping packet",
                     is_inbound() ? "server" : "client",
-                    rid());
+                    reference_id());
             return;
         }
 
@@ -524,9 +517,9 @@ namespace oxen::quic
                 packet_io_ready();
                 break;
             case NGTCP2_ERR_DRAINING:
-                log::trace(log_cat, "Note: {} is draining; signaling endpoint to drain connection", rid());
+                log::trace(log_cat, "Note: {} is draining; signaling endpoint to drain connection", reference_id());
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint draining connection {}", rid());
+                    log::debug(log_cat, "Endpoint draining connection {}", reference_id());
                     _endpoint.drain_connection(*this);
                 });
                 break;
@@ -534,9 +527,9 @@ namespace oxen::quic
                 log::trace(
                         log_cat,
                         "Note: {} encountered error {}; signaling endpoint to close connection",
-                        rid(),
+                        reference_id(),
                         ngtcp2_strerror(rv));
-                log::debug(log_cat, "Endpoint closing {}", rid());
+                log::debug(log_cat, "Endpoint closing {}", reference_id());
                 _endpoint.close_connection(*this, io_error{rv}, "ERR_PROTO"s);
                 break;
             case NGTCP2_ERR_DROP_CONN:
@@ -544,10 +537,10 @@ namespace oxen::quic
                 log::trace(
                         log_cat,
                         "Note: {} encountered ngtcp2 error {}; signaling endpoint to delete connection",
-                        rid(),
+                        reference_id(),
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint deleting {}", rid());
+                    log::debug(log_cat, "Endpoint deleting {}", reference_id());
                     _endpoint.drop_connection(*this);
                 });
                 break;
@@ -558,11 +551,11 @@ namespace oxen::quic
                         "Note: {} {} encountered ngtcp2 crypto error {} (code: {}); signaling endpoint to delete "
                         "connection",
                         direction_str(),
-                        rid(),
+                        reference_id(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
                 _endpoint.call([this]() {
-                    log::debug(log_cat, "Endpoint deleting {}", rid());
+                    log::debug(log_cat, "Endpoint deleting {}", reference_id());
                     _endpoint.drop_connection(*this);
                 });
                 break;
@@ -570,9 +563,9 @@ namespace oxen::quic
                 log::trace(
                         log_cat,
                         "Note: {} encountered error {}; signaling endpoint to close connection",
-                        rid(),
+                        reference_id(),
                         ngtcp2_strerror(rv));
-                log::debug(log_cat, "Endpoint closing {}", rid());
+                log::debug(log_cat, "Endpoint closing {}", reference_id());
                 _endpoint.close_connection(*this, io_error{rv});
                 break;
         }
@@ -782,7 +775,7 @@ namespace oxen::quic
                 pkt_updater->cancel();
 
             _endpoint.call([this]() {
-                log::debug(log_cat, "Endpoint deleting {}", rid());
+                log::debug(log_cat, "Endpoint deleting {}", reference_id());
                 _endpoint.drop_connection(*this);
             });
 
@@ -1296,7 +1289,7 @@ namespace oxen::quic
             }
             if (!good)
             {
-                log::debug(log_cat, "Endpoint closing {}", rid());
+                log::debug(log_cat, "Endpoint closing {}", reference_id());
                 _endpoint.close_connection(*this, io_error{DATAGRAM_ERROR_EXCEPTION});
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
@@ -1429,9 +1422,9 @@ namespace oxen::quic
 
     Connection::Connection(
             Endpoint& ep,
-            ReferenceID rid,
-            const ConnectionID& scid,
-            const ConnectionID& dcid,
+            ConnectionID rid,
+            const quic_cid& scid,
+            const quic_cid& dcid,
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,
@@ -1613,9 +1606,9 @@ namespace oxen::quic
 
     std::shared_ptr<Connection> Connection::make_conn(
             Endpoint& ep,
-            ReferenceID rid,
-            const ConnectionID& scid,
-            const ConnectionID& dcid,
+            ConnectionID rid,
+            const quic_cid& scid,
+            const quic_cid& dcid,
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,

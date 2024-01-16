@@ -49,9 +49,9 @@ namespace oxen::quic
         return shared_from_this();
     }
 
-    const ReferenceID& Stream::rid() const
+    const ConnectionID& Stream::reference_id() const
     {
-        return conn.rid();
+        return conn.reference_id();
     }
 
     void Stream::close(uint64_t app_err_code)

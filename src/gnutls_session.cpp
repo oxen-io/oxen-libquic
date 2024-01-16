@@ -17,7 +17,15 @@ namespace oxen::quic
             auto* ep = static_cast<Endpoint*>(dbf);
             assert(ep);
 
-            return ep->validate_anti_replay({key->data, key->size}, {data->data, data->size}, exp_time);
+            log::warning(log_cat, "0RTT session resumption is not available; callback is no-op");
+            return 0;
+
+            (void)exp_time;
+            (void)key;
+            (void)data;
+            (void)ep;
+
+            // return ep->validate_anti_replay({key->data, key->size}, {data->data, data->size}, exp_time);
         }
 
         int client_hook_func(

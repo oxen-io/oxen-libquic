@@ -133,7 +133,7 @@ namespace oxen::quic
                     for (;;)
                     {
                         // emplace random CID into lookup keyed to unique reference ID
-                        if (auto [it_a, res_a] = conn_lookup.emplace(ConnectionID::random(), next_rid); res_a)
+                        if (auto [it_a, res_a] = conn_lookup.emplace(quic_cid::random(), next_rid); res_a)
                         {
                             if (auto [it_b, res_b] = conns.emplace(next_rid, nullptr); res_b)
                             {
@@ -141,7 +141,7 @@ namespace oxen::quic
                                         *this,
                                         next_rid,
                                         it_a->first,
-                                        ConnectionID::random(),
+                                        quic_cid::random(),
                                         std::move(path),
                                         outbound_ctx,
                                         outbound_alpns,
@@ -255,7 +255,7 @@ namespace oxen::quic
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        std::shared_ptr<connection_interface> get_conn(ReferenceID rid);
+        std::shared_ptr<connection_interface> get_conn(ConnectionID rid);
 
         int _rbufsize{4096};
 
@@ -290,7 +290,7 @@ namespace oxen::quic
 
         Connection* fetch_associated_conn(ngtcp2_cid* cid);
 
-        ReferenceID next_reference_id();
+        ConnectionID next_reference_id();
 
         void _init_internals();
 
@@ -308,7 +308,7 @@ namespace oxen::quic
 
         // Test methods
         void set_local(Address new_local) { _local = new_local; }
-        Connection* get_conn(const ConnectionID& ID);
+        Connection* get_conn(const quic_cid& ID);
 
         /// Connection Containers
         ///
@@ -336,13 +336,13 @@ namespace oxen::quic
         ///     When draining connections, they must be kept around for a short period of time to allow for any
         /// lagging packets to be caught. The unique reference ID is keyed to removal time formatted as a time point
         ///
-        std::map<ReferenceID, std::shared_ptr<Connection>> conns;
+        std::map<ConnectionID, std::shared_ptr<Connection>> conns;
 
-        std::unordered_map<ConnectionID, ReferenceID> conn_lookup;
+        std::unordered_map<quic_cid, ConnectionID> conn_lookup;
 
-        std::map<std::chrono::steady_clock::time_point, ReferenceID> draining;
+        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
 
-        std::optional<ConnectionID> handle_packet_connid(const Packet& pkt);
+        std::optional<quic_cid> handle_packet_connid(const Packet& pkt);
 
         // Less efficient wrapper around send_packets that takes care of queuing the packet if the
         // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via

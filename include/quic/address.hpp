@@ -27,13 +27,6 @@ namespace oxen::quic
         // Default constructor or single-port constructor yields [::]:port (or [::]:0 if port omitted)
         explicit Address(uint16_t port = 0) : Address{"", port} {}
 
-        Address(const sockaddr* s, socklen_t n, uint16_t p)
-        {
-            std::memmove(&_sock_addr, s, n);
-            _addr.addrlen = n;
-            set_port(p);
-        }
-
         Address(const sockaddr* s, socklen_t n)
         {
             std::memmove(&_sock_addr, s, n);
@@ -324,8 +317,7 @@ namespace oxen::quic
       private:
         ngtcp2_path _path{local, remote, nullptr};
 
-        void set_new_remote(const ngtcp2_addr& new_remote, uint16_t p);
-        void set_new_local(const ngtcp2_addr& new_local, uint16_t p);
+        void set_new_remote(const ngtcp2_addr& new_remote);
 
       public:
         Path() = default;
