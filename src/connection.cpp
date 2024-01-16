@@ -1495,15 +1495,16 @@ namespace oxen::quic
                 settings.tokenlen = maybe_token->size();
             }
 
-            if (auto maybe_params = _endpoint.get_0rtt_transport_params(remote_pubkey))
-            {
-                if (auto rv = ngtcp2_conn_decode_and_set_0rtt_transport_params(
-                            conn.get(), maybe_params->data(), maybe_params->size());
-                    rv != 0)
-                    log::warning(log_cat, "Client failed to decode and set 0rtt transport params!");
-                else
-                    log::info(log_cat, "Client decoded and set 0rtt transport params!");
-            }
+            // TODO: uncomment this with 0RTT resumption
+            // if (auto maybe_params = _endpoint.get_0rtt_transport_params(remote_pubkey))
+            // {
+            //     if (auto rv = ngtcp2_conn_decode_and_set_0rtt_transport_params(
+            //                 conn.get(), maybe_params->data(), maybe_params->size());
+            //         rv != 0)
+            //         log::warning(log_cat, "Client failed to decode and set 0rtt transport params!");
+            //     else
+            //         log::info(log_cat, "Client decoded and set 0rtt transport params!");
+            // }
 
             rv = ngtcp2_conn_client_new(
                     &connptr,
