@@ -36,6 +36,8 @@ namespace oxen::quic
 {
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
+        friend class TestHelper;
+
       private:
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
@@ -126,22 +128,29 @@ namespace oxen::quic
                     outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
                     _set_context_globals(outbound_ctx);
 
+                    auto next_rid = next_reference_id();
+
                     for (;;)
                     {
-                        if (auto [itr, success] = conns.emplace(ConnectionID::random(), nullptr); success)
+                        // emplace random CID into lookup keyed to unique reference ID
+                        if (auto [it_a, res_a] = conn_lookup.emplace(quic_cid::random(), next_rid); res_a)
                         {
-                            itr->second = Connection::make_conn(
-                                    *this,
-                                    itr->first,
-                                    ConnectionID::random(),
-                                    std::move(path),
-                                    outbound_ctx,
-                                    outbound_alpns,
-                                    handshake_timeout,
-                                    remote_pk);
+                            if (auto [it_b, res_b] = conns.emplace(next_rid, nullptr); res_b)
+                            {
+                                it_b->second = Connection::make_conn(
+                                        *this,
+                                        next_rid,
+                                        it_a->first,
+                                        quic_cid::random(),
+                                        std::move(path),
+                                        outbound_ctx,
+                                        outbound_alpns,
+                                        handshake_timeout,
+                                        remote_pk);
 
-                            p.set_value(itr->second);
-                            return;
+                                p.set_value(it_b->second);
+                                return;
+                            }
                         }
                     }
                 }
@@ -183,9 +192,6 @@ namespace oxen::quic
 
         void handle_packet(const Packet& pkt);
 
-        // Query by connection id; returns nullptr if not found.
-        Connection* get_conn(const ConnectionID& ID);
-
         bool in_event_loop() const;
 
         /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
@@ -212,8 +218,6 @@ namespace oxen::quic
 
         void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
-        void close_connection(ConnectionID cid, io_error code = io_error{0}, std::optional<std::string> msg = std::nullopt);
-
         const Address& local() const { return _local; }
 
         bool is_accepting() const { return _accepting_inbound; }
@@ -230,12 +234,32 @@ namespace oxen::quic
         dgram_data_callback dgram_recv_cb;
 
         // public so connections can call when handling conn packets
-        void delete_connection(const ConnectionID& cid);
+        void delete_connection(Connection& conn);
         void drain_connection(Connection& conn);
 
         void connection_established(connection_interface& conn);
 
+        int validate_anti_replay(ustring key, ustring data, time_t exp);
+
+        void store_0rtt_transport_params(ustring remote_pk, ustring encoded_params);
+
+        std::optional<ustring> get_0rtt_transport_params(ustring remote_pk);
+
+        void store_path_validation_token(ustring remote_pk, ustring token);
+
+        std::optional<ustring> get_path_validation_token(ustring remote_pk);
+
+        void initial_association(Connection& conn);
+
+        void associate_cid(const ngtcp2_cid* cid, Connection& conn);
+
+        void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
+
+        std::shared_ptr<connection_interface> get_conn(ConnectionID rid);
+
         int _rbufsize{4096};
+
+        const uint8_t* static_secret() { return _static_secret.data(); }
 
       private:
         Network& net;
@@ -247,6 +271,10 @@ namespace oxen::quic
         bool _packet_splitting{false};
         Splitting _policy{Splitting::NONE};
 
+        uint64_t _next_rid{0};
+
+        std::array<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> _static_secret;
+
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
 
@@ -254,44 +282,67 @@ namespace oxen::quic
         std::vector<ustring> inbound_alpns;
         std::chrono::nanoseconds handshake_timeout{5s};
 
+        std::map<ustring, ustring> anti_replay_db;
+
+        std::map<ustring, ustring> encoded_transport_params;
+
+        std::map<ustring, ustring> path_validation_tokens;
+
+        Connection* fetch_associated_conn(ngtcp2_cid* cid);
+
+        ConnectionID next_reference_id();
+
         void _init_internals();
+
+        bool verify_retry_token(const Packet& pkt, ngtcp2_pkt_hd* hdr, ngtcp2_cid* ocid);
+
+        bool verify_token(const Packet& pkt, ngtcp2_pkt_hd* hdr);
+
+        void send_retry(const Packet& pkt, ngtcp2_pkt_hd* hdr);
+
+        void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr);
 
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
-        void on_receive(const Packet& pkt);
-
         void _close_connection(Connection& conn, io_error ec, std::string msg);
 
-        // Data structures used to keep track of various types of connections
-        //
-        // conns:
-        //      When an establishes a new connection, it provides its own source CID (scid)
-        //      and destination CID (dcid), which it sends to the server. The primary Connection
-        //      instance is stored as a shared_ptr indexd by scid
-        //          dcid is entirely random string of <=160 bits
-        //          scid can be random or store information
-        //
-        //          When responding, the server will include in its response:
-        //          - dcid equal to client's source CID
-        //          - New random scid; the client's dcid is not used. This
-        //              can also store data like the client's scid
-        //
-        //          As a result, we end up with:
-        //              client.scid == server.dcid
-        //              client.dcid == server.scid
-        //          with each side randomizing their own scid
-        //
-        // draining:
-        //      Stores all connections that are labeled as draining (duh). They are kept around for
-        //      a short period of time allowing any lagging packets to be caught
-        //
-        //      They are indexed by connection ID, storing the removal time as a time point
-        //
-        std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
+        // Test methods
+        void set_local(Address new_local) { _local = new_local; }
+        Connection* get_conn(const quic_cid& ID);
+
+        /// Connection Containers
+        ///
+        ///     When establishing a new connection, the quic client provides its own source CID (scid)
+        /// and destination CID (dcid), which it sends to the server. The QUIC standard allows for an
+        /// endpoint to be reached at any of `n` (where n >= 2) connection ID's -- this value is currently
+        /// hard-coded to 8 active CID's at once. Specifically, the dcid is entirely random string of <=160 bits
+        /// while the scid can be random or store information.
+        ///
+        /// When responding, the server will include in its response:
+        ///     - dcid equal to client's source CID
+        ///     - New random scid; the client's dcid is not used. This can also store data like the client's scid
+        ///
+        /// As a result, we end up with:
+        ///     client.scid == server.dcid
+        ///     client.dcid == server.scid
+        /// with each side randomizing their own scid.
+        ///
+        ///     Internally, the connection is assigned a unique reference ID. All possible CID's at which
+        /// the endpoint can be reached are keyed to that reference ID in `conn_lookup`, allowing for rapid
+        /// access to the unique reference ID by which the connection pointer can be found.
+        /// The primary Connection
+        /// instance is stored as a shared_ptr indexd by scid
+        ///
+        ///     When draining connections, they must be kept around for a short period of time to allow for any
+        /// lagging packets to be caught. The unique reference ID is keyed to removal time formatted as a time point
+        ///
+        std::map<ConnectionID, std::shared_ptr<Connection>> conns;
+
+        std::unordered_map<quic_cid, ConnectionID> conn_lookup;
 
         std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
 
-        std::optional<ConnectionID> handle_packet_connid(const Packet& pkt);
+        std::optional<quic_cid> handle_packet_connid(const Packet& pkt);
 
         // Less efficient wrapper around send_packets that takes care of queuing the packet if the
         // socket is blocked.  This is for rare, one-shot packets only (regular data packets go via

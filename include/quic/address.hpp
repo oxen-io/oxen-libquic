@@ -10,6 +10,8 @@ namespace oxen::quic
     // Holds an address, with a ngtcp2_addr held for easier passing into ngtcp2 functions
     struct Address
     {
+        friend class TestHelper;
+
       private:
         sockaddr_storage _sock_addr{};
         ngtcp2_addr _addr{reinterpret_cast<sockaddr*>(&_sock_addr), 0};
@@ -36,6 +38,8 @@ namespace oxen::quic
         explicit Address(const sockaddr_in* s) : Address{reinterpret_cast<const sockaddr*>(s), sizeof(sockaddr_in)} {}
         explicit Address(const sockaddr_in6* s) : Address{reinterpret_cast<const sockaddr*>(s), sizeof(sockaddr_in6)} {}
         Address(const std::string& addr, uint16_t port);
+
+        explicit Address(const ngtcp2_addr& addr);
 
         // Assignment from a sockaddr pointer; we copy the sockaddr's contents
         template <
@@ -303,12 +307,17 @@ namespace oxen::quic
     // to ngtcp2_path*
     struct Path
     {
+        friend class TestHelper;
+        friend class Connection;
+
       public:
         Address local;
         Address remote;
 
       private:
         ngtcp2_path _path{local, remote, nullptr};
+
+        void set_new_remote(const ngtcp2_addr& new_remote);
 
       public:
         Path() = default;

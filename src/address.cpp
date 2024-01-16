@@ -31,6 +31,30 @@ namespace oxen::quic
             throw std::system_error{errno, std::system_category()};
     }
 
+    Address::Address(const ngtcp2_addr& addr)
+    {
+        // if (addr.addrlen == sizeof(sockaddr_in6))
+        if (addr.addr->sa_family == AF_INET6)
+        {
+            _sock_addr.ss_family = AF_INET6;
+            auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
+            auto& nin6 = reinterpret_cast<const sockaddr_in6&>(addr);
+            sin6.sin6_addr = nin6.sin6_addr;
+            sin6.sin6_port = nin6.sin6_port;
+        }
+        // else if (addr.addrlen == sizeof(sockaddr_in))
+        else if (addr.addr->sa_family == AF_INET)
+        {
+            _sock_addr.ss_family = AF_INET;
+            auto& sin = reinterpret_cast<sockaddr_in&>(_sock_addr);
+            auto& nin = reinterpret_cast<const sockaddr_in&>(addr);
+            sin.sin_addr = nin.sin_addr;
+            sin.sin_port = nin.sin_port;
+        }
+        else
+            throw std::invalid_argument{"What on earth did you pass to this constructor?"};
+    }
+
     static inline constexpr auto ipv6_ipv4_mapped_prefix = "\0\0\0\0\0\0\0\0\0\0\xff\xff"sv;
     static_assert(ipv6_ipv4_mapped_prefix.size() == 12);
 
@@ -265,6 +289,13 @@ namespace oxen::quic
         }
         inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_addr, buf, sizeof(buf));
         return "{}:{}"_format(buf, port());
+    }
+
+    void Path::set_new_remote(const ngtcp2_addr& new_remote)
+    {
+        memcpy(_path.remote.addr, new_remote.addr, new_remote.addrlen);
+        _path.remote.addrlen = new_remote.addrlen;
+        remote = Address{_path.remote.addr, _path.remote.addrlen};
     }
 
     std::string Path::to_string() const

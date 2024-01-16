@@ -177,25 +177,27 @@ namespace oxen::quic
         return p;
     }
 
-    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(bool is_client, const std::vector<ustring>& alpns)
+    std::unique_ptr<TLSSession> GNUTLSCreds::make_session(Connection& c, const std::vector<ustring>& alpns)
     {
-        return std::make_unique<GNUTLSSession>(*this, is_client, alpns);
+        return std::make_unique<GNUTLSSession>(*this, c, alpns);
     }
 
-    void GNUTLSCreds::set_client_tls_hook(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
-    {
-        client_tls_hook.cb = std::move(func);
-        client_tls_hook.htype = htype;
-        client_tls_hook.when = when;
-        client_tls_hook.incoming = incoming;
-    }
+    // void GNUTLSCreds::set_client_tls_hook(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int
+    // incoming)
+    // {
+    //     client_tls_hook.cb = std::move(func);
+    //     client_tls_hook.htype = htype;
+    //     client_tls_hook.when = when;
+    //     client_tls_hook.incoming = incoming;
+    // }
 
-    void GNUTLSCreds::set_server_tls_hook(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int incoming)
-    {
-        server_tls_hook.cb = std::move(func);
-        server_tls_hook.htype = htype;
-        server_tls_hook.when = when;
-        server_tls_hook.incoming = incoming;
-    }
+    // void GNUTLSCreds::set_server_tls_hook(gnutls_callback func, unsigned int htype, unsigned int when, unsigned int
+    // incoming)
+    // {
+    //     server_tls_hook.cb = std::move(func);
+    //     server_tls_hook.htype = htype;
+    //     server_tls_hook.when = when;
+    //     server_tls_hook.incoming = incoming;
+    // }
 
 }  // namespace oxen::quic

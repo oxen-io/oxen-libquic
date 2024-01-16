@@ -22,6 +22,23 @@ namespace oxen::quic
 
     using namespace oxenc::literals;
 
+    inline const std::string TEST_ENDPOINT = "test_endpoint"s;
+    inline const std::string TEST_BODY = "test_body"s;
+
+    class TestHelper
+    {
+      public:
+        static void migrate_connection(Connection& conn, Address new_bind);
+
+        static void migrate_connection_immediate(Connection& conn, Address new_bind);
+
+        static void nat_rebinding(Connection& conn, Address new_bind);
+
+        static void set_endpoint_local_addr(Endpoint& ep, Address new_local);
+
+        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& conn);
+    };
+
     namespace test::defaults
     {
         inline std::pair<std::string, std::string> CLIENT_KEYS, SERVER_KEYS;

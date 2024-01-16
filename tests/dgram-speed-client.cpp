@@ -82,7 +82,7 @@ int main(int argc, char* argv[])
 
             msg.resize(dgram_size);
             // Byte 0 must be set to 0, except for the final packet where we set it to 1
-            for (size_t i = 0; i < dgram_size; i++)
+            for (uint64_t i = 0; i < dgram_size; i++)
                 msg[i] = static_cast<unsigned char>(i % 256);
         }
     };
@@ -142,25 +142,17 @@ int main(int argc, char* argv[])
     std::promise<bool> tls;
     std::future<bool> tls_future = tls.get_future();
 
-    gnutls_callback outbound_tls_cb =
-            [&](gnutls_session_t, unsigned int, unsigned int, unsigned int, const gnutls_datum_t*) {
-                log::debug(test_cat, "Calling client TLS callback... handshake completed...");
-
-                tls.set_value(true);
-                return 0;
-            };
+    auto client_established = callback_waiter{[](connection_interface&) {}};
 
     auto [server_a, server_p] = parse_addr(remote_addr);
     RemoteAddress server_addr{remote_pubkey, server_a, server_p};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
-    client_tls->set_client_tls_hook(outbound_tls_cb);
-
     log::critical(test_cat, "Calling 'client_connect'...");
-    auto client = client_net.endpoint(client_local, recv_dgram_cb, split_dgram);
+    auto client = client_net.endpoint(client_local, client_established, recv_dgram_cb, split_dgram);
     auto client_ci = client->connect(server_addr, client_tls, stream_closed);
 
-    tls_future.get();
+    client_established.wait();
 
     uint64_t max_size =
             std::max<uint64_t>((dgram_size == 0) ? client_ci->get_max_datagram_size() : dgram_size, sizeof(uint8_t));

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "connection_ids.hpp"
 #include "messages.hpp"
 #include "udp.hpp"
 #include "utils.hpp"
@@ -10,14 +11,14 @@ namespace oxen::quic
     class Endpoint;
     class Stream;
     class connection_interface;
-    struct ConnectionID;
+    struct quic_cid;
 
     struct dgram_interface : public std::enable_shared_from_this<dgram_interface>
     {
         dgram_interface(Connection& c);
         connection_interface& ci;
 
-        const ConnectionID& conn_id() const;
+        const ConnectionID& reference_id() const;
 
         std::shared_ptr<connection_interface> get_conn_interface();
 

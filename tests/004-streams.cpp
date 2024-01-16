@@ -212,7 +212,7 @@ namespace oxen::quic::test
         for (auto& f : send_futures)
             REQUIRE(f.get());
 
-        auto* conn = client_endpoint->get_conn(conn_interface->scid());
+        auto* conn = TestHelper::get_conn(client_endpoint, conn_interface);
 
         REQUIRE(conn);
 
@@ -406,18 +406,18 @@ namespace oxen::quic::test
 
         SECTION("Stream logic using queue_incoming_stream in connection open callback")
         {
-            auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
+            auto server_open_all_cb = callback_waiter{[&](connection_interface& ci) {
                 log::info(bp_cat, "Server queuing Custom Stream A!");
                 server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
                 log::info(bp_cat, "Server queuing Custom Stream B!");
                 server_b = ci.queue_incoming_stream<CustomStreamB>(std::move(sp2));
                 log::info(bp_cat, "Server queuing Custom Stream C!");
                 server_c = ci.queue_incoming_stream<CustomStreamC>(std::move(sp3));
-                log::info(bp_cat, "Server queueing default stream D");
+                log::info(bp_cat, "Server queuing default stream D");
                 server_d = ci.queue_incoming_stream();
             }};
 
-            server_endpoint = test_net.endpoint(server_local, server_open_cb, server_closed);
+            server_endpoint = test_net.endpoint(server_local, server_open_all_cb, server_closed);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_generic_data_cb));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
@@ -426,7 +426,7 @@ namespace oxen::quic::test
             client_ci = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(client_established.wait());
-            CHECK(server_open_cb.is_ready());
+            CHECK(server_open_all_cb.wait());
         }
 
         SECTION("Stream logic using stream constructor callback")
@@ -478,6 +478,9 @@ namespace oxen::quic::test
             stream_constructor_callback server_constructor =
                     [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
                 server_stream_ctor_count++;
+
+                log::trace(bp_cat, "Server stream constructor given ID:{}", id.value_or(11111));
+
                 if (id)
                 {
                     switch (*id)
@@ -490,6 +493,7 @@ namespace oxen::quic::test
                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
                     }
                 }
+                log::info(bp_cat, "Server returning nullptr!");
                 return nullptr;
             };
 
@@ -507,6 +511,7 @@ namespace oxen::quic::test
             client_ci = client_endpoint->connect(client_remote, client_tls);
 
             REQUIRE(client_established.wait());
+            REQUIRE(server_open_cb.wait());
         }
 
         log::info(bp_cat, "Client opening Custom Stream A!");
@@ -688,7 +693,7 @@ namespace oxen::quic::test
         REQUIRE(server_closed.wait());
     };
 
-    TEST_CASE("004 - Subclassing Stream, server stream extraction", "[004][server][extraction]")
+    TEST_CASE("004 - BTRequestStream, server stream extraction", "[004][server][extraction]")
     {
         Network test_net{};
         Address server_local{};
@@ -708,18 +713,22 @@ namespace oxen::quic::test
             client_extracted->register_handler("test_endpoint"s, client_handler);
         }};
 
+        auto server_established = callback_waiter{[&](connection_interface&) {}};
+
         stream_constructor_callback server_constructor =
                 [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
             if (id)
             {
                 if (*id == 0)
                 {
+                    log::trace(bp_cat, "Server constructing BTRequestStream!");
                     server_extracted = e.make_shared<BTRequestStream>(c, e);
                     server_extracted->register_handler("test_endpoint"s, server_handler);
                     return server_extracted;
                 }
                 else
                 {
+                    log::trace(bp_cat, "Server constructing default bullshit!");
                     return e.make_shared<Stream>(c, e);
                 }
             }
@@ -728,7 +737,7 @@ namespace oxen::quic::test
         };
 
         auto server_endpoint = test_net.endpoint(server_local);
-        server_endpoint->listen(server_tls, server_constructor);
+        server_endpoint->listen(server_tls, server_established, server_constructor);
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
@@ -736,6 +745,7 @@ namespace oxen::quic::test
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
         REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
 
         std::shared_ptr<BTRequestStream> client_bt = client_ci->maybe_stream<BTRequestStream>(0);
         REQUIRE(client_extracted->stream_id() == client_bt->stream_id());
@@ -758,7 +768,7 @@ namespace oxen::quic::test
         REQUIRE(client_handler.wait());
     };
 
-    TEST_CASE("004 - Subclassing Stream, server extracts queued streams", "[004][server][queue]")
+    TEST_CASE("004 - BTRequestStream, server extracts queued streams", "[004][server][queue]")
     {
         Network test_net{};
         Address server_local{};
@@ -805,6 +815,75 @@ namespace oxen::quic::test
         REQUIRE(server_handler.wait());
 
         server_bt->command("test_endpoint"s, "hi"s);
+        REQUIRE(client_handler.wait());
+    };
+
+    TEST_CASE("004 - BTRequestStream, send queue functionality", "[004][sendqueue]")
+    {
+        Network test_net{};
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        std::shared_ptr<BTRequestStream> server_bt, client_bt;
+        std::shared_ptr<connection_interface> server_ci, client_ci;
+
+        int n_reqs{5};
+        std::atomic<int> server_counter{0};
+
+        auto server_handler = [&](message msg) {
+            REQUIRE(msg.body() == TEST_BODY);
+            server_counter += 1;
+
+            log::debug(log_cat, "Server received request {} of {}", server_counter.load(), n_reqs);
+
+            if (server_counter == n_reqs)
+            {
+                log::debug(log_cat, "Server responding to client with new request");
+                server_bt->command(TEST_ENDPOINT, TEST_BODY);
+            }
+        };
+
+        auto client_handler = callback_waiter{[](message msg) {
+            log::debug(log_cat, "Client received server request!");
+            REQUIRE(msg.body() == TEST_BODY);
+        }};
+
+        server_tls->set_key_verify_callback([&](const ustring_view&, const ustring_view&) {
+            // In order to test the queueing ability of streams, we need to attempt to send things
+            // from the client side PRIOR to connection completion. Using the TLS verification callback
+            // is the improper and hacky way to do this, but will function fine for the purposes of this
+            // test case. Do not actually do this!
+
+            client_bt = client_ci->open_stream<BTRequestStream>();
+            client_bt->register_handler(TEST_ENDPOINT, client_handler);
+
+            for (int i = 0; i < n_reqs; ++i)
+                client_bt->command(TEST_ENDPOINT, TEST_BODY);
+
+            REQUIRE(client_bt->num_pending() == (size_t)n_reqs);
+
+            return true;
+        });
+
+        auto server_established = callback_waiter{[&](connection_interface& ci) {
+            server_bt = ci.queue_incoming_stream<BTRequestStream>();
+            server_bt->register_handler(TEST_ENDPOINT, server_handler);
+        }};
+
+        auto client_established = callback_waiter{[&](connection_interface&) {}};
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_established);
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        client_ci = client_endpoint->connect(client_remote, client_tls, client_established);
+
+        REQUIRE(client_established.wait());
+        REQUIRE(server_established.wait());
         REQUIRE(client_handler.wait());
     };
 

@@ -50,7 +50,7 @@ namespace oxen::quic
         substr_location req_body{};
 
         std::weak_ptr<BTRequestStream> return_sender;
-        ConnectionID cid;
+        ConnectionID _rid;
 
         // - `is_timeout` should be true if this is being constructed as a non-response because we
         //   didn't get any reply from the other side in time.
@@ -106,7 +106,7 @@ namespace oxen::quic
             return std::basic_string<Char>{body<Char>()};
         }
 
-        const ConnectionID& scid() const { return cid; }
+        const ConnectionID& conn_rid() const { return _rid; }
 
         std::shared_ptr<BTRequestStream> stream() const
         {
@@ -167,6 +167,8 @@ namespace oxen::quic
 
     class BTRequestStream : public Stream
     {
+        friend class TestHelper;
+
       private:
         // outgoing requests awaiting response
         // We use shared_ptr's so we can lambda capture it, though it is not actually shared
@@ -253,6 +255,8 @@ namespace oxen::quic
         const Address& local() const { return conn.local(); }
 
         const Address& remote() const { return conn.remote(); }
+
+        size_t num_pending() const { return user_buffers.size(); }
 
       private:
         // Optional constructor argument: stream close callback

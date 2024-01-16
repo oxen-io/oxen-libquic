@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include "connection_ids.hpp"
 #include "context.hpp"
 #include "format.hpp"
 #include "types.hpp"
@@ -20,27 +21,8 @@ namespace oxen::quic
     struct dgram_interface;
     class Network;
 
-    // Wrapper for ngtcp2_cid with helper functionalities to make it passable
-    struct alignas(size_t) ConnectionID : ngtcp2_cid
-    {
-        ConnectionID() = default;
-        ConnectionID(const ConnectionID& c) = default;
-        ConnectionID(const uint8_t* cid, size_t length);
-        ConnectionID(ngtcp2_cid c) : ConnectionID(c.data, c.datalen) {}
-
-        ConnectionID& operator=(const ConnectionID& c) = default;
-
-        inline bool operator==(const ConnectionID& other) const
-        {
-            return datalen == other.datalen && std::memcmp(data, other.data, datalen) == 0;
-        }
-        inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
-        static ConnectionID random();
-
-        std::string to_string() const;
-    };
-    template <>
-    constexpr inline bool IsToStringFormattable<ConnectionID> = true;
+    inline constexpr uint64_t MAX_ACTIVE_CIDS{8};
+    inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
 
 #ifndef NDEBUG
     class debug_interface
@@ -175,21 +157,22 @@ namespace oxen::quic
         }
 
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
-        virtual size_t active_streams() const = 0;
+        virtual size_t num_streams_active() const = 0;
+        virtual size_t num_streams_pending() const = 0;
         virtual uint64_t get_max_streams() const = 0;
         virtual uint64_t get_streams_available() const = 0;
         virtual size_t get_max_datagram_size() const = 0;
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
-        virtual const ConnectionID& scid() const = 0;
+        virtual const ConnectionID& reference_id() const = 0;
         virtual const Address& local() const = 0;
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
         virtual ustring_view remote_key() const = 0;
-        bool is_inbound() const { return direction() == Direction::INBOUND; }
-        bool is_outbound() const { return direction() == Direction::OUTBOUND; }
-        std::string_view direction_str() const { return direction() == Direction::INBOUND ? "server"sv : "client"sv; }
+        virtual bool is_inbound() const = 0;
+        virtual bool is_outbound() const = 0;
+        virtual std::string direction_str() = 0;
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -210,6 +193,8 @@ namespace oxen::quic
 
     class Connection : public connection_interface
     {
+        friend class TestHelper;
+
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
         Connection(const Connection&) = delete;
@@ -233,14 +218,17 @@ namespace oxen::quic
         //		hdr: optional parameter to pass to ngtcp2 for server specific details
         static std::shared_ptr<Connection> make_conn(
                 Endpoint& ep,
-                const ConnectionID& scid,
-                const ConnectionID& dcid,
+                ConnectionID rid,
+                const quic_cid& scid,
+                const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
-                ngtcp2_pkt_hd* hdr = nullptr);
+                ngtcp2_pkt_hd* hdr = nullptr,
+                std::optional<ngtcp2_token_type> token_type = std::nullopt,
+                ngtcp2_cid* ocid = nullptr);
 
         void packet_io_ready();
 
@@ -250,7 +238,8 @@ namespace oxen::quic
 
         Direction direction() const override { return dir; }
 
-        size_t active_streams() const override { return streams.size(); }
+        size_t num_streams_active() const override { return _streams.size(); }
+        size_t num_streams_pending() const override { return pending_streams.size(); }
 
         void halt_events();
         bool is_closing() const { return closing; }
@@ -259,10 +248,11 @@ namespace oxen::quic
         void set_draining() { draining = true; }
         stream_data_callback get_default_data_callback() const;
 
-        const ConnectionID& scid() const override { return _source_cid; }
-        const ConnectionID& dcid() const { return _dest_cid; }
+        bool is_outbound() const override { return _is_outbound; }
+        bool is_inbound() const override { return not is_outbound(); }
+        std::string direction_str() override { return is_inbound() ? "SERVER"s : "CLIENT"s; }
 
-        const Path& path() const { return _path; }
+        const Path& path() { return _path; }
         const Address& local() const override { return _path.local; }
         const Address& remote() const override { return _path.remote; }
 
@@ -285,7 +275,7 @@ namespace oxen::quic
         void close_connection(uint64_t error_code = 0) override;
 
         // This mutator is called from the gnutls code after cert verification (if it is successful)
-        void set_validated() { _is_validated = true; }
+        void set_validated();
 
         bool is_validated() const override { return _is_validated; }
 
@@ -294,31 +284,65 @@ namespace oxen::quic
         connection_established_callback conn_established_cb;
         connection_closed_callback conn_closed_cb;
 
+        void early_data_rejected();
+
+        void set_remote_addr(const ngtcp2_addr& new_remote);
+
+        void store_associated_cid(const quic_cid& cid);
+
+        std::unordered_set<quic_cid>& associated_cids() { return _associated_cids; }
+
+        int client_handshake_completed();
+
+        int server_handshake_completed();
+
+        int server_path_validation(const ngtcp2_path* path);
+
+        void set_new_path(Path new_path);
+
+        const uint8_t* static_secret();
+
+        const ConnectionID& reference_id() const override { return _ref_id; }
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
         Connection(
                 Endpoint& ep,
-                const ConnectionID& scid,
-                const ConnectionID& dcid,
+                ConnectionID rid,
+                const quic_cid& scid,
+                const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
                 std::chrono::nanoseconds handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
-                ngtcp2_pkt_hd* hdr = nullptr);
+                ngtcp2_pkt_hd* hdr = nullptr,
+                std::optional<ngtcp2_token_type> token_type = std::nullopt,
+                ngtcp2_cid* ocid = nullptr);
 
         Endpoint& _endpoint;
         std::shared_ptr<IOContext> context;
         Direction dir;
-        const ConnectionID _source_cid;
-        ConnectionID _dest_cid;
+        bool _is_outbound;
+
+        const ConnectionID _ref_id;
+
+        std::unordered_set<quic_cid> _associated_cids;
+
+        const quic_cid _source_cid;
+        quic_cid _dest_cid;
+
         Path _path;
+
         const uint64_t _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
+
         std::atomic<bool> _congested{false};
         bool _is_validated{false};
+
+        ustring remote_pubkey;
 
         struct connection_deleter
         {
@@ -366,8 +390,8 @@ namespace oxen::quic
         std::shared_ptr<Stream> get_stream_impl(int64_t id) override;
 
         // holds a mapping of active streams
-        std::map<int64_t, std::shared_ptr<Stream>> streams;
-        std::map<int64_t, std::shared_ptr<Stream>> stream_queue;
+        std::map<int64_t, std::shared_ptr<Stream>> _streams;
+        std::map<int64_t, std::shared_ptr<Stream>> _stream_queue;
 
         int64_t next_incoming_stream_id = is_outbound() ? 1 : 0;
 
@@ -389,6 +413,9 @@ namespace oxen::quic
 
         std::shared_ptr<dgram_interface> di;
 
+        /********* TEST METHODS *********/
+        void set_local_addr(Address new_local);
+
       public:
         // public to be called by endpoint handing this connection a packet
         void handle_conn_packet(const Packet& pkt);
@@ -400,6 +427,7 @@ namespace oxen::quic
         void check_pending_streams(uint64_t available);
         int recv_datagram(bstring_view data, bool fin);
         int ack_datagram(uint64_t dgram_id);
+        int recv_token(const uint8_t* token, size_t tokenlen);
 
         // Implicit conversion of Connection to the underlying ngtcp2_conn* (so that you can pass a
         // Connection directly to ngtcp2 functions taking a ngtcp2_conn* argument).
@@ -434,20 +462,3 @@ namespace oxen::quic
     }
 
 }  // namespace oxen::quic
-
-namespace std
-{
-    // Custom hash is required s.t. unordered_set storing ConnectionID:unique_ptr<Connection>
-    // is able to call its implicit constructor
-    template <>
-    struct hash<oxen::quic::ConnectionID>
-    {
-        size_t operator()(const oxen::quic::ConnectionID& cid) const
-        {
-            static_assert(
-                    alignof(oxen::quic::ConnectionID) >= alignof(size_t) &&
-                    offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
-            return *reinterpret_cast<const size_t*>(cid.data);
-        }
-    };
-}  // namespace std
