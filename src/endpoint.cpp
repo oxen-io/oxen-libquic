@@ -200,8 +200,6 @@ namespace oxen::quic
                 }
 
                 initial_association(*cptr);
-                cptr->handle_conn_packet(pkt);
-                return;
             }
             else
             {
@@ -400,13 +398,8 @@ namespace oxen::quic
 
         ngtcp2_conn_get_scid(conn, scids.data());
 
-        for (const auto& scid : scids)
-        {
-            if (scid.datalen <= NGTCP2_MAX_CIDLEN)
-                associate_cid(&scid, conn);
-            else
-                break;
-        }
+        for (size_t i = 0; i < n; ++i)
+            associate_cid(&scids[0], conn);
 
         log::debug(log_cat, "Connection (RID:{}) completed initial CID association", conn.reference_id());
     }
@@ -630,7 +623,7 @@ namespace oxen::quic
 
     Connection* Endpoint::accept_initial_connection(const Packet& pkt)
     {
-        log::info(log_cat, "Accepting new connection...");
+        log::trace(log_cat, "Accepting new connection...");
 
         ngtcp2_pkt_hd hdr;
 

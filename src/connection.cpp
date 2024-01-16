@@ -323,8 +323,8 @@ namespace oxen::quic
     int Connection::recv_token(const uint8_t* token, size_t tokenlen)
     {
         // This should only be called by the client, and therefore this will always have a value
-        assert(remote_pubkey.has_value());
-        _endpoint.store_path_validation_token(*remote_pubkey, {token, tokenlen});
+        assert(not remote_pubkey.empty());
+        _endpoint.store_path_validation_token(remote_pubkey, {token, tokenlen});
         return 0;
     }
 
@@ -375,7 +375,7 @@ namespace oxen::quic
 
         if (auto len = ngtcp2_conn_encode_0rtt_transport_params(conn.get(), data.data(), data.size()); len > 0)
         {
-            _endpoint.store_0rtt_transport_params(*remote_pubkey, data);
+            _endpoint.store_0rtt_transport_params(remote_pubkey, data);
             log::info(log_cat, "Client encoded and stored 0rtt transport params");
         }
         else
@@ -418,6 +418,14 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::set_validated()
+    {
+        _is_validated = true;
+
+        if (is_inbound())
+            remote_pubkey = dynamic_cast<GNUTLSSession*>(get_session())->remote_key();
+    }
+
     int Connection::last_cleared() const
     {
         return datagrams->recv_buffer.last_cleared;
@@ -452,7 +460,7 @@ namespace oxen::quic
         _associated_cids.insert(cid);
     }
 
-    std::optional<ustring_view> Connection::remote_key() const
+    ustring_view Connection::remote_key() const
     {
         return remote_pubkey;
     }
@@ -1486,15 +1494,15 @@ namespace oxen::quic
             // the gnutlssession object to be verified. Servers should be verifying via callback
             assert(remote_pk.has_value());
             remote_pubkey = *remote_pk;
-            tls_session->set_expected_remote_key(*remote_pubkey);
+            tls_session->set_expected_remote_key(remote_pubkey);
 
-            if (auto maybe_token = _endpoint.get_path_validation_token(*remote_pubkey))
+            if (auto maybe_token = _endpoint.get_path_validation_token(remote_pubkey))
             {
                 settings.token = maybe_token->data();
                 settings.tokenlen = maybe_token->size();
             }
 
-            if (auto maybe_params = _endpoint.get_0rtt_transport_params(*remote_pubkey))
+            if (auto maybe_params = _endpoint.get_0rtt_transport_params(remote_pubkey))
             {
                 if (auto rv = ngtcp2_conn_decode_and_set_0rtt_transport_params(
                             conn.get(), maybe_params->data(), maybe_params->size());

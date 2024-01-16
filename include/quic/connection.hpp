@@ -169,7 +169,7 @@ namespace oxen::quic
         virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
-        virtual std::optional<ustring_view> remote_key() const = 0;
+        virtual ustring_view remote_key() const = 0;
         virtual bool is_inbound() const = 0;
         virtual bool is_outbound() const = 0;
         virtual std::string direction_str() = 0;
@@ -234,7 +234,7 @@ namespace oxen::quic
 
         TLSSession* get_session() const;
 
-        std::optional<ustring_view> remote_key() const override;
+        ustring_view remote_key() const override;
 
         Direction direction() const override { return dir; }
 
@@ -277,7 +277,7 @@ namespace oxen::quic
         void close_connection(uint64_t error_code = 0) override;
 
         // This mutator is called from the gnutls code after cert verification (if it is successful)
-        void set_validated() { _is_validated = true; }
+        void set_validated();
 
         bool is_validated() const override { return _is_validated; }
 
@@ -346,7 +346,7 @@ namespace oxen::quic
         std::atomic<bool> _congested{false};
         bool _is_validated{false};
 
-        std::optional<ustring> remote_pubkey;
+        ustring remote_pubkey;
 
         struct connection_deleter
         {

@@ -308,7 +308,7 @@ namespace oxen::quic
         const auto* cert_data = cert_list[0].data + CERT_HEADER_SIZE;
         auto cert_size = cert_list[0].size - CERT_HEADER_SIZE;
 
-        log::debug(
+        log::trace(
                 log_cat,
                 "Quic {} validating pubkey \"cert\" of len {}B:\n{}\n",
                 local_name,

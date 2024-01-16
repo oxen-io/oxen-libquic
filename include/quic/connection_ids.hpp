@@ -19,18 +19,19 @@ namespace oxen::quic
     // master map container
     struct alignas(uint64_t) ReferenceID final
     {
-      private:
         uint64_t id;
 
-      public:
         ReferenceID() = delete;
         ReferenceID(uint64_t v) : id{v} {}
         ReferenceID(const ReferenceID& obj) = default;
         ReferenceID(ReferenceID&& obj) = default;
+
         ReferenceID& operator=(const ReferenceID& obj) = default;
         ReferenceID& operator=(ReferenceID&& obj) = default;
 
-        operator const uint64_t&() const { return id; }
+        inline bool operator<(const ReferenceID& other) const { return id < other.id; }
+
+        explicit operator const uint64_t&() const { return id; }
         // operator uint64_t&() { return id; }
 
         std::string to_string() const { return "< RID:{} >"_format(id); }
@@ -57,7 +58,9 @@ namespace oxen::quic
         {
             return datalen == other.datalen && std::memcmp(data, other.data, datalen) == 0;
         }
+
         inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
+
         static ConnectionID random()
         {
             ConnectionID cid;
@@ -88,6 +91,18 @@ namespace std
                     alignof(oxen::quic::ConnectionID) >= alignof(size_t) &&
                     offsetof(oxen::quic::ConnectionID, data) % sizeof(size_t) == 0);
             return *reinterpret_cast<const size_t*>(cid.data);
+        }
+    };
+
+    template <>
+    struct hash<oxen::quic::ReferenceID>
+    {
+        size_t operator()(const oxen::quic::ReferenceID& rid) const
+        {
+            static_assert(
+                    alignof(oxen::quic::ReferenceID) >= alignof(uint64_t) &&
+                    offsetof(oxen::quic::ReferenceID, id) % sizeof(uint64_t) == 0);
+            return *reinterpret_cast<const size_t*>(rid.id);
         }
     };
 }  // namespace std

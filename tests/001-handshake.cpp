@@ -225,6 +225,8 @@ namespace oxen::quic::test
         auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         CHECK(client_ci->is_validated());
         CHECK(server_ci->is_validated());
+        CHECK(server_ci->remote_key() == ustring{reinterpret_cast<const unsigned char*>(defaults::CLIENT_PUBKEY.data()),
+                                                 defaults::CLIENT_PUBKEY.length()});
     };
 
     TEST_CASE("001 - Handshaking: Types - IPv6", "[001][ipv6]")
