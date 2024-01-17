@@ -7,8 +7,8 @@
 #include <CLI/Validators.hpp>
 #include <chrono>
 #include <future>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
+#include <oxen/quic.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <random>
 #include <thread>
 

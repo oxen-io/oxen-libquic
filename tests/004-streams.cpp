@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <memory>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
+#include <oxen/quic.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <stdexcept>
 #include <thread>
 

@@ -1,14 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
+#include <oxen/quic.hpp>
+#include <oxen/quic/connection.hpp>
+#include <oxen/quic/datagram.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
+#include <oxen/quic/opt.hpp>
+#include <oxen/quic/types.hpp>
+#include <oxen/quic/utils.hpp>
 #include <stdexcept>
 #include <thread>
 
-#include "quic/connection.hpp"
-#include "quic/datagram.hpp"
-#include "quic/opt.hpp"
-#include "quic/types.hpp"
-#include "quic/utils.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic::test
