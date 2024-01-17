@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <future>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
+#include <oxen/quic.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <thread>
 
 #include "utils.hpp"

@@ -17,7 +17,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 project(libquic
-    VERSION 1.0.1
+    VERSION 1.0.0
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
@@ -82,7 +82,7 @@ include(cmake/check_for_std_filesystem.cmake)
 target_link_libraries(libquic_external INTERFACE filesystem)
 
 target_include_directories(libquic_external INTERFACE include)
-target_include_directories(libquic_internal INTERFACE include/quic)
+target_include_directories(libquic_internal INTERFACE include/oxen/quic)
 
 set(warning_flags -Wall -Wextra -Wno-unknown-pragmas -Wno-unused-function -Werror=vla)
 if (LIBQUIC_WARN_DEPRECATED)

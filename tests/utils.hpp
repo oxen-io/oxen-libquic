@@ -6,10 +6,10 @@
 #include <future>
 #include <optional>
 #include <oxen/log.hpp>
-#include <quic/endpoint.hpp>
-#include <quic/gnutls_crypto.hpp>
-#include <quic/network.hpp>
-#include <quic/utils.hpp>
+#include <oxen/quic/endpoint.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
+#include <oxen/quic/network.hpp>
+#include <oxen/quic/utils.hpp>
 #include <string>
 
 #include "oxenc/base64.h"

@@ -8,11 +8,11 @@
 
 #include <CLI/Validators.hpp>
 #include <future>
-#include <quic.hpp>
-#include <quic/gnutls_crypto.hpp>
+#include <oxen/quic.hpp>
+#include <oxen/quic/connection.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <thread>
 
-#include "quic/connection.hpp"
 #include "utils.hpp"
 
 using namespace oxen::quic;
