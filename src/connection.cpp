@@ -1561,7 +1561,7 @@ namespace oxen::quic
             throw std::runtime_error{"Failed to initialize connection object: "s + ngtcp2_strerror(rv)};
         }
 
-        ngtcp2_conn_set_keep_alive_timeout(connptr, context->config.keep_alive.count());
+        ngtcp2_conn_set_keep_alive_timeout(connptr, std::chrono::nanoseconds{context->config.keep_alive}.count());
 
         tls_session->conn_ref.get_conn = get_conn;
         tls_session->conn_ref.user_data = this;
