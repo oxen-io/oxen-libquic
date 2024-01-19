@@ -557,8 +557,6 @@ namespace oxen::quic
 
     void Endpoint::send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr)
     {
-        log::critical(kill_cat, "Endpoint writing stateless connection close to remote: {}", pkt.path.remote);
-
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
 

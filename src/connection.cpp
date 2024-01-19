@@ -1538,6 +1538,7 @@ namespace oxen::quic
             params.original_dcid_present = 1;
             // params.stateless_reset_token_present = 1;
             settings.token = hdr->token;
+            settings.tokenlen = hdr->tokenlen;
 
             // gnutls_rnd(GNUTLS_RND_RANDOM, params.stateless_reset_token, NGTCP2_STATELESS_RESET_TOKENLEN);
 
