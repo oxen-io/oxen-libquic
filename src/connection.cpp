@@ -386,7 +386,8 @@ namespace oxen::quic
 
     int Connection::server_handshake_completed()
     {
-        tls_session->send_session_ticket();
+        // TODO: uncomment this when 0rtt is implemented
+        // tls_session->send_session_ticket();
 
         auto path = ngtcp2_conn_get_path(conn.get());
         auto now = get_timestamp().count();
@@ -1525,7 +1526,8 @@ namespace oxen::quic
             if (ocid)
             {
                 params.original_dcid = *ocid;
-                params.retry_scid = _source_cid;
+                // params.retry_scid = _source_cid;
+                params.retry_scid = ngtcp2_cid{hdr->dcid};
                 params.retry_scid_present = 1;
             }
             else

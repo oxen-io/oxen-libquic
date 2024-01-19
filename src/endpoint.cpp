@@ -557,6 +557,8 @@ namespace oxen::quic
 
     void Endpoint::send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr)
     {
+        log::critical(kill_cat, "Endpoint writing stateless connection close to remote: {}", pkt.path.remote);
+
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
 
@@ -656,7 +658,7 @@ namespace oxen::quic
             switch (hdr.token[0])
             {
                 case NGTCP2_CRYPTO_TOKEN_MAGIC_RETRY:
-                    if (hdr.dcid.datalen < NGTCP2_MIN_INITIAL_DCIDLEN || not verify_retry_token(pkt, &hdr, &original_cid))
+                    if (not verify_retry_token(pkt, &hdr, &original_cid))
                     {
                         send_stateless_connection_close(pkt, &hdr);
                         return nullptr;
@@ -675,6 +677,11 @@ namespace oxen::quic
                     token_type = NGTCP2_TOKEN_TYPE_NEW_TOKEN;
                     break;
                 default:
+                    if (hdr.dcid.datalen < NGTCP2_MIN_INITIAL_DCIDLEN)
+                    {
+                        send_stateless_connection_close(pkt, &hdr);
+                        return nullptr;
+                    }
                     send_retry(pkt, &hdr);
                     return nullptr;
             }
