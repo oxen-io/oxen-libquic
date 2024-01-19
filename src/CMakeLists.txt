@@ -29,6 +29,11 @@ target_link_libraries(quic
     libquic_internal
 )
 
+set_target_properties(quic PROPERTIES LIBRARY_OUTPUT_NAME oxenquic)
+if(LIBQUIC_VERSION_SO)
+    set_target_properties(quic PROPERTIES SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR})
+endif()
+
 if(WIN32)
     target_link_libraries(quic PUBLIC ws2_32)
 endif()

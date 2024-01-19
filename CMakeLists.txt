@@ -35,6 +35,8 @@ option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
 option(LIBQUIC_BUILD_TESTS "Build libquic test suite" ${libquic_IS_TOPLEVEL_PROJECT})
 option(LIBQUIC_BUILD_SPEEDTEST "Build libquic speedtest programs" ${libquic_IS_TOPLEVEL_PROJECT})
 
+# This is mainly useful for system packaging to create libquic.so.x.y instead of just libquic.so:
+option(LIBQUIC_VERSION_SO "Add the project major/minor version into the shared library filename" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
