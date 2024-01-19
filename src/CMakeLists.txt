@@ -73,3 +73,11 @@ if(LIBQUIC_RECVMMSG)
 else()
     message(STATUS "Building without recvmmsg support")
 endif()
+
+if(LIBQUIC_INSTALL)
+    install(
+        TARGETS quic
+        EXPORT oxenquicConfig
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+endif()

@@ -1,0 +1,6 @@
+#pragma once
+#include <array>
+
+namespace oxen::quic {
+    constexpr std::array<int, 3> VERSION = {@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@};
+}
