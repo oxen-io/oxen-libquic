@@ -9,7 +9,6 @@ extern "C"
 #else
 #include <netinet/in.h>
 #endif
-#include <ngtcp2_pkt.h>
 }
 
 #include <event2/event.h>

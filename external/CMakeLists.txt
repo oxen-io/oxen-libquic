@@ -28,26 +28,44 @@ if(NOT BUILD_STATIC_DEPS)
     find_package(PkgConfig REQUIRED)
 endif()
 
-# ngtcp2
-set(ENABLE_GNUTLS ON CACHE BOOL "")
-set(ENABLE_OPENSSL OFF CACHE BOOL "")
-set(ENABLE_STATIC_LIB ON CACHE BOOL "")
-set(ENABLE_SHARED_LIB OFF CACHE BOOL "")
-set(ENABLE_LIB_ONLY OFF CACHE BOOL "")
+if(NOT BUILD_STATIC_DEPS)
+    pkg_check_modules(NGTCP2 libngtcp2>=1.1.0 IMPORTED_TARGET)
+    if(NGTCP2_FOUND)
+        pkg_check_modules(NGTCP2_GNUTLS libngtcp2_crypto_gnutls>=1.1.0 IMPORTED_TARGET)
+        if(NGTCP2_GNUTLS_FOUND)
+            add_library(ngtcp2 INTERFACE)
+            add_library(ngtcp2_crypto INTERFACE)
+            target_link_libraries(ngtcp2 INTERFACE PkgConfig::NGTCP2)
+            add_library(ngtcp2::ngtcp2 ALIAS ngtcp2)
 
-add_subdirectory(ngtcp2 EXCLUDE_FROM_ALL)
-add_library(ngtcp2::ngtcp2 ALIAS ngtcp2_static)  # Base ngtcp2 (no crypto)
-add_library(ngtcp2_crypto INTERFACE)
-if(BUILD_STATIC_DEPS AND TARGET gnutls::gnutls)
-    target_link_libraries(ngtcp2_crypto_gnutls_static PUBLIC gnutls::gnutls)
+            target_link_libraries(ngtcp2_crypto INTERFACE ngtcp2::ngtcp2 PkgConfig::NGTCP2_GNUTLS)
+            add_library(ngtcp2::crypto ALIAS ngtcp2_crypto)
+        endif()
+    endif()
 endif()
-target_link_libraries(ngtcp2_crypto 
-    INTERFACE
-    ngtcp2::ngtcp2
-    ngtcp2_crypto_gnutls_static)
-add_library(ngtcp2::crypto
-    ALIAS 
-    ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
+
+if(NOT NGTCP2_FOUND OR NOT NGTCP2_GNUTLS_FOUND)
+# ngtcp2
+    set(ENABLE_GNUTLS ON CACHE BOOL "")
+    set(ENABLE_OPENSSL OFF CACHE BOOL "")
+    set(ENABLE_STATIC_LIB ON CACHE BOOL "")
+    set(ENABLE_SHARED_LIB OFF CACHE BOOL "")
+    set(ENABLE_LIB_ONLY OFF CACHE BOOL "")
+
+    add_subdirectory(ngtcp2 EXCLUDE_FROM_ALL)
+    add_library(ngtcp2::ngtcp2 ALIAS ngtcp2_static)  # Base ngtcp2 (no crypto)
+    add_library(ngtcp2_crypto INTERFACE)
+    if(BUILD_STATIC_DEPS AND TARGET gnutls::gnutls)
+        target_link_libraries(ngtcp2_crypto_gnutls_static PUBLIC gnutls::gnutls)
+    endif()
+    target_link_libraries(ngtcp2_crypto
+        INTERFACE
+        ngtcp2::ngtcp2
+        ngtcp2_crypto_gnutls_static)
+    add_library(ngtcp2::crypto
+        ALIAS
+        ngtcp2_crypto)  # ngtcp2 crypto (and implicitly base ngtcp2)
+endif()
 
 # oxen-logging
 if (NOT TARGET oxen::logging)

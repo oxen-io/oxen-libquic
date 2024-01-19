@@ -15,7 +15,6 @@ extern "C"
 #endif
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
-#include <ngtcp2_addr.h>
 }
 
 #include <event2/event.h>
