@@ -821,7 +821,7 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        for (auto it_a = draining.begin(); it_a != draining.end(); ++it_a)
+        for (auto it_a = draining.begin(); it_a != draining.end();)
         {
             if (it_a->first < now)
             {
@@ -833,6 +833,8 @@ namespace oxen::quic
 
                 it_a = draining.erase(it_a);
             }
+            else
+                ++it_a;
         }
 
         // Propagate the timeout check to connections, to be propagated to streams
