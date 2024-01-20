@@ -1,0 +1,3 @@
+usr/include/oxen
+usr/lib/*/lib*.so
+usr/lib/*/pkgconfig/liboxenquic*
