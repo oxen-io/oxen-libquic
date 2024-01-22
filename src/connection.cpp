@@ -308,6 +308,13 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::set_close_quietly()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        _close_quietly = true;
+    }
+
     const uint8_t* Connection::static_secret()
     {
         return _endpoint.static_secret();
@@ -357,29 +364,38 @@ namespace oxen::quic
 
     int Connection::client_handshake_completed()
     {
+        /** TODO:
+            This section will be uncommented and finished upon completion of 0RTT and session resumption capabilities.
+                - If early data is NOT ACCEPTED, then the call to ngtcp2_conn_tls_early_data_rejected must be invoked
+                to reset aspects of connection state prior to early data rejection.
+                - If early data is ACCEPTED, then we can open streams and start doing things immediately. At that point,
+                we should encode and store 0RTT transport parameters.
+            Moreover, decoding and setting 0RTT transport parameters must be handled in connection creation. Both that
+            location and the required callbacks are comment-blocked in the relevant location.
+        */
         if (not tls_session->get_early_data_accepted())
         {
             log::info(log_cat, "Early data was rejected by server!");
 
-            if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
-            {
-                log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
-                return -1;
-            }
+            // if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
+            // {
+            //     log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
+            //     return -1;
+            // }
         }
 
-        ustring data;
-        data.resize(256);
+        // ustring data;
+        // data.resize(256);
 
-        if (auto len = ngtcp2_conn_encode_0rtt_transport_params(conn.get(), data.data(), data.size()); len > 0)
-        {
-            _endpoint.store_0rtt_transport_params(remote_pubkey, data);
-            log::info(log_cat, "Client encoded and stored 0rtt transport params");
-        }
-        else
-        {
-            log::warning(log_cat, "Client could not encode 0-RTT transport parameters: {}", ngtcp2_strerror(len));
-        }
+        // if (auto len = ngtcp2_conn_encode_0rtt_transport_params(conn.get(), data.data(), data.size()); len > 0)
+        // {
+        //     _endpoint.store_0rtt_transport_params(remote_pubkey, data);
+        //     log::info(log_cat, "Client encoded and stored 0rtt transport params");
+        // }
+        // else
+        // {
+        //     log::warning(log_cat, "Client could not encode 0-RTT transport parameters: {}", ngtcp2_strerror(len));
+        // }
 
         return 0;
     }
@@ -1526,7 +1542,6 @@ namespace oxen::quic
             if (ocid)
             {
                 params.original_dcid = *ocid;
-                // params.retry_scid = _source_cid;
                 params.retry_scid = ngtcp2_cid{hdr->dcid};
                 params.retry_scid_present = 1;
             }

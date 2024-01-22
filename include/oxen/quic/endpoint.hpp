@@ -300,11 +300,13 @@ namespace oxen::quic
 
         void send_retry(const Packet& pkt, ngtcp2_pkt_hd* hdr);
 
-        void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr);
+        void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec = io_error{0});
 
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
 
         void _close_connection(Connection& conn, io_error ec, std::string msg);
+
+        void _execute_close_hooks(Connection& conn, io_error ec = io_error{0});
 
         // Test methods
         void set_local(Address new_local) { _local = new_local; }

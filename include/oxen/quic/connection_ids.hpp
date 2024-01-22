@@ -31,6 +31,9 @@ namespace oxen::quic
 
         inline bool operator<(const ConnectionID& other) const { return id < other.id; }
 
+        inline bool operator==(const ConnectionID& other) const { return id == other.id; }
+        inline bool operator!=(const ConnectionID& other) const { return !(*this == other); }
+
         explicit operator const uint64_t&() const { return id; }
 
         std::string to_string() const { return "< RID:{} >"_format(id); }
