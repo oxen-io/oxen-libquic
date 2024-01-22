@@ -9,6 +9,11 @@ endfunction()
 set(DEPS_DESTDIR ${CMAKE_BINARY_DIR}/static-deps)
 set(DEPS_SOURCEDIR ${CMAKE_BINARY_DIR}/static-deps-sources)
 
+# Force shared libs off for any libraries we build inside here so that if we build a shared lib we
+# don't end up with a libspdlog.so or whatever that would need to be distributed alongside the
+# libquic.so
+set(BUILD_SHARED_LIBS OFF)
+
 include_directories(BEFORE SYSTEM ${DEPS_DESTDIR}/include)
 
 include(build_external)
