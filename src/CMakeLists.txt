@@ -29,6 +29,11 @@ target_link_libraries(quic
     libquic_internal
 )
 
+set_target_properties(quic PROPERTIES LIBRARY_OUTPUT_NAME oxenquic)
+if(LIBQUIC_VERSION_SO)
+    set_target_properties(quic PROPERTIES SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR})
+endif()
+
 if(WIN32)
     target_link_libraries(quic PUBLIC ws2_32)
 endif()
@@ -67,4 +72,12 @@ if(LIBQUIC_RECVMMSG)
     message(STATUS "Building with recvmmsg support")
 else()
     message(STATUS "Building without recvmmsg support")
+endif()
+
+if(LIBQUIC_INSTALL)
+    install(
+        TARGETS quic
+        EXPORT oxenquicConfig
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
 endif()

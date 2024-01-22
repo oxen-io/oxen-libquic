@@ -1,0 +1,13 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=@CMAKE_INSTALL_FULL_LIBDIR@
+includedir=@CMAKE_INSTALL_FULL_INCLUDEDIR@
+
+Name: liboxenquic
+Description: QUIC communication library for C++
+Version: @PROJECT_VERSION@
+
+Libs: -L${libdir} -loxenquic
+Libs.private: @PRIVATE_LIBS@
+Requires: liboxenc libngtcp2 libngtcp2_crypto_gnutls
+Cflags: -I${includedir}

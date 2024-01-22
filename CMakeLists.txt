@@ -35,6 +35,16 @@ option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
 option(LIBQUIC_BUILD_TESTS "Build libquic test suite" ${libquic_IS_TOPLEVEL_PROJECT})
 option(LIBQUIC_BUILD_SPEEDTEST "Build libquic speedtest programs" ${libquic_IS_TOPLEVEL_PROJECT})
 
+# This is mainly useful for system packaging to create libquic.so.x.y instead of just libquic.so:
+option(LIBQUIC_VERSION_SO "Add the project major/minor version into the shared library filename" OFF)
+
+if (libquic_IS_TOPLEVEL_PROJECT OR BUILD_SHARED_LIBS)
+    set(libquic_INSTALL_DEFAULT ON)
+else()
+    set(libquic_INSTALL_DEFAULT ON)
+endif()
+option(LIBQUIC_INSTALL "Add quic libraries/headers/programs to cmake install target; defaults to ON if BUILD_SHARED_LIBS is enabled or we are the top-level project" ${libquic_INSTALL_DEFAULT})
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -78,10 +88,13 @@ add_library(libquic_external INTERFACE)
 # compilation, but not for potential external targets that depend on us.
 add_library(libquic_internal INTERFACE)
 
+configure_file(include/oxen/quic/version.hpp.in include/oxen/quic/version.hpp @ONLY)
+configure_file(liboxenquic.pc.in liboxenquic.pc @ONLY)
+
 include(cmake/check_for_std_filesystem.cmake)
 target_link_libraries(libquic_external INTERFACE filesystem)
 
-target_include_directories(libquic_external INTERFACE include)
+target_include_directories(libquic_external INTERFACE include ${CMAKE_CURRENT_BINARY_DIR}/include/oxen)
 target_include_directories(libquic_internal INTERFACE include/oxen/quic)
 
 set(warning_flags -Wall -Wextra -Wno-unknown-pragmas -Wno-unused-function -Werror=vla)
@@ -105,4 +118,17 @@ add_subdirectory(src)
 
 if(LIBQUIC_BUILD_TESTS OR LIBQUIC_BUILD_SPEEDTEST)
     add_subdirectory(tests)
+endif()
+
+if(LIBQUIC_INSTALL)
+    install(
+        DIRECTORY include/oxen ${CMAKE_CURRENT_BINARY_DIR}/include/oxen
+        TYPE INCLUDE
+        FILES_MATCHING PATTERN *.hpp
+    )
+
+    install(
+        FILES ${CMAKE_CURRENT_BINARY_DIR}/liboxenquic.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    )
 endif()

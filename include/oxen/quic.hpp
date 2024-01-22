@@ -17,3 +17,4 @@
 #include "quic/types.hpp"
 #include "quic/udp.hpp"
 #include "quic/utils.hpp"
+#include "quic/version.hpp"
