@@ -76,6 +76,9 @@ namespace oxen::quic
         bool is_ngtcp2 = false;
 
         io_error() = default;
+        // explicit unsigned int constructor for NGTCP2 error macros
+        // https://github.com/ngtcp2/ngtcp2/blob/ff7515bfbd9a503ac66f2b919acb92d2743c99e0/lib/includes/ngtcp2/ngtcp2.h#L952
+        explicit io_error(unsigned int e) : _code{static_cast<uint64_t>(e)}, is_ngtcp2{true} {}
         explicit io_error(int e) : _code{static_cast<uint64_t>(e)}, is_ngtcp2{true} {}
         explicit io_error(uint64_t e) : _code{e} {}
 

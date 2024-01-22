@@ -153,17 +153,7 @@ namespace oxen::quic
                 conn.reference_id(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
-        // prioritize connection level callback over endpoint level
-        if (conn.conn_closed_cb)
-        {
-            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
-            conn.conn_closed_cb(conn, err->error_code);
-        }
-        else if (connection_close_cb)
-        {
-            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
-            connection_close_cb(conn, err->error_code);
-        }
+        _execute_close_hooks(conn, io_error{err->error_code});
 
         draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
@@ -223,17 +213,7 @@ namespace oxen::quic
                 conn.reference_id(),
                 err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
 
-        // prioritize connection level callback over endpoint level
-        if (conn.conn_closed_cb)
-        {
-            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
-            conn.conn_closed_cb(conn, err->error_code);
-        }
-        else if (connection_close_cb)
-        {
-            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
-            connection_close_cb(conn, err->error_code);
-        }
+        _execute_close_hooks(conn, io_error{err->error_code});
 
         delete_connection(conn);
     }
@@ -245,6 +225,24 @@ namespace oxen::quic
         call([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
             _close_connection(conn, std::move(ec), std::move(msg));
         });
+    }
+
+    void Endpoint::_execute_close_hooks(Connection& conn, io_error ec)
+    {
+        if (not conn.closing_quietly())
+        {
+            // prioritize connection level callback over endpoint level
+            if (conn.conn_closed_cb)
+            {
+                log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
+                conn.conn_closed_cb(conn, ec.code());
+            }
+            else if (connection_close_cb)
+            {
+                log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
+                connection_close_cb(conn, ec.code());
+            }
+        }
     }
 
     void Endpoint::_close_connection(Connection& conn, io_error ec, std::string msg)
@@ -280,17 +278,7 @@ namespace oxen::quic
                     log_cat, "Connection ({}) passed idle expiry timer; closing now with close packet", conn.reference_id());
         }
 
-        // prioritize connection level callback over endpoint level
-        if (conn.conn_closed_cb)
-        {
-            log::trace(log_cat, "{} Calling Connection-level close callback", conn.is_inbound() ? "server" : "client");
-            conn.conn_closed_cb(conn, ec.code());
-        }
-        else if (connection_close_cb)
-        {
-            log::trace(log_cat, "{} Calling Endpoint-level close callback", conn.is_inbound() ? "server" : "client");
-            connection_close_cb(conn, ec.code());
-        }
+        _execute_close_hooks(conn, ec);
 
         ngtcp2_ccerr err;
         ngtcp2_ccerr_default(&err);
@@ -555,13 +543,13 @@ namespace oxen::quic
         send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
-    void Endpoint::send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr)
+    void Endpoint::send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec)
     {
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
 
         auto nwrite = ngtcp2_crypto_write_connection_close(
-                u8data(buf), buf.size(), hdr->version, &hdr->scid, &hdr->dcid, NGTCP2_INVALID_TOKEN, nullptr, 0);
+                u8data(buf), buf.size(), hdr->version, &hdr->scid, &hdr->dcid, ec.code(), nullptr, 0);
 
         if (nwrite < 0)
         {
@@ -656,9 +644,9 @@ namespace oxen::quic
             switch (hdr.token[0])
             {
                 case NGTCP2_CRYPTO_TOKEN_MAGIC_RETRY:
-                    if (hdr.dcid.datalen < NGTCP2_MIN_INITIAL_DCIDLEN || not verify_retry_token(pkt, &hdr, &original_cid))
+                    if (not verify_retry_token(pkt, &hdr, &original_cid))
                     {
-                        send_stateless_connection_close(pkt, &hdr);
+                        send_stateless_connection_close(pkt, &hdr, io_error{NGTCP2_INVALID_TOKEN});
                         return nullptr;
                     }
 
@@ -675,6 +663,11 @@ namespace oxen::quic
                     token_type = NGTCP2_TOKEN_TYPE_NEW_TOKEN;
                     break;
                 default:
+                    if (hdr.dcid.datalen < NGTCP2_MIN_INITIAL_DCIDLEN)
+                    {
+                        send_stateless_connection_close(pkt, &hdr, io_error{NGTCP2_INVALID_TOKEN});
+                        return nullptr;
+                    }
                     send_retry(pkt, &hdr);
                     return nullptr;
             }

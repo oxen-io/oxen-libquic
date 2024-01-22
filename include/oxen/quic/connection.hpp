@@ -156,6 +156,7 @@ namespace oxen::quic
             send_datagram(view, std::move(keep_alive));
         }
 
+        virtual void set_close_quietly() = 0;
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
         virtual size_t num_streams_active() const = 0;
         virtual size_t num_streams_pending() const = 0;
@@ -304,6 +305,10 @@ namespace oxen::quic
 
         const ConnectionID& reference_id() const override { return _ref_id; }
 
+        void set_close_quietly() override;
+
+        bool closing_quietly() const { return _close_quietly; }
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -339,6 +344,7 @@ namespace oxen::quic
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
 
+        std::atomic<bool> _close_quietly{false};
         std::atomic<bool> _congested{false};
         bool _is_validated{false};
 
