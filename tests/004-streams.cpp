@@ -827,7 +827,9 @@ namespace oxen::quic::test
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         std::shared_ptr<BTRequestStream> server_bt, client_bt;
-        std::shared_ptr<connection_interface> server_ci, client_ci;
+        std::shared_ptr<connection_interface> client_ci;
+
+        std::promise<void> client_ci_ready;
 
         int n_reqs{5};
         std::atomic<int> server_counter{0};
@@ -856,6 +858,8 @@ namespace oxen::quic::test
             // is the improper and hacky way to do this, but will function fine for the purposes of this
             // test case. Do not actually do this!
 
+            client_ci_ready.get_future().wait();
+
             client_bt = client_ci->open_stream<BTRequestStream>();
             client_bt->register_handler(TEST_ENDPOINT, client_handler);
 
@@ -881,6 +885,7 @@ namespace oxen::quic::test
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
         client_ci = client_endpoint->connect(client_remote, client_tls, client_established);
+        client_ci_ready.set_value();
 
         REQUIRE(client_established.wait());
         REQUIRE(server_established.wait());
