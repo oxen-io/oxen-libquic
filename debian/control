@@ -6,6 +6,8 @@ Build-Depends:
     cmake (>= 3.20),
     g++,
     pkg-config,
+    libngtcp2-dev (>= 1.1.0~),
+    libngtcp2-crypto-gnutls-dev (>= 1.1.0~),
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
     libspdlog-dev (>= 1.9.1),
