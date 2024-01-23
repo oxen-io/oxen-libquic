@@ -22,12 +22,15 @@ override_dh_auto_configure:
 	debian/gen-liboxen-quic-install.sh $(DEB_VERSION_UPSTREAM)
 	dh_auto_configure -- \
 		$(DEB_CMAKE_ARCH_OPTIONS) \
+		-DWITH_LTO=OFF \
 		-DBUILD_SHARED_LIBS=ON \
 		-DLIBQUIC_VERSION_SO=ON \
 		-DLIBQUIC_SPEEDTEST_PREFIX=quic-
 
 override_dh_auto_test:
 	./obj-$(DEB_BUILD_GNU_TYPE)/tests/alltests --log-level warning --no-ipv6 --colour-mode ansi
+
+override_dh_dwz:
 
 # dh_make generated override targets
 # This is example for Cmake (See https://bugs.debian.org/641051 )

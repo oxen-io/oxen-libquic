@@ -1,4 +1,4 @@
-oxen-libquic (1.0.0-1) unstable; urgency=medium
+oxen-libquic (1.0.0-1~deb11) bullseye; urgency=medium
 
   * Initial release.
 
