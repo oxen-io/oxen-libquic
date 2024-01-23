@@ -1,0 +1,21 @@
+From: Jason Rhinelander <jason@imaginary.ca>
+Date: Mon, 22 Jan 2024 23:04:00 -0400
+Subject: old-cmake-install-compat
+
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 297b75c..9966e47 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -123,7 +123,7 @@ endif()
+ if(LIBQUIC_INSTALL)
+     install(
+         DIRECTORY include/oxen ${CMAKE_CURRENT_BINARY_DIR}/include/oxen
+-        TYPE INCLUDE
++        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+         FILES_MATCHING PATTERN *.hpp
+     )
+ 
