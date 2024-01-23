@@ -2,15 +2,14 @@ Source: oxen-libquic
 Priority: optional
 Maintainer: Jason Rhinelander <jason@oxen.io>
 Build-Depends:
-    debhelper-compat (= 13),
-    cmake (>= 3.20),
+    debhelper-compat (= 12),
+    cmake (>= 3.16),
     g++,
     pkg-config,
     libngtcp2-dev (>= 1.1.0~),
+    libngtcp2-crypto-gnutls-dev (>= 1.1.0~),
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
-    libspdlog-dev (>= 1.9.1),
-    libfmt-dev (>= 9),
     liboxenc-dev (>= 1.0.10)
 Standards-Version: 4.4.1
 Section: libs
