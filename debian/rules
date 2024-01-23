@@ -21,6 +21,7 @@ include /usr/share/dpkg/pkg-info.mk
 override_dh_auto_configure:
 	debian/gen-liboxen-quic-install.sh $(DEB_VERSION_UPSTREAM)
 	dh_auto_configure -- \
+		-DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8 \
 		$(DEB_CMAKE_ARCH_OPTIONS) \
 		-DBUILD_SHARED_LIBS=ON \
 		-DLIBQUIC_VERSION_SO=ON \
