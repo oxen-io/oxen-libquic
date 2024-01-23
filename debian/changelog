@@ -1,4 +1,4 @@
-oxen-libquic (1.0.0-1) unstable; urgency=medium
+oxen-libquic (1.0.0-1~ubuntu2204) jammy; urgency=medium
 
   * Initial release.
 
