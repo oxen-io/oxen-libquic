@@ -38,7 +38,7 @@ namespace oxen::quic
         log::debug(log_cat, "Destroying stream {}", _stream_id);
 
         bool was_closing = _is_closing;
-        _is_closing = is_shutdown = true;
+        _is_closing = _is_shutdown = true;
 
         if (!was_closing && close_callback)
             close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
@@ -63,17 +63,17 @@ namespace oxen::quic
         endpoint.call([this, app_err_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-            if (is_shutdown)
+            if (_is_shutdown)
                 log::info(log_cat, "Stream is already shutting down");
             else if (_is_closing)
                 log::debug(log_cat, "Stream is already closing");
             else
             {
-                _is_closing = is_shutdown = true;
+                _is_closing = _is_shutdown = true;
                 log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
                 ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, app_err_code);
             }
-            if (is_shutdown)
+            if (_is_shutdown)
                 data_callback = nullptr;
 
             conn.packet_io_ready();
@@ -84,7 +84,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, std::move(keep_alive));
-        if (ready)
+        if (_ready)
             conn.packet_io_ready();
         else
             log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
@@ -93,10 +93,10 @@ namespace oxen::quic
     void Stream::acknowledge(size_t bytes)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::trace(log_cat, "Acking {} bytes of {}/{} unacked/size", bytes, unacked_size, size());
+        log::trace(log_cat, "Acking {} bytes of {}/{} unacked/size", bytes, _unacked_size, size());
 
-        assert(bytes <= unacked_size);
-        unacked_size -= bytes;
+        assert(bytes <= _unacked_size);
+        _unacked_size -= bytes;
 
         // drop all acked user_buffers, as they are unneeded
         while (bytes >= user_buffers.front().first.size() && bytes)
@@ -116,8 +116,8 @@ namespace oxen::quic
     void Stream::wrote(size_t bytes)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::trace(log_cat, "Increasing unacked_size by {}B", bytes);
-        unacked_size += bytes;
+        log::trace(log_cat, "Increasing _unacked_size by {}B", bytes);
+        _unacked_size += bytes;
     }
 
     static auto get_buffer_it(std::deque<std::pair<bstring_view, std::shared_ptr<void>>>& bufs, size_t offset)
@@ -145,7 +145,7 @@ namespace oxen::quic
         if (user_buffers.empty() || unsent() == 0)
             return nbufs;
 
-        auto [it, offset] = get_buffer_it(user_buffers, unacked_size);
+        auto [it, offset] = get_buffer_it(user_buffers, _unacked_size);
         nbufs.reserve(std::distance(it, user_buffers.end()));
         auto& temp = nbufs.emplace_back();
         temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));

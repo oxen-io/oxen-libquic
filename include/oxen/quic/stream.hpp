@@ -47,9 +47,9 @@ namespace oxen::quic
       public:
         ~Stream() override;
 
-        bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
+        bool available() const { return !(_is_closing || _is_shutdown || _sent_fin); }
         bool is_stream() const override { return true; }
-        bool is_ready() const { return ready; }
+        bool is_ready() const { return _ready; }
         bool is_empty() const override { return user_buffers.empty(); }
         int64_t stream_id() const override { return _stream_id; }
         const ConnectionID& reference_id() const;
@@ -97,11 +97,11 @@ namespace oxen::quic
       private:
         std::vector<ngtcp2_vec> pending() override;
 
-        size_t unacked_size{0};
+        size_t _unacked_size{0};
         bool _is_closing{false};
-        bool is_shutdown{false};
+        bool _is_shutdown{false};
         bool _sent_fin{false};
-        bool ready{false};
+        bool _ready{false};
         int64_t _stream_id;
 
         const Connection& get_conn() const { return conn; }
@@ -112,7 +112,7 @@ namespace oxen::quic
 
         void acknowledge(size_t bytes);
 
-        inline size_t size() const
+        size_t size() const
         {
             size_t sum{0};
             if (user_buffers.empty())
@@ -122,9 +122,9 @@ namespace oxen::quic
             return sum;
         }
 
-        inline size_t unacked() const { return unacked_size; }
+        size_t unacked() const { return _unacked_size; }
 
-        inline size_t unsent() const override
+        size_t unsent() const override
         {
             log::trace(log_cat, "size={}, unacked={}", size(), unacked());
             return size() - unacked();
@@ -266,10 +266,10 @@ namespace oxen::quic
             chunk_sender<T>::make(simultaneous, *this, std::move(next_chunk), std::move(done));
         }
 
-        inline void set_ready()
+        void set_ready()
         {
             log::trace(log_cat, "Setting stream ready");
-            ready = true;
+            _ready = true;
             on_ready();
         }
     };
