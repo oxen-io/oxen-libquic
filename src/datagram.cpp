@@ -6,11 +6,6 @@
 namespace oxen::quic
 {
 
-    IOChannel::IOChannel(Connection& c, Endpoint& e) : conn{c}, endpoint{e}
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-    }
-
     DatagramIO::DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
