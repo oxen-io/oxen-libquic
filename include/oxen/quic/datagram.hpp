@@ -16,10 +16,13 @@ namespace oxen::quic
 
     struct dgram_interface : public std::enable_shared_from_this<dgram_interface>
     {
-        dgram_interface(Connection& c);
+      private:
         connection_interface& ci;
 
-        const ConnectionID& reference_id() const;
+      public:
+        dgram_interface(Connection& c);
+
+        const ConnectionID reference_id;
 
         std::shared_ptr<connection_interface> get_conn_interface();
 
@@ -138,8 +141,6 @@ namespace oxen::quic
         // dgram_buffer send_buffer;
         buffer_que send_buffer;
 
-        bool is_empty() const override { return send_buffer.empty(); }
-
         prepared_datagram pending_datagram(bool r) override;
 
         bool is_stream() const override { return false; }
@@ -148,34 +149,38 @@ namespace oxen::quic
 
         int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
 
-      protected:
-        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
-
-      private:
-        const bool _packet_splitting{false};
+        int64_t stream_id() const override
+        {
+            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return std::numeric_limits<int64_t>::min();
+        }
 
         std::shared_ptr<Stream> get_stream() override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return nullptr;
-        };
-        int64_t stream_id() const override
-        {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return std::numeric_limits<int64_t>::min();
-        };
-        bool is_closing() const override
+        }
+
+      private:
+        const bool _packet_splitting{false};
+
+      protected:
+        bool is_empty_impl() const override { return send_buffer.empty(); }
+
+        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
+
+        bool is_closing_impl() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
-        };
+        }
         bool sent_fin() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
-        };
+        }
         void set_fin(bool) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
-        size_t unsent() const override
+        size_t unsent_impl() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             size_t sum{0};
@@ -184,14 +189,14 @@ namespace oxen::quic
             for (const auto& entry : send_buffer.buf)
                 sum += entry.size();
             return sum;
-        };
-        bool has_unsent() const override { return not is_empty(); }
-        void wrote(size_t) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        }
+        bool has_unsent_impl() const override { return not is_empty_impl(); }
+        void wrote(size_t) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
         std::vector<ngtcp2_vec> pending() override
         {
             log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
             return {};
-        };
+        }
     };
 
 }  // namespace oxen::quic

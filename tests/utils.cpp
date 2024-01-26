@@ -107,6 +107,11 @@ namespace oxen::quic
         return conn._endpoint.call_get([&conn] { return conn.debug_datagram_counter; });
     }
 
+    void TestHelper::increment_ref_id(Endpoint& ep, uint64_t by)
+    {
+        ep._next_rid += by;
+    }
+
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
         auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);

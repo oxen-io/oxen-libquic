@@ -231,6 +231,8 @@ namespace oxen::quic
     {
         if (not conn.closing_quietly())
         {
+            conn.close_all_streams();
+
             // prioritize connection level callback over endpoint level
             if (conn.conn_closed_cb)
             {
@@ -325,6 +327,8 @@ namespace oxen::quic
     {
         const auto& rid = conn.reference_id();
 
+        conn.halt_events();
+
         log::debug(log_cat, "Deleting associated CIDs for connection ({})", rid);
 
         if (conn.is_inbound())
@@ -341,6 +345,8 @@ namespace oxen::quic
             dissociate_cid(&*itr, conn);
             itr = cids.erase(itr);
         }
+
+        conn.drop_streams();
 
         conns.erase(rid);
         log::debug(log_cat, "Deleted connection ({})", rid);

@@ -18,7 +18,10 @@ extern "C"
 namespace oxen::quic
 {
     Stream::Stream(Connection& conn, Endpoint& _ep, stream_data_callback data_cb, stream_close_callback close_cb) :
-            IOChannel{conn, _ep}, data_callback{data_cb}, close_callback{std::move(close_cb)}
+            IOChannel{conn, _ep},
+            reference_id{conn.reference_id()},
+            data_callback{data_cb},
+            close_callback{std::move(close_cb)}
     {
         log::trace(log_cat, "Creating Stream object...");
 
@@ -35,13 +38,17 @@ namespace oxen::quic
 
     Stream::~Stream()
     {
-        log::debug(log_cat, "Destroying stream {}", _stream_id);
+        log::trace(log_cat, "Destroying stream {}", _stream_id);
+    }
 
-        bool was_closing = _is_closing;
-        _is_closing = _is_shutdown = true;
+    bool Stream::available() const
+    {
+        return endpoint.call_get([this] { return !(_is_closing || _is_shutdown || _sent_fin); });
+    }
 
-        if (!was_closing && close_callback)
-            close_callback(*this, STREAM_ERROR_CONNECTION_EXPIRED);
+    bool Stream::is_ready() const
+    {
+        return endpoint.call_get([this] { return _ready; });
     }
 
     std::shared_ptr<Stream> Stream::get_stream()
@@ -49,14 +56,10 @@ namespace oxen::quic
         return shared_from_this();
     }
 
-    const ConnectionID& Stream::reference_id() const
-    {
-        return conn.reference_id();
-    }
-
     void Stream::close(uint64_t app_err_code)
     {
-        assert(app_err_code < APP_ERRCODE_MAX);
+        if (app_err_code > APP_ERRCODE_MAX)
+            throw std::invalid_argument{"Invalid application error code (too large)"};
 
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
@@ -70,13 +73,22 @@ namespace oxen::quic
             else
             {
                 _is_closing = _is_shutdown = true;
-                log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
-                ngtcp2_conn_shutdown_stream(conn, 0, _stream_id, app_err_code);
+                if (_conn)
+                {
+                    log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
+                    ngtcp2_conn_shutdown_stream(*_conn, 0, _stream_id, app_err_code);
+                }
             }
             if (_is_shutdown)
                 data_callback = nullptr;
 
-            conn.packet_io_ready();
+            if (!_conn)
+            {
+                log::warning(log_cat, "Stream close ignored: the stream's connection is gone");
+                return;
+            }
+
+            _conn->packet_io_ready();
         });
     }
 
@@ -84,8 +96,10 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, std::move(keep_alive));
+        assert(endpoint.in_event_loop());
+        assert(_conn);
         if (_ready)
-            conn.packet_io_ready();
+            _conn->packet_io_ready();
         else
             log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
     }
@@ -165,9 +179,19 @@ namespace oxen::quic
         if (data.empty())
             return;
 
-        endpoint.call([this, data, keep_alive]() {
+        // In theory, `endpoint` that we use here might be inaccessible as well, but unlike conn
+        // (which we have to check because it could have been closed by remote actions or network
+        // events) the application has control and responsibility for keeping the network/endpoint
+        // alive at least as long as all the Connections/Streams that instances that were attached
+        // to it.
+        endpoint.call([this, data, ka = std::move(keep_alive)]() {
+            if (!_conn || _conn->is_closing() || _conn->is_draining())
+            {
+                log::warning(log_cat, "Stream {} unable to send: connection is closed", _stream_id);
+                return;
+            }
             log::trace(log_cat, "Stream (ID: {}) sending message: {}", _stream_id, buffer_printer{data});
-            append_buffer(data, keep_alive);
+            append_buffer(data, std::move(ka));
         });
     }
 }  // namespace oxen::quic

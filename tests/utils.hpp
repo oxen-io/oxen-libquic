@@ -42,6 +42,10 @@ namespace oxen::quic
         static int disable_dgram_flip_flop(connection_interface& conn);
         static int get_dgram_debug_counter(connection_interface& conn);
 
+        // Bumps the connection's next reference id to make it easier to tell which connection is
+        // which in log output.
+        static void increment_ref_id(Endpoint& ep, uint64_t by = 1);
+
         static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& conn);
     };
 
@@ -124,7 +128,7 @@ namespace oxen::quic
     std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
     template <typename F>
-    auto require_future(F& f, std::chrono::milliseconds timeout = 1s)
+    auto require_future(F&& f, std::chrono::milliseconds timeout = 1s)
     {
         REQUIRE(f.wait_for(timeout) == std::future_status::ready);
         return f.get();

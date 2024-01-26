@@ -208,10 +208,11 @@ namespace oxen::quic::test
             std::promise<bool> data_promise;
             std::future<bool> data_future = data_promise.get_future();
 
-            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
-                data_counter += 1;
-                data_promise.set_value(true);
+                ++data_counter;
+                if (data == "final"_bs)
+                    data_promise.set_value(true);
             };
 
             opt::enable_datagrams split_dgram{Splitting::ACTIVE};
@@ -228,6 +229,11 @@ namespace oxen::quic::test
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
+
+            auto init_max_size = conn_interface->max_datagram_size_changed();
+            REQUIRE(init_max_size);
+            CHECK(*init_max_size == 0);
+            CHECK_FALSE(conn_interface->max_datagram_size_changed());
 
             REQUIRE(client_established.wait());
             REQUIRE(server_endpoint->datagrams_enabled());
@@ -248,11 +254,22 @@ namespace oxen::quic::test
             while (oversize_msg.size() < max_size * 2)
                 oversize_msg += v++;
 
-            REQUIRE_NOTHROW(conn_interface->send_datagram(std::move(good_msg)));
-            REQUIRE_THROWS(conn_interface->send_datagram(std::move(oversize_msg)));
+            auto max_size2 = conn_interface->max_datagram_size_changed();
+            REQUIRE(max_size2);
+            CHECK(*max_size2 == max_size);
+            CHECK(*max_size2 > init_max_size);
 
-            REQUIRE(data_future.get());
-            REQUIRE(data_counter == 1);
+            CHECK_FALSE(conn_interface->max_datagram_size_changed());
+
+            CHECK(good_msg.size() <= max_size2);
+            CHECK(oversize_msg.size() > max_size2);
+
+            conn_interface->send_datagram(std::move(good_msg));
+            conn_interface->send_datagram(std::move(oversize_msg));
+            conn_interface->send_datagram("final"s);
+
+            require_future(data_future);
+            CHECK(data_counter == 2);
         };
     };
 
