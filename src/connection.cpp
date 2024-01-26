@@ -758,16 +758,12 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
-#ifndef NDEBUG
-        if (test_suite.datagram_flip_flop_enabled)
+        if (debug_datagram_flip_flop_enabled)
         {
-            test_suite.datagram_flip_flip_counter += n_packets;
-            log::debug(
-                    log_cat,
-                    "enable_datagram_flip_flop_test is true; sent packet count: {}",
-                    test_suite.datagram_flip_flip_counter.load());
+            debug_datagram_counter += n_packets;
+            log::debug(log_cat, "enable_datagram_flip_flop_test is true; sent packet count: {}", debug_datagram_counter);
         }
-#endif
+
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
@@ -1614,12 +1610,6 @@ namespace oxen::quic
 
         event_add(packet_retransmit_timer.get(), nullptr);
 
-#ifndef NDEBUG
-        test_suite.datagram_drop_enabled = false;
-        test_suite.datagram_flip_flop_enabled = false;
-        test_suite.datagram_drop_counter = 0;
-        test_suite.datagram_flip_flip_counter = 0;
-#endif
         log::info(log_cat, "Successfully created new {} connection object", d_str);
     }
 
@@ -1658,18 +1648,15 @@ namespace oxen::quic
             s->check_timeouts();
     }
 
-#ifndef NDEBUG
 
     connection_interface::~connection_interface()
     {
-        log::debug(log_cat, "connection_interface @{} destroyed", (void*)this);
+        log::trace(log_cat, "connection_interface @{} destroyed", (void*)this);
     }
 
     Connection::~Connection()
     {
-        log::debug(log_cat, "Connection @{} destroyed", (void*)this);
+        log::trace(log_cat, "Connection @{} destroyed", (void*)this);
     }
-
-#endif
 
 }  // namespace oxen::quic

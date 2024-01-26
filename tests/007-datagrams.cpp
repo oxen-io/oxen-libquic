@@ -430,9 +430,6 @@ namespace oxen::quic::test
     {
         if (disable_rotating_buffer)
             SKIP("Rotating buffer testing not enabled for this test iteration!");
-#ifdef NDEBUG
-        SKIP("Induced test loss requires a debug build");
-#else
         SECTION("Simple datagram transmission - induced loss")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
@@ -491,16 +488,15 @@ namespace oxen::quic::test
             bstring dropped_msg(1500, std::byte{'-'});
             bstring successful_msg(1500, std::byte{'+'});
 
-            server_ci->test_suite.datagram_drop_counter = 0;
-            server_ci->test_suite.datagram_drop_enabled = true;
+            TestHelper::enable_dgram_drop(static_cast<Connection&>(*server_ci));
 
             for (int i = 0; i < quarter; ++i)
                 conn_interface->send_datagram(bstring_view{dropped_msg});
 
-            while (server_ci->test_suite.datagram_drop_counter < quarter)
+            while (TestHelper::get_dgram_debug_counter(*server_ci) < quarter)
                 std::this_thread::sleep_for(10ms);
 
-            server_ci->test_suite.datagram_drop_enabled = false;
+            TestHelper::disable_dgram_drop(*server_ci);
 
             for (int i = 0; i < bufsize; ++i)
                 conn_interface->send_datagram(bstring_view{successful_msg});
@@ -511,7 +507,6 @@ namespace oxen::quic::test
             REQUIRE(counter == bufsize);
             REQUIRE(received == successful_msg);
         };
-#endif
     };
 
     /*
@@ -525,9 +520,6 @@ namespace oxen::quic::test
     */
     TEST_CASE("007 - Datagram support: Rotating Buffer, Flip-Flop Ordering", "[007][datagrams][execute][split][flipflop]")
     {
-#ifdef NDEBUG
-        SKIP("Induced test loss requires a debug build");
-#else
         SECTION("Simple datagram transmission - flip flop ordering")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
@@ -593,8 +585,7 @@ namespace oxen::quic::test
             while (small.size() < 50)
                 small += v++;
 
-            conn_interface->test_suite.datagram_flip_flip_counter = 0;
-            conn_interface->test_suite.datagram_flip_flop_enabled = true;
+            TestHelper::enable_dgram_flip_flop(*conn_interface);
 
             std::promise<bool> pr;
             std::future<bool> ftr = pr.get_future();
@@ -622,11 +613,9 @@ namespace oxen::quic::test
             for (auto& f : data_futures)
                 REQUIRE(f.get());
 
-            REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter < (int)n);
-
-            conn_interface->test_suite.datagram_flip_flop_enabled = false;
+            REQUIRE(data_counter == (int)n);
+            auto flip_flop_count = TestHelper::disable_dgram_flip_flop(*conn_interface);
+            REQUIRE(flip_flop_count < (int)n);
         };
-#endif
     };
 }  // namespace oxen::quic::test

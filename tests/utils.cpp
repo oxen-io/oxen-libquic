@@ -63,6 +63,50 @@ namespace oxen::quic
         return ep->get_conn(conn->_source_cid);
     }
 
+    void TestHelper::enable_dgram_drop(connection_interface& ci)
+    {
+        auto& conn = static_cast<Connection&>(ci);
+        conn._endpoint.call_get([&conn] {
+            conn.debug_datagram_flip_flop_enabled = false;
+            conn.debug_datagram_drop_enabled = true;
+            conn.debug_datagram_counter = 0;
+        });
+    }
+    int TestHelper::disable_dgram_drop(connection_interface& ci)
+    {
+        auto& conn = static_cast<Connection&>(ci);
+        return conn._endpoint.call_get([&conn] {
+            conn.debug_datagram_drop_enabled = false;
+            int count = 0;
+            std::swap(count, conn.debug_datagram_counter);
+            return count;
+        });
+    }
+    void TestHelper::enable_dgram_flip_flop(connection_interface& ci)
+    {
+        auto& conn = static_cast<Connection&>(ci);
+        conn._endpoint.call_get([&conn] {
+            conn.debug_datagram_drop_enabled = false;
+            conn.debug_datagram_flip_flop_enabled = true;
+            conn.debug_datagram_counter = 0;
+        });
+    }
+    int TestHelper::disable_dgram_flip_flop(connection_interface& ci)
+    {
+        auto& conn = static_cast<Connection&>(ci);
+        return conn._endpoint.call_get([&conn] {
+            conn.debug_datagram_flip_flop_enabled = false;
+            int count = 0;
+            std::swap(count, conn.debug_datagram_counter);
+            return count;
+        });
+    }
+    int TestHelper::get_dgram_debug_counter(connection_interface& ci)
+    {
+        auto& conn = static_cast<Connection&>(ci);
+        return conn._endpoint.call_get([&conn] { return conn.debug_datagram_counter; });
+    }
+
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
         auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);

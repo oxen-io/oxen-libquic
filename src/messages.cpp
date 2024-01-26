@@ -70,7 +70,6 @@ namespace oxen::quic
 
         if (b)
         {
-#ifndef NDEBUG
             if (d.conn.test_suite.datagram_drop_enabled)
             {
                 log::debug(log_cat, "enable_datagram_drop_test is true, inducing packet loss");
@@ -82,7 +81,6 @@ namespace oxen::quic
             {
                 log::debug(log_cat, "enable_datagram_drop_test is false, skipping optional logic");
             }
-#endif
 
             log::trace(
                     log_cat,

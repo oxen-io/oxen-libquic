@@ -24,17 +24,6 @@ namespace oxen::quic
     inline constexpr uint64_t MAX_ACTIVE_CIDS{8};
     inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
 
-#ifndef NDEBUG
-    class debug_interface
-    {
-      public:
-        std::atomic<bool> datagram_drop_enabled{false};
-        std::atomic<int> datagram_drop_counter{0};
-        std::atomic<bool> datagram_flip_flop_enabled{false};
-        std::atomic<int> datagram_flip_flip_counter{0};
-    };
-#endif
-
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       protected:
@@ -183,18 +172,14 @@ namespace oxen::quic
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
-#ifndef NDEBUG
         virtual ~connection_interface();
 
-        debug_interface test_suite;
-#else
-        virtual ~connection_interface() = default;
-#endif
     };
 
     class Connection : public connection_interface
     {
         friend class TestHelper;
+        friend struct rotating_buffer;
 
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
@@ -419,8 +404,11 @@ namespace oxen::quic
 
         std::shared_ptr<dgram_interface> di;
 
-        /********* TEST METHODS *********/
+        /********* TEST SUITE FUNCTIONALITY *********/
         void set_local_addr(Address new_local);
+        bool debug_datagram_drop_enabled{false};
+        bool debug_datagram_flip_flop_enabled{false};
+        int debug_datagram_counter{0};  // Used for either of the above (only one at a time)
 
       public:
         // public to be called by endpoint handing this connection a packet
@@ -455,9 +443,7 @@ namespace oxen::quic
         // externally.
         void check_stream_timeouts();
 
-#ifndef NDEBUG
         ~Connection() override;
-#endif
     };
 
     extern "C"
