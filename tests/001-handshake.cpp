@@ -301,14 +301,19 @@ namespace oxen::quic::test
         auto client_tls = GNUTLSCreds::make_from_ed_keys(C_SEED, C_PUBKEY);
         auto server_tls = GNUTLSCreds::make_from_ed_keys(S_SEED, S_PUBKEY);
 
-        auto defer_hook = [](const std::string& incoming,
-                             const std::string& local,
-                             const std::string& remote,
-                             std::shared_ptr<connection_interface> local_outbound) -> bool {
-            REQUIRE(incoming == remote);
+        std::mutex mut;
 
-            // The pubkeys definitely should not be the same
-            REQUIRE_FALSE(incoming == local);
+        auto defer_hook = [&mut](const std::string& incoming,
+                                 const std::string& local,
+                                 const std::string& remote,
+                                 std::shared_ptr<connection_interface> local_outbound) -> bool {
+            {
+                std::lock_guard lock{mut};
+                REQUIRE(incoming == remote);
+
+                // The pubkeys definitely should not be the same
+                REQUIRE_FALSE(incoming == local);
+            }
 
             // If the LHS parameter to std::strcmp appears FIRST in lexicographical order, then rv < 0. As a result,
             // if the incoming pubkey appears BEFORE the server pubkey in lexicographical order, we will defer to the
@@ -357,17 +362,25 @@ namespace oxen::quic::test
 
             RemoteAddress server_remote{C_PUBKEY, "127.0.0.1"s, client_endpoint->local().port()};
 
-            CHECK_NOTHROW(server_endpoint->listen(server_tls));
-            CHECK_NOTHROW(client_endpoint->listen(client_tls));
+            server_endpoint->listen(server_tls);
+            client_endpoint->listen(client_tls);
 
             client_ci = client_endpoint->connect(client_remote, client_tls);
             server_ci = server_endpoint->connect(server_remote, server_tls);
 
-            CHECK(client_established.wait());
+            {
+                bool established = client_established.wait();
+                std::lock_guard lock{mut};
+                CHECK(established);
+            }
             // By signalling to close all connections, we will ensure that the above promise is set during
             // closure of the connection that was preferred.
             client_endpoint->close_conns();
-            CHECK(f.get());
+            {
+                bool got_server_close = f.get();
+                std::lock_guard lock{mut};
+                CHECK(got_server_close);
+            }
         };
 
         SECTION("Override connection level callback", "[override][closehook][connection]")
@@ -384,15 +397,22 @@ namespace oxen::quic::test
 
             RemoteAddress server_remote{C_PUBKEY, "127.0.0.1"s, client_endpoint->local().port()};
 
-            CHECK_NOTHROW(server_endpoint->listen(server_tls));
-            CHECK_NOTHROW(client_endpoint->listen(client_tls));
+            server_endpoint->listen(server_tls);
+            client_endpoint->listen(client_tls);
 
             client_ci = client_endpoint->connect(client_remote, client_tls);
             server_ci = server_endpoint->connect(server_remote, server_tls, server_closed_conn_level);
 
-            CHECK(client_established.wait());
+            {
+                bool established = client_established.wait();
+                std::lock_guard lock{mut};
+                CHECK(established);
+            }
             client_endpoint->close_conns();
-            CHECK_FALSE(server_closed_conn_level.is_ready());
+            {
+                std::lock_guard lock{mut};
+                CHECK_FALSE(server_closed_conn_level.is_ready());
+            }
         };
     };
 
