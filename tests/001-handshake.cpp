@@ -286,10 +286,6 @@ namespace oxen::quic::test
         auto client_established = callback_waiter{[](connection_interface&) {}};
         auto server_established = callback_waiter{[](connection_interface&) {}};
 
-        Network test_net{};
-
-        std::shared_ptr<connection_interface> server_ci, client_ci;
-
         // Instead of using randomly generated seeds and pubkeys, hardcoded strings are used to deterministically
         // produce the same test result. The key verify callback compares the pubkeys in lexicographical order,
         // deferring to the connetion initiated by the pubkey that appears first in said order.
@@ -297,6 +293,10 @@ namespace oxen::quic::test
         const std::string C_PUBKEY = "626136fe40c8860ee5bdc57fd9f15a03ef6777bb9237c18fc4d7ef2aacfe4f88"_hex;
         const std::string S_SEED = "fefbb50cdd4cde3be0ae75042c44ff42b026def4fd6be4fb1dc6e81ea0480c9b"_hex;
         const std::string S_PUBKEY = "d580d5c68937095ea997f6a88f07a86cdd26dfa0d7d268e80ea9bbb5f3ca0304"_hex;
+
+        Network test_net{};
+
+        std::shared_ptr<connection_interface> server_ci, client_ci;
 
         auto client_tls = GNUTLSCreds::make_from_ed_keys(C_SEED, C_PUBKEY);
         auto server_tls = GNUTLSCreds::make_from_ed_keys(S_SEED, S_PUBKEY);
@@ -309,10 +309,10 @@ namespace oxen::quic::test
                                  std::shared_ptr<connection_interface> local_outbound) -> bool {
             {
                 std::lock_guard lock{mut};
-                REQUIRE(incoming == remote);
+                REQUIRE(oxenc::to_hex(incoming) == oxenc::to_hex(remote));
 
                 // The pubkeys definitely should not be the same
-                REQUIRE_FALSE(incoming == local);
+                REQUIRE_FALSE(oxenc::to_hex(incoming) == oxenc::to_hex(local));
             }
 
             // If the LHS parameter to std::strcmp appears FIRST in lexicographical order, then rv < 0. As a result,
