@@ -316,8 +316,8 @@ namespace oxen::quic
                         "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
                         conn.reference_id());
-                delete_connection(conn);
             }
+            delete_connection(conn);
         });
     }
 
@@ -778,6 +778,8 @@ namespace oxen::quic
                 send_or_queue_packet(p, std::move(buf), ecn, std::move(cb));
             });
         }
+        else if (callback)
+            callback({});
     }
 
     void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p)
