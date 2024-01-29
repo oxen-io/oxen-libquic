@@ -1,3 +1,17 @@
+oxen-libquic (1.0.0-2~ubuntu2310) mantic; urgency=medium
+
+  * Move IOChannel into its own header
+  * Mutex guard catch2 checks in this test
+  * Fix destruction order problem
+  * Stream: use `_` prefix for all private member variables
+  * Remove NDEBUG guards around datagram test suite debug fields
+  * Fix delete_connection not getting fired when closing
+  * Stream/Connection lifetime and thread safety
+  * Add missing lock before REQUIRE
+  * Include successful test output in CI test logs
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 29 Jan 2024 14:04:38 -0400
+
 oxen-libquic (1.0.0-1~ubuntu2310) mantic; urgency=medium
 
   * Initial release.
