@@ -13,8 +13,9 @@ namespace oxen::quic
     // application error codes, without going so big that we need 64-bit encoding.
     inline constexpr uint64_t ERROR_BASE = 777'000'000;
 
-    // Error code we send to a stream close callback if the stream's connection expires
-    inline constexpr uint64_t STREAM_ERROR_CONNECTION_EXPIRED = ERROR_BASE + 1;
+    // Error code we pass to a stream close callback if the stream is closed because the connection
+    // is closing.
+    inline constexpr uint64_t STREAM_ERROR_CONNECTION_CLOSED = ERROR_BASE + 1;
 
     // Application error code we close with if the stream data handle throws
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = ERROR_BASE + 100;
@@ -56,8 +57,8 @@ namespace oxen::quic
                 return "Error - stream exception"s;
             case BPARSER_ERROR_EXCEPTION:
                 return "Error - bt request stream exception"s;
-            case STREAM_ERROR_CONNECTION_EXPIRED:
-                return "Error - stream connection expired"s;
+            case STREAM_ERROR_CONNECTION_CLOSED:
+                return "Error - stream connection closed"s;
             case CONN_WRITE_CLOSE_FAIL:
                 return "Error - Failed to write connection close"s;
             case CONN_SEND_CLOSE_FAIL:

@@ -10,6 +10,7 @@ add_library(quic
     format.cpp
     gnutls_creds.cpp
     gnutls_session.cpp
+    iochannel.cpp
     messages.cpp
     network.cpp
     stream.cpp
