@@ -208,10 +208,11 @@ namespace oxen::quic::test
             std::promise<bool> data_promise;
             std::future<bool> data_future = data_promise.get_future();
 
-            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
+            dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
-                data_counter += 1;
-                data_promise.set_value(true);
+                ++data_counter;
+                if (data == "final"_bs)
+                    data_promise.set_value(true);
             };
 
             opt::enable_datagrams split_dgram{Splitting::ACTIVE};
@@ -228,6 +229,11 @@ namespace oxen::quic::test
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
+
+            auto init_max_size = conn_interface->max_datagram_size_changed();
+            REQUIRE(init_max_size);
+            CHECK(*init_max_size == 0);
+            CHECK_FALSE(conn_interface->max_datagram_size_changed());
 
             REQUIRE(client_established.wait());
             REQUIRE(server_endpoint->datagrams_enabled());
@@ -248,11 +254,22 @@ namespace oxen::quic::test
             while (oversize_msg.size() < max_size * 2)
                 oversize_msg += v++;
 
-            REQUIRE_NOTHROW(conn_interface->send_datagram(std::move(good_msg)));
-            REQUIRE_THROWS(conn_interface->send_datagram(std::move(oversize_msg)));
+            auto max_size2 = conn_interface->max_datagram_size_changed();
+            REQUIRE(max_size2);
+            CHECK(*max_size2 == max_size);
+            CHECK(*max_size2 > init_max_size);
 
-            REQUIRE(data_future.get());
-            REQUIRE(data_counter == 1);
+            CHECK_FALSE(conn_interface->max_datagram_size_changed());
+
+            CHECK(good_msg.size() <= max_size2);
+            CHECK(oversize_msg.size() > max_size2);
+
+            conn_interface->send_datagram(std::move(good_msg));
+            conn_interface->send_datagram(std::move(oversize_msg));
+            conn_interface->send_datagram("final"s);
+
+            require_future(data_future);
+            CHECK(data_counter == 2);
         };
     };
 
@@ -430,9 +447,6 @@ namespace oxen::quic::test
     {
         if (disable_rotating_buffer)
             SKIP("Rotating buffer testing not enabled for this test iteration!");
-#ifdef NDEBUG
-        SKIP("Induced test loss requires a debug build");
-#else
         SECTION("Simple datagram transmission - induced loss")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
@@ -491,16 +505,15 @@ namespace oxen::quic::test
             bstring dropped_msg(1500, std::byte{'-'});
             bstring successful_msg(1500, std::byte{'+'});
 
-            server_ci->test_suite.datagram_drop_counter = 0;
-            server_ci->test_suite.datagram_drop_enabled = true;
+            TestHelper::enable_dgram_drop(static_cast<Connection&>(*server_ci));
 
             for (int i = 0; i < quarter; ++i)
                 conn_interface->send_datagram(bstring_view{dropped_msg});
 
-            while (server_ci->test_suite.datagram_drop_counter < quarter)
+            while (TestHelper::get_dgram_debug_counter(*server_ci) < quarter)
                 std::this_thread::sleep_for(10ms);
 
-            server_ci->test_suite.datagram_drop_enabled = false;
+            TestHelper::disable_dgram_drop(*server_ci);
 
             for (int i = 0; i < bufsize; ++i)
                 conn_interface->send_datagram(bstring_view{successful_msg});
@@ -511,7 +524,6 @@ namespace oxen::quic::test
             REQUIRE(counter == bufsize);
             REQUIRE(received == successful_msg);
         };
-#endif
     };
 
     /*
@@ -525,9 +537,6 @@ namespace oxen::quic::test
     */
     TEST_CASE("007 - Datagram support: Rotating Buffer, Flip-Flop Ordering", "[007][datagrams][execute][split][flipflop]")
     {
-#ifdef NDEBUG
-        SKIP("Induced test loss requires a debug build");
-#else
         SECTION("Simple datagram transmission - flip flop ordering")
         {
             log::trace(log_cat, "Beginning the unit test from hell");
@@ -593,8 +602,7 @@ namespace oxen::quic::test
             while (small.size() < 50)
                 small += v++;
 
-            conn_interface->test_suite.datagram_flip_flip_counter = 0;
-            conn_interface->test_suite.datagram_flip_flop_enabled = true;
+            TestHelper::enable_dgram_flip_flop(*conn_interface);
 
             std::promise<bool> pr;
             std::future<bool> ftr = pr.get_future();
@@ -622,11 +630,9 @@ namespace oxen::quic::test
             for (auto& f : data_futures)
                 REQUIRE(f.get());
 
-            REQUIRE(data_counter == int(n));
-            REQUIRE(conn_interface->test_suite.datagram_flip_flip_counter < (int)n);
-
-            conn_interface->test_suite.datagram_flip_flop_enabled = false;
+            REQUIRE(data_counter == (int)n);
+            auto flip_flop_count = TestHelper::disable_dgram_flip_flop(*conn_interface);
+            REQUIRE(flip_flop_count < (int)n);
         };
-#endif
     };
 }  // namespace oxen::quic::test

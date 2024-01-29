@@ -78,7 +78,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         + (if tests then [
              'cd build',
              '../utils/gen-certs.sh',
-             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --log-level debug --no-ipv6 --colour-mode ansi',
+             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success --log-level debug --no-ipv6 --colour-mode ansi',
              'cd ..',
            ] else []);
 

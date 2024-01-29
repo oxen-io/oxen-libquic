@@ -24,17 +24,6 @@ namespace oxen::quic
     inline constexpr uint64_t MAX_ACTIVE_CIDS{8};
     inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
 
-#ifndef NDEBUG
-    class debug_interface
-    {
-      public:
-        std::atomic<bool> datagram_drop_enabled{false};
-        std::atomic<int> datagram_drop_counter{0};
-        std::atomic<bool> datagram_flip_flop_enabled{false};
-        std::atomic<int> datagram_flip_flip_counter{0};
-    };
-#endif
-
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
       protected:
@@ -156,24 +145,75 @@ namespace oxen::quic
             send_datagram(view, std::move(keep_alive));
         }
 
-        virtual void set_close_quietly() = 0;
         virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
-        virtual size_t num_streams_active() const = 0;
-        virtual size_t num_streams_pending() const = 0;
-        virtual uint64_t get_max_streams() const = 0;
-        virtual uint64_t get_streams_available() const = 0;
-        virtual size_t get_max_datagram_size() const = 0;
+
+        virtual Endpoint& endpoint() = 0;
+        virtual const Endpoint& endpoint() const = 0;
+
+        virtual void set_close_quietly() = 0;
+
         virtual bool datagrams_enabled() const = 0;
         virtual bool packet_splitting_enabled() const = 0;
         virtual const ConnectionID& reference_id() const = 0;
-        virtual const Address& local() const = 0;
-        virtual const Address& remote() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
         virtual ustring_view remote_key() const = 0;
         virtual bool is_inbound() const = 0;
         virtual bool is_outbound() const = 0;
         virtual std::string direction_str() = 0;
+
+        // Non-virtual base class wrappers for the virtual methods of the same name with _impl
+        // appended (e.g.  path_impl); these versions in the base class wrap the _impl call in a
+        // call_get to return the value synchronously.  Generally external application code should
+        // use this, and internal quic code (already in the event loop thread) should use the _impl
+        // ones directly.
+
+        /// Returns the number of streams that are currently open
+        size_t num_streams_active();
+
+        /// Returns the number of streams that have been created but are not yet active on the
+        /// connection; they will become active once the connection negotiates an increase to the
+        /// maximum number of streams, *or* when an existing stream closes, opening a stream slot on
+        /// the connection.
+        size_t num_streams_pending();
+
+        /// Returns the maximum number of active streams that the connection currently allows.
+        uint64_t get_max_streams();
+
+        /// Returns the number of new streams that may still be activated on this connection.
+        uint64_t get_streams_available();
+
+        /// Returns a copy of the current Path in use by this connection.
+        Path path();
+
+        /// Returns a copy of the local address of the path in use by this connection.  (If you want
+        /// both local and remote then prefer to call `path()` once instead of local() and remote()
+        /// separately).
+        Address local();
+
+        /// Returns a copy of the remote address of the path in use by this connection.  (If you
+        /// want both local and remote then prefer to call `path()` once instead of local() and
+        /// remote() separately).
+        Address remote();
+
+        /// Returns the maximum datagram size accepted by this connection.  This depends on the
+        /// negotiated QUIC connection and can change over time, but will generally be somewhere in
+        /// the 1150-1450 range when not using datagram splitting on the connection, or double that
+        /// with datagram splitting enabled.
+        size_t get_max_datagram_size();
+
+        /// Obtains the current max datagram size *if* it has changed since the last time this
+        /// method was called (or if this method has never been called), otherwise returns nullopt.
+        /// This is designed to allow classes to react to changes in the maximum datagram size, if
+        /// needed, by periodically polling this and updating as needed when the value changes.
+        /// When there have not been changes then calling this is cheap (just an atomic bool
+        /// access); a trip to the event loop thread is necessary to retrieve the value when
+        /// changed, but changes are relatively infrequent.
+        ///
+        /// This feature is for non-standard/exotic uses: if you don't care about changes to the
+        /// size (for example, if you use splitting and know the size will always be sufficient)
+        /// then you can safely never worry about this function.
+        virtual std::optional<size_t> max_datagram_size_changed() = 0;
 
         // WIP functions: these are meant to expose specific aspects of the internal state of connection
         // and the datagram IO object for debugging and application (user) utilization.
@@ -183,18 +223,27 @@ namespace oxen::quic
 
         virtual void close_connection(uint64_t error_code = 0) = 0;
 
-#ifndef NDEBUG
         virtual ~connection_interface();
 
-        debug_interface test_suite;
-#else
-        virtual ~connection_interface() = default;
-#endif
+      protected:
+        // Unsynchronized access methods suitable only for internal use in contexts where we know we
+        // are already inside the event loop thread.  The public APIs for these (without _impl)
+        // wraps these in a call_get to make them thread-safe.
+        virtual size_t num_streams_active_impl() const = 0;
+        virtual size_t num_streams_pending_impl() const = 0;
+        virtual uint64_t get_max_streams_impl() const = 0;
+        virtual uint64_t get_streams_available_impl() const = 0;
+        virtual const Path& path_impl() const = 0;
+        virtual const Address& local_impl() const { return path_impl().local; }
+        virtual const Address& remote_impl() const { return path_impl().remote; }
+        // Returns 0 if datagrams are not available
+        virtual size_t get_max_datagram_size_impl() = 0;
     };
 
     class Connection : public connection_interface
     {
         friend class TestHelper;
+        friend struct rotating_buffer;
 
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
@@ -239,8 +288,8 @@ namespace oxen::quic
 
         Direction direction() const override { return dir; }
 
-        size_t num_streams_active() const override { return _streams.size(); }
-        size_t num_streams_pending() const override { return pending_streams.size(); }
+        size_t num_streams_active_impl() const override { return _streams.size(); }
+        size_t num_streams_pending_impl() const override { return pending_streams.size(); }
 
         void halt_events();
         bool is_closing() const { return closing; }
@@ -253,20 +302,23 @@ namespace oxen::quic
         bool is_inbound() const override { return not is_outbound(); }
         std::string direction_str() override { return is_inbound() ? "SERVER"s : "CLIENT"s; }
 
-        const Path& path() { return _path; }
-        const Address& local() const override { return _path.local; }
-        const Address& remote() const override { return _path.remote; }
+        const Path& path_impl() const override { return _path; }
+        const Address& local_impl() const override { return _path.local; }
+        const Address& remote_impl() const override { return _path.remote; }
 
-        Endpoint& endpoint() { return _endpoint; }
-        const Endpoint& endpoint() const { return _endpoint; }
+        Endpoint& endpoint() override { return _endpoint; }
+        const Endpoint& endpoint() const override { return _endpoint; }
 
         ustring_view selected_alpn() const override;
 
-        uint64_t get_streams_available() const override;
-        size_t get_max_datagram_size() const override;
-        uint64_t get_max_streams() const override { return _max_streams; }
+        uint64_t get_streams_available_impl() const override;
+        size_t get_max_datagram_size_impl() override;
+        uint64_t get_max_streams_impl() const override { return _max_streams; }
+
         bool datagrams_enabled() const override { return _datagrams_enabled; }
         bool packet_splitting_enabled() const override { return _packet_splitting; }
+
+        std::optional<size_t> max_datagram_size_changed() override;
 
         // public debug functions; to be removed with friend test fixture class
         int last_cleared() const override;
@@ -309,6 +361,13 @@ namespace oxen::quic
 
         bool closing_quietly() const { return _close_quietly; }
 
+        // Called when the endpoint drops its shared pointer to this Connection, to have this
+        // Connection clear itself from all of its streams and then drop the streams.  (This is a
+        // sort of pseudo-destruction to leave the involved objects as empty shells since there
+        // might be shared pointers in application space that keep the connection and/or stream
+        // alive after it gets dropped from libquic internal structures).
+        void drop_streams();
+
       private:
         // private Constructor (publicly construct via `make_conn` instead, so that we can properly
         // set up the shared_from_this shenanigans).
@@ -343,10 +402,11 @@ namespace oxen::quic
         const uint64_t _max_streams{DEFAULT_MAX_BIDI_STREAMS};
         const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
+        size_t _last_max_dgram_size{0};
+        std::atomic<bool> _max_dgram_size_changed{true};
 
         std::atomic<bool> _close_quietly{false};
-        std::atomic<bool> _congested{false};
-        bool _is_validated{false};
+        std::atomic<bool> _is_validated{false};
 
         ustring remote_pubkey;
 
@@ -419,8 +479,11 @@ namespace oxen::quic
 
         std::shared_ptr<dgram_interface> di;
 
-        /********* TEST METHODS *********/
+        /********* TEST SUITE FUNCTIONALITY *********/
         void set_local_addr(Address new_local);
+        bool debug_datagram_drop_enabled{false};
+        bool debug_datagram_flip_flop_enabled{false};
+        int debug_datagram_counter{0};  // Used for either of the above (only one at a time)
 
       public:
         // public to be called by endpoint handing this connection a packet
@@ -430,6 +493,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_closed(int64_t id, uint64_t app_code);
+        void close_all_streams();
         void check_pending_streams(uint64_t available);
         int recv_datagram(bstring_view data, bool fin);
         int ack_datagram(uint64_t dgram_id);
@@ -455,9 +519,7 @@ namespace oxen::quic
         // externally.
         void check_stream_timeouts();
 
-#ifndef NDEBUG
         ~Connection() override;
-#endif
     };
 
     extern "C"

@@ -47,16 +47,15 @@ namespace oxen::quic
       public:
         ~Stream() override;
 
-        bool available() const { return !(_is_closing || is_shutdown || _sent_fin); }
         bool is_stream() const override { return true; }
-        bool is_ready() const { return ready; }
-        bool is_empty() const override { return user_buffers.empty(); }
         int64_t stream_id() const override { return _stream_id; }
-        const ConnectionID& reference_id() const;
-        bool has_unsent() const override { return not is_empty(); }
-        bool is_closing() const override { return _is_closing; }
-        bool sent_fin() const override { return _sent_fin; }
-        void set_fin(bool v) override { _sent_fin = v; }
+
+        const ConnectionID reference_id;
+
+        // These public methods are synchronized so that they can be safely called from outside the
+        // libquic main loop thread.
+        bool available() const;
+        bool is_ready() const;
 
         std::shared_ptr<Stream> get_stream() override;
 
@@ -94,17 +93,27 @@ namespace oxen::quic
 
         stream_buffer user_buffers;
 
+        bool sent_fin() const override { return _sent_fin; }
+        void set_fin(bool v) override { _sent_fin = v; }
+
+        bool has_unsent_impl() const override { return not is_empty_impl(); }
+        bool is_closing_impl() const override { return _is_closing; }
+        bool is_empty_impl() const override { return user_buffers.empty(); }
+        size_t unsent_impl() const override
+        {
+            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+            return size() - unacked();
+        }
+
       private:
         std::vector<ngtcp2_vec> pending() override;
 
-        size_t unacked_size{0};
+        size_t _unacked_size{0};
         bool _is_closing{false};
-        bool is_shutdown{false};
+        bool _is_shutdown{false};
         bool _sent_fin{false};
-        bool ready{false};
+        bool _ready{false};
         int64_t _stream_id;
-
-        const Connection& get_conn() const { return conn; }
 
         void wrote(size_t bytes) override;
 
@@ -112,7 +121,7 @@ namespace oxen::quic
 
         void acknowledge(size_t bytes);
 
-        inline size_t size() const
+        size_t size() const
         {
             size_t sum{0};
             if (user_buffers.empty())
@@ -122,13 +131,7 @@ namespace oxen::quic
             return sum;
         }
 
-        inline size_t unacked() const { return unacked_size; }
-
-        inline size_t unsent() const override
-        {
-            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-            return size() - unacked();
-        }
+        size_t unacked() const { return _unacked_size; }
 
         // Implementations classes for send_chunks()
 
@@ -266,10 +269,10 @@ namespace oxen::quic
             chunk_sender<T>::make(simultaneous, *this, std::move(next_chunk), std::move(done));
         }
 
-        inline void set_ready()
+        void set_ready()
         {
             log::trace(log_cat, "Setting stream ready");
-            ready = true;
+            _ready = true;
             on_ready();
         }
     };
