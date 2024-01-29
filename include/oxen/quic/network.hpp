@@ -132,7 +132,13 @@ namespace oxen::quic
             call_soon([&f, &prom] {
                 try
                 {
-                    prom.set_value(f());
+                    if constexpr (!std::is_void_v<Ret>)
+                        prom.set_value(f());
+                    else
+                    {
+                        f();
+                        prom.set_value();
+                    }
                 }
                 catch (...)
                 {
