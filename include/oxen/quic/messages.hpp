@@ -108,7 +108,7 @@ namespace oxen::quic
     struct rotating_buffer
     {
         int row{0}, col{0}, last_cleared{-1};
-        DatagramIO& d;
+        DatagramIO& datagram;
         const int bufsize;
         const int rowsize;
         // tracks the number of partial datagrams held in each buffer bucket
