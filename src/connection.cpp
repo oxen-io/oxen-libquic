@@ -490,7 +490,9 @@ namespace oxen::quic
 
     void Connection::packet_io_ready()
     {
-        event_active(packet_io_trigger.get(), 0, 0);
+        if (packet_io_trigger)
+            event_active(packet_io_trigger.get(), 0, 0);
+        // else we've reset the trigger (via halt_events), which means the connection is closing/draining/etc.
     }
 
     void Connection::close_connection(uint64_t error_code)
@@ -642,7 +644,7 @@ namespace oxen::quic
             else
                 stream = construct_stream(nullptr);
 
-            assert(!stream->ready);
+            assert(!stream->_ready);
             stream->_stream_id = next_incoming_stream_id;
             next_incoming_stream_id += 4;
 
@@ -668,12 +670,12 @@ namespace oxen::quic
             else
                 stream = construct_stream(make_stream);
 
-            assert(!stream->ready);
+            assert(!stream->_ready);
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
                 log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
-                assert(!stream->ready);
+                assert(!stream->_ready);
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
             }
@@ -758,16 +760,12 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(n_packets > 0 && n_packets <= MAX_BATCH);
 
-#ifndef NDEBUG
-        if (test_suite.datagram_flip_flop_enabled)
+        if (debug_datagram_flip_flop_enabled)
         {
-            test_suite.datagram_flip_flip_counter += n_packets;
-            log::debug(
-                    log_cat,
-                    "enable_datagram_flip_flop_test is true; sent packet count: {}",
-                    test_suite.datagram_flip_flip_counter.load());
+            debug_datagram_counter += n_packets;
+            log::debug(log_cat, "enable_datagram_flip_flop_test is true; sent packet count: {}", debug_datagram_counter);
         }
-#endif
+
         auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
@@ -1140,7 +1138,7 @@ namespace oxen::quic
 
         auto& stream = *it->second;
         const bool was_closing = stream._is_closing;
-        stream._is_closing = stream.is_shutdown = true;
+        stream._is_closing = stream._is_shutdown = true;
 
         if (!was_closing)
         {
@@ -1149,12 +1147,45 @@ namespace oxen::quic
         }
 
         log::info(log_cat, "Erasing stream {}", id);
+        stream._conn = nullptr;
         _streams.erase(it);
 
         if (!ngtcp2_conn_is_local_stream(conn.get(), id))
             ngtcp2_conn_extend_max_streams_bidi(conn.get(), 1);
 
         packet_io_ready();
+    }
+
+    // Called during connection closing (immediately before the connection close callback) to fire
+    // stream close callbacks for all open streams.
+    void Connection::close_all_streams()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        while (!_streams.empty())
+            stream_closed(_streams.begin()->first, STREAM_ERROR_CONNECTION_CLOSED);
+    }
+
+    void Connection::drop_streams()
+    {
+        log::debug(log_cat, "Dropping all streams from Connection {}", reference_id());
+        for (auto* stream_map : {&_streams, &_stream_queue})
+        {
+            for (auto& [id, stream] : *stream_map)
+                stream->_conn = nullptr;
+            stream_map->clear();
+        }
+        for (auto& stream : pending_streams)
+            stream->_conn = nullptr;
+        pending_streams.clear();
+        if (datagrams)
+        {
+            datagrams->_conn = nullptr;
+            datagrams.reset();
+        }
+        assert(pseudo_stream);  // If this isn't set it means we've been in here before, but that
+                                // shouldn't happen.
+        pseudo_stream->_conn = nullptr;
+        pseudo_stream.reset();
     }
 
     int Connection::stream_ack(int64_t id, size_t size)
@@ -1264,7 +1295,7 @@ namespace oxen::quic
                 log::trace(log_cat, "Datagram sent unsplit, bypassing rotating buffer");
             else
             {
-                // send received datagram to tetris_buffer if packet_splitting is enabled
+                // send received datagram to rotating_buffer if packet_splitting is enabled
                 maybe_data = datagrams->to_buffer(data, dgid);
 
                 // split datagram did not have a match
@@ -1336,21 +1367,42 @@ namespace oxen::quic
         datagrams->send(data, std::move(keep_alive));
     }
 
-    uint64_t Connection::get_streams_available() const
+    uint64_t Connection::get_streams_available_impl() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return ngtcp2_conn_get_streams_bidi_left(conn.get());
     }
 
-    size_t Connection::get_max_datagram_size() const
+    size_t Connection::get_max_datagram_size_impl()
     {
-        // If policy is greedy, we can take in doubel the datagram size
+        if (!_datagrams_enabled)
+            return 0;
+
+        // If packet splitting, we can take in double the datagram size
         size_t multiple = (_packet_splitting) ? 2 : 1;
+        // Minus packet splitting overhead that adds 2 bytes of overhead per full or half datagram:
         size_t adjustment = DATAGRAM_OVERHEAD + (_packet_splitting ? 2 : 0);
 
-        if (_datagrams_enabled)
-            return multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - adjustment);
-        return 0;
+        size_t max_dgram_size = multiple * (ngtcp2_conn_get_path_max_tx_udp_payload_size(conn.get()) - adjustment);
+        if (max_dgram_size != _last_max_dgram_size)
+        {
+            _max_dgram_size_changed = true;
+            _last_max_dgram_size = max_dgram_size;
+        }
+
+        return max_dgram_size;
+    }
+
+    std::optional<size_t> Connection::max_datagram_size_changed()
+    {
+        if (!_max_dgram_size_changed)
+            return std::nullopt;
+        return _endpoint.call_get([this]() -> std::optional<size_t> {
+            // Check it again via an exchange, in case someone raced us here
+            if (_max_dgram_size_changed.exchange(false))
+                return _last_max_dgram_size;
+            return std::nullopt;
+        });
     }
 
     int Connection::init(
@@ -1614,12 +1666,6 @@ namespace oxen::quic
 
         event_add(packet_retransmit_timer.get(), nullptr);
 
-#ifndef NDEBUG
-        test_suite.datagram_drop_enabled = false;
-        test_suite.datagram_flip_flop_enabled = false;
-        test_suite.datagram_drop_counter = 0;
-        test_suite.datagram_flip_flip_counter = 0;
-#endif
         log::info(log_cat, "Successfully created new {} connection object", d_str);
     }
 
@@ -1658,18 +1704,47 @@ namespace oxen::quic
             s->check_timeouts();
     }
 
-#ifndef NDEBUG
+    size_t connection_interface::num_streams_active()
+    {
+        return endpoint().call_get([this] { return num_streams_active_impl(); });
+    }
+    size_t connection_interface::num_streams_pending()
+    {
+        return endpoint().call_get([this] { return num_streams_pending_impl(); });
+    }
+    uint64_t connection_interface::get_max_streams()
+    {
+        return endpoint().call_get([this] { return get_max_streams_impl(); });
+    }
+    uint64_t connection_interface::get_streams_available()
+    {
+        return endpoint().call_get([this] { return get_streams_available_impl(); });
+    }
+    Path connection_interface::path()
+    {
+        return endpoint().call_get([this]() -> Path { return path_impl(); });
+    }
+    Address connection_interface::local()
+    {
+        return endpoint().call_get([this]() -> Address { return local_impl(); });
+    }
+    Address connection_interface::remote()
+    {
+        return endpoint().call_get([this]() -> Address { return remote_impl(); });
+    }
+    size_t connection_interface::get_max_datagram_size()
+    {
+        return endpoint().call_get([this]() -> int { return get_max_datagram_size_impl(); });
+    }
 
     connection_interface::~connection_interface()
     {
-        log::debug(log_cat, "connection_interface @{} destroyed", (void*)this);
+        log::trace(log_cat, "connection_interface @{} destroyed", (void*)this);
     }
 
     Connection::~Connection()
     {
-        log::debug(log_cat, "Connection @{} destroyed", (void*)this);
+        log::trace(log_cat, "Connection @{} destroyed", (void*)this);
     }
-
-#endif
 
 }  // namespace oxen::quic

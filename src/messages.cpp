@@ -2,6 +2,7 @@
 
 #include "connection.hpp"
 #include "datagram.hpp"
+#include "endpoint.hpp"
 
 namespace oxen::quic
 {
@@ -42,7 +43,7 @@ namespace oxen::quic
 #endif
     }
 
-    rotating_buffer::rotating_buffer(DatagramIO& _d) : d{_d}, bufsize{_d.rbufsize}, rowsize{_d.rbufsize / 4}
+    rotating_buffer::rotating_buffer(DatagramIO& d) : datagram{d}, bufsize{d.rbufsize}, rowsize{d.rbufsize / 4}
     {
         for (auto& v : buf)
             v.resize(rowsize);
@@ -51,6 +52,9 @@ namespace oxen::quic
     std::optional<bstring> rotating_buffer::receive(bstring_view data, uint16_t dgid)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        assert(datagram.endpoint.in_event_loop());
+        assert(datagram._conn);
 
         auto idx = dgid >> 2;
         log::trace(
@@ -70,19 +74,17 @@ namespace oxen::quic
 
         if (b)
         {
-#ifndef NDEBUG
-            if (d.conn.test_suite.datagram_drop_enabled)
+            if (datagram._conn->debug_datagram_drop_enabled)
             {
                 log::debug(log_cat, "enable_datagram_drop_test is true, inducing packet loss");
-                d.conn.test_suite.datagram_drop_counter += 1;
-                log::debug(log_cat, "test counter: {}", d.conn.test_suite.datagram_drop_counter.load());
+                datagram._conn->debug_datagram_counter++;
+                log::debug(log_cat, "test counter: {}", datagram._conn->debug_datagram_counter);
                 return std::nullopt;
             }
             else
             {
                 log::debug(log_cat, "enable_datagram_drop_test is false, skipping optional logic");
             }
-#endif
 
             log::trace(
                     log_cat,

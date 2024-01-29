@@ -231,6 +231,8 @@ namespace oxen::quic
     {
         if (not conn.closing_quietly())
         {
+            conn.close_all_streams();
+
             // prioritize connection level callback over endpoint level
             if (conn.conn_closed_cb)
             {
@@ -316,14 +318,16 @@ namespace oxen::quic
                         "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
                         conn.reference_id());
-                delete_connection(conn);
             }
+            delete_connection(conn);
         });
     }
 
     void Endpoint::delete_connection(Connection& conn)
     {
         const auto& rid = conn.reference_id();
+
+        conn.halt_events();
 
         log::debug(log_cat, "Deleting associated CIDs for connection ({})", rid);
 
@@ -341,6 +345,8 @@ namespace oxen::quic
             dissociate_cid(&*itr, conn);
             itr = cids.erase(itr);
         }
+
+        conn.drop_streams();
 
         conns.erase(rid);
         log::debug(log_cat, "Deleted connection ({})", rid);
@@ -778,6 +784,8 @@ namespace oxen::quic
                 send_or_queue_packet(p, std::move(buf), ecn, std::move(cb));
             });
         }
+        else if (callback)
+            callback({});
     }
 
     void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p)
