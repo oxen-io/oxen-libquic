@@ -235,12 +235,6 @@ namespace oxen::quic
 
         void respond(int64_t rid, bstring_view body, bool error = false);
 
-        void check_timeouts() override;
-
-        void receive(bstring_view data) override;
-
-        void closed(uint64_t app_code) override;
-
         /// Registers an individual endpoint to be recognized by this BTRequestStream object.  Can be
         /// called multiple times to set up multiple commands.  See also register_generic_handler.
         void register_handler(std::string endpoint, std::function<void(message)>);
@@ -252,11 +246,14 @@ namespace oxen::quic
         /// exception if the endpoint in this message should be considered not found.
         void register_generic_handler(std::function<void(message)> request_handler);
 
-        const Address& local() const { return conn.local(); }
+        size_t num_pending() const;
 
-        const Address& remote() const { return conn.remote(); }
+      protected:
+        void check_timeouts() override;
 
-        size_t num_pending() const { return user_buffers.size(); }
+        void receive(bstring_view data) override;
+
+        void closed(uint64_t app_code) override;
 
       private:
         // Optional constructor argument: stream close callback
@@ -283,5 +280,7 @@ namespace oxen::quic
         std::string encode_response(int64_t rid, bstring_view body, bool error);
 
         size_t parse_length(std::string_view req);
+
+        size_t num_pending_impl() const { return user_buffers.size(); }
     };
 }  // namespace oxen::quic

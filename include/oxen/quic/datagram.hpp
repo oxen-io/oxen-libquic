@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connection_ids.hpp"
+#include "iochannel.hpp"
 #include "messages.hpp"
 #include "udp.hpp"
 #include "utils.hpp"
@@ -15,10 +16,13 @@ namespace oxen::quic
 
     struct dgram_interface : public std::enable_shared_from_this<dgram_interface>
     {
-        dgram_interface(Connection& c);
+      private:
         connection_interface& ci;
 
-        const ConnectionID& reference_id() const;
+      public:
+        dgram_interface(Connection& c);
+
+        const ConnectionID reference_id;
 
         std::shared_ptr<connection_interface> get_conn_interface();
 
@@ -51,62 +55,6 @@ namespace oxen::quic
     using dgram_data_callback = std::function<void(dgram_interface&, bstring)>;
 
     using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
-
-    class IOChannel
-    {
-      protected:
-        IOChannel(Connection& c, Endpoint& e);
-
-      public:
-        virtual ~IOChannel() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
-
-        Connection& conn;
-        Endpoint& endpoint;
-
-        // no copy, no move. always hold in a shared pointer
-        IOChannel(const IOChannel&) = delete;
-        IOChannel& operator=(const IOChannel&) = delete;
-        IOChannel(IOChannel&&) = delete;
-        IOChannel& operator=(IOChannel&&) = delete;
-
-        virtual bool is_stream() const = 0;
-        virtual bool is_empty() const = 0;
-        virtual std::shared_ptr<Stream> get_stream() = 0;
-        virtual std::vector<ngtcp2_vec> pending() = 0;
-        virtual prepared_datagram pending_datagram(bool) = 0;
-        virtual int64_t stream_id() const = 0;
-        virtual bool is_closing() const = 0;
-        virtual bool sent_fin() const = 0;
-        virtual void set_fin(bool) = 0;
-        virtual size_t unsent() const = 0;
-        virtual void wrote(size_t) = 0;
-        virtual bool has_unsent() const = 0;
-
-        template <typename CharType, std::enable_if_t<sizeof(CharType) == 1, int> = 0>
-        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
-        {
-            send_impl(convert_sv<std::byte>(data), std::move(keep_alive));
-        }
-
-        template <typename CharType>
-        void send(std::basic_string<CharType>&& data)
-        {
-            auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
-            std::basic_string_view<CharType> view{*keep_alive};
-            send(view, std::move(keep_alive));
-        }
-
-        template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
-        void send(std::vector<Char>&& buf)
-        {
-            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
-        }
-
-      protected:
-        // This is the (single) send implementation that implementing classes must provide; other
-        // calls to send are converted into calls to this.
-        virtual void send_impl(bstring_view, std::shared_ptr<void> keep_alive) = 0;
-    };
 
     class DatagramIO : public IOChannel
     {
@@ -193,8 +141,6 @@ namespace oxen::quic
         // dgram_buffer send_buffer;
         buffer_que send_buffer;
 
-        bool is_empty() const override { return send_buffer.empty(); }
-
         prepared_datagram pending_datagram(bool r) override;
 
         bool is_stream() const override { return false; }
@@ -203,34 +149,38 @@ namespace oxen::quic
 
         int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
 
-      protected:
-        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
-
-      private:
-        const bool _packet_splitting{false};
+        int64_t stream_id() const override
+        {
+            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return std::numeric_limits<int64_t>::min();
+        }
 
         std::shared_ptr<Stream> get_stream() override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return nullptr;
-        };
-        int64_t stream_id() const override
-        {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return std::numeric_limits<int64_t>::min();
-        };
-        bool is_closing() const override
+        }
+
+      private:
+        const bool _packet_splitting{false};
+
+      protected:
+        bool is_empty_impl() const override { return send_buffer.empty(); }
+
+        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
+
+        bool is_closing_impl() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
-        };
+        }
         bool sent_fin() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
-        };
+        }
         void set_fin(bool) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
-        size_t unsent() const override
+        size_t unsent_impl() const override
         {
             log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
             size_t sum{0};
@@ -239,14 +189,14 @@ namespace oxen::quic
             for (const auto& entry : send_buffer.buf)
                 sum += entry.size();
             return sum;
-        };
-        bool has_unsent() const override { return not is_empty(); }
-        void wrote(size_t) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        }
+        bool has_unsent_impl() const override { return not is_empty_impl(); }
+        void wrote(size_t) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
         std::vector<ngtcp2_vec> pending() override
         {
             log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
             return {};
-        };
+        }
     };
 
 }  // namespace oxen::quic
