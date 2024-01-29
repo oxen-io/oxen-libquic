@@ -350,6 +350,7 @@ namespace oxen::quic::test
                 // The endpoint-level callback will be called for the connection that was initiated by the
                 // client, as the client's pubkey dictates it's connection is to be deferred to. As a result,
                 // the reference ID will be different than that of the connection initiated by the server.
+                std::lock_guard lock{mut};
                 REQUIRE(ci.reference_id() != server_ci->reference_id());
                 p.set_value(true);
             };
