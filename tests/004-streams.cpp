@@ -892,4 +892,67 @@ namespace oxen::quic::test
         REQUIRE(client_handler.wait());
     };
 
+    TEST_CASE("004 - Stream/connection lifetime handling", "[004][streams][lifetime]")
+    {
+        // This test appears a bit weird on the outside: we keep a Stream object alive even after
+        // its connection has closed and gone away.  You'd never deliberately do that, but sometimes
+        // it is unavoidable (such as in the Python wrappers, where the Python interpreter relies on
+        // garbage collection to destroy things at some unknown later point), and we need the Stream
+        // to stay as a valid C++ object (even though it is dead, from the quic point of view) until
+        // the destruction happens.
+        //
+        // This test is designed to ensure that a Stream can safely outlive its owning Connection
+        // and just gets errors if attempting to be used on a dead Connection.  (Before the test was
+        // written it would segfault).
+
+        Network test_net{};
+
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        int count = 0;
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, [&](Stream& s, bstring_view data) {
+            count += data.size();
+            log::debug(log_cat, "Got some data {}, replying with '{}'", to_sv(data), count);
+            s.send("{}"_format(count));
+        });
+
+        TestHelper::increment_ref_id(*server_endpoint, 100);
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local);
+
+        std::promise<void> got_reply, got_closed;
+        std::shared_ptr<Stream> stream;
+        {
+            auto conn_closed = [&](connection_interface& conn, uint64_t ec) {
+                log::info(log_cat, "conn {} closed (ec={})", conn.reference_id(), ec);
+            };
+
+            auto conn = client_endpoint->connect(client_remote, client_tls, conn_closed);
+            auto stream_data_cb = [&](Stream&, bstring_view data) {
+                REQUIRE(data == "11"_bsv);
+                got_reply.set_value();
+            };
+            auto stream_close_cb = [&](Stream&, uint64_t) { got_closed.set_value(); };
+            stream = conn->open_stream<Stream>(stream_data_cb, stream_close_cb);
+            stream->send("hello world"s);
+            require_future(got_reply.get_future());
+            log::debug(log_cat, "closing connection");
+            conn->close_connection();
+        }
+
+        require_future(got_closed.get_future(), 2s);
+        std::this_thread::sleep_for(1000ms);
+
+        REQUIRE_FALSE(client_endpoint->get_conn(stream->reference_id));
+
+        // Connection has gone away, but we still have the pointer; this call should do nothing:
+        stream->send("But wait, there's more!"s);
+    };
+
 }  // namespace oxen::quic::test
