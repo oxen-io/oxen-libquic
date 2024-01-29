@@ -14,7 +14,7 @@ namespace oxen::quic
     }
 
     message::message(BTRequestStream& bp, bstring req, bool is_timeout) :
-            data{std::move(req)}, return_sender{bp.weak_from_this()}, _rid{bp.reference_id()}, timed_out{is_timeout}
+            data{std::move(req)}, return_sender{bp.weak_from_this()}, _rid{bp.reference_id}, timed_out{is_timeout}
     {
         if (!is_timeout)
         {
@@ -288,4 +288,10 @@ namespace oxen::quic
 
         return pos + 1;
     }
+
+    size_t BTRequestStream::num_pending() const
+    {
+        return call_get_accessor(&BTRequestStream::num_pending_impl);
+    }
+
 }  // namespace oxen::quic

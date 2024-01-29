@@ -6,27 +6,17 @@
 namespace oxen::quic
 {
 
-    IOChannel::IOChannel(Connection& c, Endpoint& e) : conn{c}, endpoint{e}
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-    }
-
     DatagramIO::DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
             rbufsize{endpoint._rbufsize},
             recv_buffer{*this},
-            _packet_splitting(conn.packet_splitting_enabled())
+            _packet_splitting(_conn->packet_splitting_enabled())
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
-    dgram_interface::dgram_interface(Connection& c) : ci{c} {}
-
-    const ConnectionID& dgram_interface::reference_id() const
-    {
-        return ci.reference_id();
-    }
+    dgram_interface::dgram_interface(Connection& c) : ci{c}, reference_id{ci.reference_id()} {}
 
     std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
     {
@@ -40,32 +30,40 @@ namespace oxen::quic
 
     void DatagramIO::send_impl(bstring_view data, std::shared_ptr<void> keep_alive)
     {
-        // check this first and once; already considers policy when returning
-        const auto max_size = conn.get_max_datagram_size();
-
-        // we use >= instead of > for that just-in-case 1-byte cushion
-        if (data.size() > max_size)
-        {
-            log::warning(
-                    log_cat,
-                    "Data of length {} cannot be sent with {} datagrams of max size {}",
-                    data.size(),
-                    _packet_splitting ? "unsplit" : "split",
-                    max_size);
-            throw std::invalid_argument{"Data too large to send as datagram with current policy"};
-        }
-
         // if packet_splitting is lazy OR packet_splitting is off, send as "normal" datagram
-        endpoint.call([this, data, keep_alive, max_size]() {
+        endpoint.call([this, data, keep_alive = std::move(keep_alive)]() {
+            if (!_conn)
+            {
+                log::warning(log_cat, "Unable to send datagram: connection has gone away");
+                return;
+            }
+
+            // check this first and once; already considers policy when returning
+            const auto max_size = _conn->get_max_datagram_size_impl();
+
+            // we use >= instead of > for that just-in-case 1-byte cushion
+            if (data.size() > max_size)
+            {
+                log::warning(
+                        log_cat,
+                        "Data of length {} cannot be sent with {} datagrams of max size {}",
+                        data.size(),
+                        _packet_splitting ? "unsplit" : "split",
+                        max_size);
+                // Ideally we would throw, but because we're inside a `call` and are probably
+                // running after the `send_impl` call returned, all we can really do is warn and
+                // drop.
+                return;
+            }
+
             log::trace(
                     log_cat,
                     "Connection ({}) sending {} datagram: {}",
-                    conn.reference_id(),
+                    _conn->reference_id(),
                     _packet_splitting ? "split" : "whole",
                     buffer_printer{data});
 
-            auto half_size = max_size / 2;
-            bool split = _packet_splitting && data.size() > half_size;
+            bool split = _packet_splitting && data.size() > max_size / 2;
 
             auto dgram_id = _next_dgram_counter << 2;
             if (split)
@@ -74,7 +72,7 @@ namespace oxen::quic
 
             send_buffer.emplace(data, dgram_id, std::move(keep_alive), split ? dgram::OVERSIZED : dgram::STANDARD, max_size);
 
-            conn.packet_io_ready();
+            _conn->packet_io_ready();
         });
     }
 
