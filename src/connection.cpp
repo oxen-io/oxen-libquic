@@ -1444,7 +1444,7 @@ namespace oxen::quic
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
-        settings.handshake_timeout = handshake_timeout.count();
+        settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
 
         ngtcp2_transport_params_default(&params);
 
@@ -1497,7 +1497,7 @@ namespace oxen::quic
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,
-            std::chrono::nanoseconds handshake_timeout,
+            std::chrono::nanoseconds default_handshake_timeout,
             std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
@@ -1540,6 +1540,7 @@ namespace oxen::quic
         ngtcp2_conn* connptr;
         int rv = 0;
 
+        auto handshake_timeout = context->config.handshake_timeout.value_or(default_handshake_timeout);
         if (rv = init(settings, params, callbacks, handshake_timeout); rv != 0)
             log::critical(log_cat, "Error: {} connection not created", d_str);
 
@@ -1677,7 +1678,7 @@ namespace oxen::quic
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,
-            std::chrono::nanoseconds handshake_timeout,
+            std::chrono::nanoseconds default_handshake_timeout,
             std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
@@ -1685,7 +1686,18 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{new Connection{
-                ep, rid, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, remote_pk, hdr, token_type, ocid}};
+                ep,
+                rid,
+                scid,
+                dcid,
+                path,
+                std::move(ctx),
+                alpns,
+                default_handshake_timeout,
+                remote_pk,
+                hdr,
+                token_type,
+                ocid}};
 
         conn->packet_io_ready();
 

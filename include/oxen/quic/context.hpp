@@ -19,6 +19,8 @@ namespace oxen::quic
         uint64_t max_streams{0};
         // keep alive timeout
         std::chrono::milliseconds keep_alive{0ms};
+        // handshake timeout; <= 0 means no timeout; nullopt means use endpoint's default.
+        std::optional<std::chrono::nanoseconds> handshake_timeout{std::nullopt};
         // idle timeout
         std::chrono::milliseconds idle_timeout{DEFAULT_IDLE_TIMEOUT};
         // datagram support
@@ -65,6 +67,7 @@ namespace oxen::quic
         void handle_ioctx_opt(opt::max_streams ms);
         void handle_ioctx_opt(opt::keep_alive ka);
         void handle_ioctx_opt(opt::idle_timeout ito);
+        void handle_ioctx_opt(opt::handshake_timeout hto);
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);
