@@ -558,9 +558,9 @@ namespace oxen::quic
                         "Note: {} encountered ngtcp2 error {}; signaling endpoint to delete connection",
                         reference_id(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                    _endpoint.drop_connection(*this);
+                    _endpoint.drop_connection(*this, io_error{rv});
                 });
                 break;
             case NGTCP2_ERR_CRYPTO:
@@ -573,9 +573,9 @@ namespace oxen::quic
                         reference_id(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                    _endpoint.drop_connection(*this);
+                    _endpoint.drop_connection(*this, io_error{rv});
                 });
                 break;
             default:
@@ -791,7 +791,7 @@ namespace oxen::quic
 
             _endpoint.call([this]() {
                 log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                _endpoint.drop_connection(*this);
+                _endpoint.drop_connection(*this, io_error{CONN_SEND_FAIL});
             });
 
             return false;
@@ -1456,7 +1456,7 @@ namespace oxen::quic
         params.initial_max_stream_data_bidi_local = 6_Mi;
         params.initial_max_stream_data_bidi_remote = 6_Mi;
         params.initial_max_stream_data_uni = 6_Mi;
-        params.max_idle_timeout = std::chrono::nanoseconds(5min).count();
+        params.max_idle_timeout = std::chrono::nanoseconds{context->config.idle_timeout}.count();
         params.active_connection_id_limit = MAX_ACTIVE_CIDS;
 
         // config values

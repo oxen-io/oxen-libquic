@@ -203,17 +203,11 @@ namespace oxen::quic
         cptr->handle_conn_packet(pkt);
     }
 
-    void Endpoint::drop_connection(Connection& conn)
+    void Endpoint::drop_connection(Connection& conn, io_error err)
     {
-        const auto* err = ngtcp2_conn_get_ccerr(conn);
+        log::debug(log_cat, "Dropping connection ({}) with errcode {}", conn.reference_id(), err.code());
 
-        log::debug(
-                log_cat,
-                "Dropping connection ({}), Reason: {}",
-                conn.reference_id(),
-                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
-
-        _execute_close_hooks(conn, io_error{err->error_code});
+        _execute_close_hooks(conn, std::move(err));
 
         delete_connection(conn);
     }
@@ -267,7 +261,7 @@ namespace oxen::quic
                     "Connection ({}) passed idle expiry timer; closing now without close "
                     "packet",
                     conn.reference_id());
-            drop_connection(conn);
+            drop_connection(conn, io_error{CONN_IDLE_CLOSED});
             return;
         }
 
