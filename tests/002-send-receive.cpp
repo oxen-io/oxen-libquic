@@ -698,4 +698,45 @@ namespace oxen::quic::test
         CHECK(errors == std::unordered_multiset{{"Invalid endpoint 'nuh uh'"s, "Invalid endpoint 'ep2'"s}});
     }
 
+    TEST_CASE("002 - BParser connection close triggers timeout callback", "[002][bparser][close]")
+    {
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        std::thread slow_response;
+        auto server_conn_est = [&](connection_interface& c) {
+            auto s = c.queue_incoming_stream<BTRequestStream>();
+            s->register_handler("sleep"s, [&](message m) {
+                slow_response = std::thread{[m = std::move(m)] {
+                    std::this_thread::sleep_for(250ms);
+                    m.respond("I'm slow");
+                }};
+            });
+        };
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, server_conn_est);
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{50ms});
+
+        auto client_bp = conn_interface->open_stream<BTRequestStream>();
+
+        bool got_timeout = false;
+        callback_waiter reply_handler{[&](message response) { got_timeout = response.timed_out; }};
+        client_bp->command("sleep"s, ""s, reply_handler);
+
+        REQUIRE(reply_handler.wait());
+        CHECK(got_timeout);
+
+        if (slow_response.joinable())
+            slow_response.join();
+    }
+
 }  // namespace oxen::quic::test

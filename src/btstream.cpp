@@ -50,14 +50,27 @@ namespace oxen::quic
     void BTRequestStream::check_timeouts()
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-        const auto now = get_time();
+        return check_timeouts(get_time());
+    }
+    void BTRequestStream::check_timeouts(std::optional<std::chrono::steady_clock::time_point> now)
+    {
+        log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
         while (!sent_reqs.empty())
         {
             auto& f = *sent_reqs.front();
-            if (!f.is_expired(now))
+            if (now && !f.is_expired(*now))
                 return;
-            f.cb(std::move(f).to_timeout());
+
+            try
+            {
+                f.cb(std::move(f).to_timeout());
+            }
+            catch (const std::exception& e)
+            {
+                log::error(bp_cat, "Uncaught exception from timeout response handler: {}", e.what());
+            }
+
             sent_reqs.pop_front();
         }
     }
@@ -82,8 +95,20 @@ namespace oxen::quic
 
     void BTRequestStream::closed(uint64_t app_code)
     {
-        log::info(bp_cat, "bparser close callback called with {}", quic_strerror(app_code));
-        close_callback(*this, app_code);
+        log::debug(bp_cat, "bparser closed with {}", quic_strerror(app_code));
+
+        // First time out any pending requests, even if they haven't hit the timer, because we're
+        // being closed and so they can never be answered.
+        check_timeouts(std::nullopt);
+
+        try
+        {
+            close_callback(*this, app_code);
+        }
+        catch (const std::exception& e)
+        {
+            log::error(bp_cat, "Uncaught exception from bparser stream close callback: {}", e.what());
+        }
     }
 
     void BTRequestStream::register_handler(std::string ep, std::function<void(message)> func)
@@ -116,7 +141,14 @@ namespace oxen::quic
             if (itr != sent_reqs.end())
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
-                itr->get()->cb(std::move(msg));
+                try
+                {
+                    itr->get()->cb(std::move(msg));
+                }
+                catch (const std::exception& e)
+                {
+                    log::error(bp_cat, "Uncaught exception from response handler: {}", e.what());
+                }
                 sent_reqs.erase(itr);
                 return;
             }
