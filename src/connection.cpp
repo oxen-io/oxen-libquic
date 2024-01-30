@@ -1666,7 +1666,7 @@ namespace oxen::quic
 
         event_add(packet_retransmit_timer.get(), nullptr);
 
-        log::info(log_cat, "Successfully created new {} connection object", d_str);
+        log::info(log_cat, "Successfully created new {} connection object {}", d_str, _ref_id);
     }
 
     std::shared_ptr<Connection> Connection::make_conn(

@@ -445,7 +445,7 @@ namespace oxen::quic
             }
         }
 
-        log::warning(log_cat, "Could not find connection associated with {}", ccid);
+        log::debug(log_cat, "Could not find connection associated with {}", ccid);
 
         return nullptr;
     }
