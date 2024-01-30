@@ -134,6 +134,8 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         CHECK_NOTHROW(server_endpoint->listen(server_tls));
 
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
         SECTION("Pubkey failures")
         {
             SECTION("Incorrect pubkey in remote")
@@ -145,11 +147,12 @@ namespace oxen::quic::test
 
                 auto client_closed =
                         callback_waiter{[&client_error](connection_interface&, uint64_t) { client_error = 1000; }};
-                RemoteAddress client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
                 auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
 
-                auto client_ci = client_endpoint->connect(client_remote, client_tls);
+                RemoteAddress bad_client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+                auto client_ci = client_endpoint->connect(bad_client_remote, client_tls);
 
                 CHECK(not client_established_2.wait());
                 CHECK(client_attempt != 1000);
@@ -164,13 +167,24 @@ namespace oxen::quic::test
                 // RemoteAddress client_remote{"127.0.0.1"s, server_endpoint->local().port()};
                 CHECK(true);
             };
+
+            SECTION("No TLS creds in connect/listen")
+            {
+                // If uncommented, any of these lines should not compile! connect() and listen()
+                // each require exactly one TLSCreds shared pointer to be provided.
+
+                // server_endpoint->connect(client_remote);                          // no tls
+                // server_endpoint->connect(client_tls, client_remote, client_tls);  // multiple tls
+                // server_endpoint->listen(client_remote);                           // no tls
+                // server_endpoint->listen(server_tls, client_remote, server_tls);   // multiple tls
+
+                CHECK(true);
+            };
         }
 
         SECTION("Pubkey successes")
         {
             auto client_endpoint = test_net.endpoint(client_local, client_established);
-
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             SECTION("Correct pubkey in remote")
             {

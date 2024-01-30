@@ -34,6 +34,14 @@ extern "C"
 
 namespace oxen::quic
 {
+    template <typename... Opt>
+    static constexpr void check_for_tls_creds()
+    {
+        static_assert(
+                (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
+    }
+
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
         friend class TestHelper;
@@ -77,10 +85,7 @@ namespace oxen::quic
         template <typename... Opt>
         void listen(Opt&&... opts)
         {
-
-            static_assert(
-                    (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
-                    "Endpoint listen requires exactly one std::shared_ptr<TLSCreds> argument");
+            check_for_tls_creds<Opt...>();
 
             std::promise<void> p;
             auto f = p.get_future();
@@ -110,6 +115,8 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
         {
+            check_for_tls_creds<Opt...>();
+
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
