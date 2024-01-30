@@ -17,11 +17,31 @@ namespace oxen::quic::opt
         explicit max_streams(uint64_t s) : stream_count{s} {}
     };
 
+    // If non-zero, this sets a keep-alive timer for outgoing PINGs on this connection so that a
+    // functioning but idle connection can stay alive indefinitely without hitting the connection's
+    // idle timeout.  Typically in designing a protocol you need only one side to send pings; the
+    // responses to a ping keep the connection in the other direction alive.  This value should
+    // typically be lower than the idle_timeout of both sides of the connection to be effective.
+    //
+    // If this option is not specified or is set to a duration of 0 then outgoing PINGs will not be
+    // sent on the connection.
     struct keep_alive
     {
         std::chrono::milliseconds time{0ms};
         keep_alive() = default;
         explicit keep_alive(std::chrono::milliseconds val) : time{val} {}
+    };
+
+    // Can be used to override the default (30s) maximum idle timeout for a connection.  Note that
+    // this is negotiated during connection establishment, and the lower value advertised by each
+    // side will be used for the connection.  Can be 0 to disable idle timeout entirely, but such an
+    // option has caveats for connections across unknown internet boxes (see comments in RFC 9000,
+    // section 10.1.2).
+    struct idle_timeout
+    {
+        std::chrono::milliseconds timeout{DEFAULT_IDLE_TIMEOUT};
+        idle_timeout() = default;
+        explicit idle_timeout(std::chrono::milliseconds val) : timeout{val} {}
     };
 
     /// This can be initialized a few different ways. Simply passing a default constructed struct

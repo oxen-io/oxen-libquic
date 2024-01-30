@@ -431,4 +431,44 @@ namespace oxen::quic::test
         };
     };
 
+    TEST_CASE("001 - Idle timeout", "[001][idle][timeout]")
+    {
+        Network net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        uint64_t server_errcode = 4242;
+        uint64_t client_errcode = 424242;
+
+        callback_waiter server_conn_closed{
+                [&server_errcode](connection_interface&, uint64_t errcode) { server_errcode = errcode; }};
+        callback_waiter client_conn_closed{
+                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+
+        auto server_endpoint = net.endpoint(server_local, server_conn_closed);
+        auto client_endpoint = net.endpoint(client_local, client_conn_closed);
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        SECTION("Client fast timeout")
+        {
+            server_endpoint->listen(server_tls);
+            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{250ms});
+        }
+        SECTION("Server fast timeout")
+        {
+            server_endpoint->listen(server_tls, opt::idle_timeout{250ms});
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+        }
+
+        CHECK_FALSE(server_conn_closed.wait(100ms));
+
+        CHECK(server_conn_closed.wait(500ms));
+        CHECK(server_errcode == CONN_IDLE_CLOSED);
+        CHECK(client_conn_closed.wait(500ms));
+        CHECK(client_errcode == CONN_IDLE_CLOSED);
+    }
 }  // namespace oxen::quic::test

@@ -221,7 +221,7 @@ namespace oxen::quic
 
         void close_conns(std::optional<Direction> d = std::nullopt);
 
-        void drop_connection(Connection& conn);
+        void drop_connection(Connection& conn, io_error err);
 
         void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
 
@@ -287,7 +287,7 @@ namespace oxen::quic
 
         std::vector<ustring> outbound_alpns;
         std::vector<ustring> inbound_alpns;
-        std::chrono::nanoseconds handshake_timeout{5s};
+        std::chrono::nanoseconds handshake_timeout{DEFAULT_HANDSHAKE_TIMEOUT};
 
         std::map<ustring, ustring> anti_replay_db;
 

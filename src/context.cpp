@@ -21,6 +21,12 @@ namespace oxen::quic
         log::trace(log_cat, "User passed connection keep_alive config value: {}", config.keep_alive.count());
     }
 
+    void IOContext::handle_ioctx_opt(opt::idle_timeout ito)
+    {
+        config.idle_timeout = ito.timeout;
+        log::trace(log_cat, "User passed connection idle_timeout config value: {}", config.idle_timeout.count());
+    }
+
     void IOContext::handle_ioctx_opt(stream_data_callback func)
     {
         log::trace(log_cat, "IO context stored stream close callback");
