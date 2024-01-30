@@ -373,16 +373,16 @@ namespace oxen::quic
             Moreover, decoding and setting 0RTT transport parameters must be handled in connection creation. Both that
             location and the required callbacks are comment-blocked in the relevant location.
         */
-        if (not tls_session->get_early_data_accepted())
-        {
-            log::info(log_cat, "Early data was rejected by server!");
+        // if (not tls_session->get_early_data_accepted())
+        //{
+        // log::info(log_cat, "Early data was rejected by server!");
 
-            // if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
-            // {
-            //     log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
-            //     return -1;
-            // }
-        }
+        // if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
+        // {
+        //     log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
+        //     return -1;
+        // }
+        //}
 
         // ustring data;
         // data.resize(256);
@@ -1666,7 +1666,7 @@ namespace oxen::quic
 
         event_add(packet_retransmit_timer.get(), nullptr);
 
-        log::info(log_cat, "Successfully created new {} connection object", d_str);
+        log::info(log_cat, "Successfully created new {} connection object {}", d_str, _ref_id);
     }
 
     std::shared_ptr<Connection> Connection::make_conn(

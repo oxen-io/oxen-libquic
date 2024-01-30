@@ -152,7 +152,7 @@ namespace oxen::quic
 
     void Network::close_immediate()
     {
-        log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::info(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (loop_thread)
             event_base_loopbreak(ev_loop.get());

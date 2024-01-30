@@ -65,7 +65,7 @@ namespace oxen::quic
 
     GNUTLSSession::~GNUTLSSession()
     {
-        log::info(log_cat, "Entered {}", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
 
         if (not is_client)
             gnutls_anti_replay_deinit(anti_replay);
@@ -242,6 +242,7 @@ namespace oxen::quic
         if (auto rv = gnutls_alpn_get_selected_protocol(session, &proto); rv < 0)
         {
             auto err = fmt::format("{} called, but ALPN negotiation incomplete.", __PRETTY_FUNCTION__);
+            log::error(log_cat, "{}", err);
             throw std::logic_error(err);
         }
 
