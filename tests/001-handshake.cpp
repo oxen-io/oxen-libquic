@@ -429,6 +429,11 @@ namespace oxen::quic::test
                 CHECK_FALSE(server_closed_conn_level.is_ready());
             }
         };
+
+        // This test is inherently racy (by design), but leads to rare data race conditions during
+        // destruction; this hacky sleep is here to try to resolve it by adding just a tiny extra
+        // window for things to settle down before we start destroying things.
+        std::this_thread::sleep_for(25ms);
     };
 
     TEST_CASE("001 - Idle timeout", "[001][idle][timeout]")
