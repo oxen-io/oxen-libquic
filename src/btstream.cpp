@@ -61,6 +61,8 @@ namespace oxen::quic
             auto& f = *sent_reqs.front();
             if (now && !f.is_expired(*now))
                 return;
+            auto ptr = std::move(sent_reqs.front());
+            sent_reqs.pop_front();
 
             try
             {
@@ -70,8 +72,6 @@ namespace oxen::quic
             {
                 log::error(bp_cat, "Uncaught exception from timeout response handler: {}", e.what());
             }
-
-            sent_reqs.pop_front();
         }
     }
 
@@ -144,15 +144,16 @@ namespace oxen::quic
             if (itr != sent_reqs.end())
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
+                auto req = std::move(*itr);
+                sent_reqs.erase(itr);
                 try
                 {
-                    itr->get()->cb(std::move(msg));
+                    req->cb(std::move(msg));
                 }
                 catch (const std::exception& e)
                 {
                     log::error(bp_cat, "Uncaught exception from response handler: {}", e.what());
                 }
-                sent_reqs.erase(itr);
             }
             return;
         }
