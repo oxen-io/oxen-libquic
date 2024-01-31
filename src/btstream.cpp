@@ -153,8 +153,8 @@ namespace oxen::quic
                     log::error(bp_cat, "Uncaught exception from response handler: {}", e.what());
                 }
                 sent_reqs.erase(itr);
-                return;
             }
+            return;
         }
 
         // `msg` likely isn't valid in the exception handlers below, so extract what we need to
