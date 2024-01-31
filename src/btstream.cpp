@@ -38,6 +38,8 @@ namespace oxen::quic
 
         if (auto ptr = return_sender.lock())
             ptr->respond(req_id, body, error);
+        else
+            log::warning(bp_cat, "BTRequestStream unable to send response: stream has gone away");
     }
 
     void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
