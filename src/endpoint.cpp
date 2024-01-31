@@ -258,8 +258,7 @@ namespace oxen::quic
         {
             log::info(
                     log_cat,
-                    "Connection ({}) passed idle expiry timer; closing now without close "
-                    "packet",
+                    "Connection ({}) passed idle expiry timer; closing now without close packet",
                     conn.reference_id());
             drop_connection(conn, io_error{CONN_IDLE_CLOSED});
             return;
@@ -271,7 +270,9 @@ namespace oxen::quic
         if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
             log::info(
-                    log_cat, "Connection ({}) passed idle expiry timer; closing now with close packet", conn.reference_id());
+                    log_cat,
+                    "Connection ({}) timed out during handshake; closing now with close packet",
+                    conn.reference_id());
         }
 
         _execute_close_hooks(conn, ec);
