@@ -246,6 +246,7 @@ namespace oxen::quic
                 }
 
                 handle_input(message{*this, std::move(buf)});
+                buf.clear();
 
                 // Back to the top to try processing another request that might have arrived in
                 // the same stream buffer
