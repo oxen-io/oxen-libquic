@@ -177,7 +177,7 @@ namespace oxen::quic
         }
         catch (const no_such_endpoint&)
         {
-            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", msg.endpoint());
+            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", ep);
             respond(req_id, convert_sv<std::byte, char>("Invalid endpoint '{}'"_format(ep)), true);
         }
         catch (const std::exception& e)
@@ -185,7 +185,7 @@ namespace oxen::quic
             log::error(
                     bp_cat,
                     "Handler for {} threw an uncaught exception ({}); returning a generic error message",
-                    msg.endpoint(),
+                    ep,
                     e.what());
             respond(req_id, "An error occurred while processing the request"_bsv, true);
         }
