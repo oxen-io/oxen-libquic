@@ -6,7 +6,6 @@
 
 namespace oxen::quic
 {
-
     inline auto bp_cat = oxen::log::Cat("bparser");
 
     static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr)
@@ -60,6 +59,7 @@ namespace oxen::quic
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
+        // send(sent_request{*this, encode_response(rid, bstring{body}, error), rid}.payload());
         send(sent_request{*this, encode_response(rid, body, error), rid}.payload());
     }
 
@@ -68,6 +68,7 @@ namespace oxen::quic
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
         return check_timeouts(get_time());
     }
+
     void BTRequestStream::check_timeouts(std::optional<std::chrono::steady_clock::time_point> now)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
@@ -336,6 +337,7 @@ namespace oxen::quic
         if (bad)
         {
             close(BPARSER_ERROR_EXCEPTION);
+            log::critical(bp_cat, "Oh shit you fucked up son! \nCurrent Buffer:{}", buffer_printer{req});
             throw std::invalid_argument{bad};
         }
 

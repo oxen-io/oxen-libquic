@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ip.hpp"
 #include "formattable.hpp"
 #include "utils.hpp"
 
