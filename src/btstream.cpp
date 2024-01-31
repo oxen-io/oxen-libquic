@@ -101,13 +101,16 @@ namespace oxen::quic
         // being closed and so they can never be answered.
         check_timeouts(std::nullopt);
 
-        try
+        if (close_callback)
         {
-            close_callback(*this, app_code);
-        }
-        catch (const std::exception& e)
-        {
-            log::error(bp_cat, "Uncaught exception from bparser stream close callback: {}", e.what());
+            try
+            {
+                close_callback(*this, app_code);
+            }
+            catch (const std::exception& e)
+            {
+                log::error(bp_cat, "Uncaught exception from bparser stream close callback: {}", e.what());
+            }
         }
     }
 
