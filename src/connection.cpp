@@ -674,7 +674,7 @@ namespace oxen::quic
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
-                log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
+                log::debug(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
                 assert(!stream->_ready);
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
