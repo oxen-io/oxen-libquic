@@ -518,7 +518,13 @@ namespace oxen::quic::test
         server_endpoint.reset();
         net1.reset();  // kill the server
 
-        opt::handshake_timeout timeout{100ms};
+#ifdef __APPLE__
+        constexpr int macos_sucks = 10;
+#else
+        constexpr int macos_sucks = 1;
+#endif
+
+        opt::handshake_timeout timeout{100ms * macos_sucks};
 
         SECTION("Client endpoint handshake timeout")
         {
@@ -530,9 +536,9 @@ namespace oxen::quic::test
             client_endpoint = net2.endpoint(client_local, client_conn_closed);
             client_ci = client_endpoint->connect(client_remote, client_tls, timeout);
         }
-        CHECK_FALSE(client_conn_closed.wait(25ms));
+        CHECK_FALSE(client_conn_closed.wait(25ms * macos_sucks));
 
-        CHECK(client_conn_closed.wait(125ms));
+        CHECK(client_conn_closed.wait(125ms * macos_sucks));
         CHECK(client_errcode == static_cast<uint64_t>(NGTCP2_ERR_HANDSHAKE_TIMEOUT));
     }
 }  // namespace oxen::quic::test
