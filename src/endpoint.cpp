@@ -623,7 +623,8 @@ namespace oxen::quic
         {
             log::warning(
                     log_cat,
-                    "Warning: unexpected packet received, length={}, code={}, continuing...",
+                    "Unknown packet received from {}, length={}, code={}; ignoring it.",
+                    pkt.path.remote,
                     pkt.data.size(),
                     ngtcp2_strerror(rv));
             return nullptr;
