@@ -258,8 +258,7 @@ namespace oxen::quic
         {
             log::info(
                     log_cat,
-                    "Connection ({}) passed idle expiry timer; closing now without close "
-                    "packet",
+                    "Connection ({}) passed idle expiry timer; closing now without close packet",
                     conn.reference_id());
             drop_connection(conn, io_error{CONN_IDLE_CLOSED});
             return;
@@ -271,7 +270,9 @@ namespace oxen::quic
         if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
             log::info(
-                    log_cat, "Connection ({}) passed idle expiry timer; closing now with close packet", conn.reference_id());
+                    log_cat,
+                    "Connection ({}) timed out during handshake; closing now with close packet",
+                    conn.reference_id());
         }
 
         _execute_close_hooks(conn, ec);
@@ -427,7 +428,7 @@ namespace oxen::quic
         conn_lookup.erase(ccid);
     }
 
-    Connection* Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
+    std::shared_ptr<Connection> Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
     {
         auto ccid = quic_cid{*cid};
 
@@ -435,7 +436,7 @@ namespace oxen::quic
         {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
             {
-                return it_b->second.get();
+                return it_b->second;
             }
         }
 
@@ -610,7 +611,7 @@ namespace oxen::quic
         return std::make_optional<quic_cid>(vid.dcid, vid.dcidlen);
     }
 
-    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
+    std::shared_ptr<Connection> Endpoint::accept_initial_connection(const Packet& pkt)
     {
         log::trace(log_cat, "Accepting new connection...");
 
@@ -700,7 +701,7 @@ namespace oxen::quic
                             token_type,
                             pkt_original_cid);
 
-                    return it_b->second.get();
+                    return it_b->second;
                 }
             }
         }

@@ -262,6 +262,8 @@ namespace oxen::quic
         //          will select the first in the client's list it also supports, so the user
         //          should list them in decreasing priority. If the user does not specify alpns,
         //          the default will be set
+        //      default_handshake_timeout: the default timeout for handshaking for the endpoint
+        //          (individual connections might have this overridden via connect option).
         //      remote_pk: optional parameter used by clients to verify the pubkey of the remote
         //          endpoint during handshake negotiation. For servers, omit this parameter or
         //          pass std::nullopt
@@ -274,7 +276,7 @@ namespace oxen::quic
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
-                std::chrono::nanoseconds handshake_timeout,
+                std::chrono::nanoseconds default_handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,
@@ -379,7 +381,7 @@ namespace oxen::quic
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
                 const std::vector<ustring>& alpns,
-                std::chrono::nanoseconds handshake_timeout,
+                std::chrono::nanoseconds default_handshake_timeout,
                 std::optional<ustring> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,

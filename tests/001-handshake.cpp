@@ -471,4 +471,74 @@ namespace oxen::quic::test
         CHECK(client_conn_closed.wait(500ms));
         CHECK(client_errcode == CONN_IDLE_CLOSED);
     }
+
+    TEST_CASE("001 - Handshake timeout", "[001][handshake][timeout]")
+    {
+        auto net1 = std::make_unique<Network>();
+        Network net2{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        uint64_t client_errcode = 424242;
+
+        callback_waiter client_conn_closed{
+                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+
+#if 0
+        // This code doesn't work: ngtcp2 (at least as of 1.1.0) apparently considers the client to
+        // be post-handshake by the point the server gets this key (presumably because it doesn't
+        // need anything else from the server), so the handshake established timeout just doesn't
+        // fire on the client and, no matter how long we block the server, the only timeout that
+        // will happen is the idle timeout.
+        server_tls->set_key_verify_callback([](const ustring_view&, const ustring_view&) {
+            // This stalls the entire network object; this is a really terrible thing to do outside
+            // of test code, but will let us simulate a slow handshake.
+            log::critical(log_cat, "key verify sleeping...");
+            std::this_thread::sleep_for(30s);
+            log::critical(log_cat, "key verify done sleeping");
+            return true;
+        });
+#endif
+        // So what we do instead is just shutdown the server's network entirely before even trying
+        // to connect to client.  Unfortunately we don't really have a way to reliably kill the
+        // outgoing client connection mid-handshake, so these tests can only really *half* test that
+        // the handshake argument is being dealt with properly (not ideal, but probably fine since
+        // the Connection code is largely the same in terms of where it deals with the handshake
+        // timeout value).
+
+        std::shared_ptr<Endpoint> client_endpoint;
+        std::shared_ptr<connection_interface> client_ci;
+
+        auto server_endpoint = net1->endpoint(server_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        server_endpoint.reset();
+        net1.reset();  // kill the server
+
+#ifdef __APPLE__
+        constexpr int macos_sucks = 10;
+#else
+        constexpr int macos_sucks = 1;
+#endif
+
+        opt::handshake_timeout timeout{100ms * macos_sucks};
+
+        SECTION("Client endpoint handshake timeout")
+        {
+            client_endpoint = net2.endpoint(client_local, client_conn_closed, timeout);
+            client_ci = client_endpoint->connect(client_remote, client_tls);
+        }
+        SECTION("Client connect handshake timeout")
+        {
+            client_endpoint = net2.endpoint(client_local, client_conn_closed);
+            client_ci = client_endpoint->connect(client_remote, client_tls, timeout);
+        }
+        CHECK_FALSE(client_conn_closed.wait(25ms * macos_sucks));
+
+        CHECK(client_conn_closed.wait(125ms * macos_sucks));
+        CHECK(client_errcode == static_cast<uint64_t>(NGTCP2_ERR_HANDSHAKE_TIMEOUT));
+    }
 }  // namespace oxen::quic::test

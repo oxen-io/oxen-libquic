@@ -955,4 +955,37 @@ namespace oxen::quic::test
         stream->send("But wait, there's more!"s);
     };
 
+    TEST_CASE("004 - Connection closed during stream callback", "[004][streams][closing]")
+    {
+        Network test_net{};
+
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, [&](Stream& s, bstring_view data) { s.send(data); });
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        auto client_endpoint = test_net.endpoint(client_local);
+
+        std::promise<void> got_data;
+        {
+            auto conn = client_endpoint->connect(client_remote, client_tls);
+            auto s = conn->open_stream<Stream>([&](Stream& s, bstring_view) {
+                if (auto conn = s.endpoint.get_conn(s.reference_id))
+                    conn->close_connection();
+
+                got_data.set_value();
+            });
+            s->send("hello"s);
+        }
+
+        require_future(got_data.get_future());
+        std::this_thread::sleep_for(50ms);
+
+        REQUIRE("still alive"sv != "is success"sv);
+    }
+
 }  // namespace oxen::quic::test

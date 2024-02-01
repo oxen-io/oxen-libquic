@@ -295,7 +295,7 @@ namespace oxen::quic
 
         std::map<ustring, ustring> path_validation_tokens;
 
-        Connection* fetch_associated_conn(ngtcp2_cid* cid);
+        std::shared_ptr<Connection> fetch_associated_conn(ngtcp2_cid* cid);
 
         ConnectionID next_reference_id();
 
@@ -367,7 +367,7 @@ namespace oxen::quic
 
         void check_timeouts();
 
-        Connection* accept_initial_connection(const Packet& pkt);
+        std::shared_ptr<Connection> accept_initial_connection(const Packet& pkt);
     };
 
 }  // namespace oxen::quic

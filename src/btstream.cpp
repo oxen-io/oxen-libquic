@@ -38,6 +38,8 @@ namespace oxen::quic
 
         if (auto ptr = return_sender.lock())
             ptr->respond(req_id, body, error);
+        else
+            log::warning(bp_cat, "BTRequestStream unable to send response: stream has gone away");
     }
 
     void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
@@ -61,6 +63,8 @@ namespace oxen::quic
             auto& f = *sent_reqs.front();
             if (now && !f.is_expired(*now))
                 return;
+            auto ptr = std::move(sent_reqs.front());
+            sent_reqs.pop_front();
 
             try
             {
@@ -70,8 +74,6 @@ namespace oxen::quic
             {
                 log::error(bp_cat, "Uncaught exception from timeout response handler: {}", e.what());
             }
-
-            sent_reqs.pop_front();
         }
     }
 
@@ -101,13 +103,16 @@ namespace oxen::quic
         // being closed and so they can never be answered.
         check_timeouts(std::nullopt);
 
-        try
+        if (close_callback)
         {
-            close_callback(*this, app_code);
-        }
-        catch (const std::exception& e)
-        {
-            log::error(bp_cat, "Uncaught exception from bparser stream close callback: {}", e.what());
+            try
+            {
+                close_callback(*this, app_code);
+            }
+            catch (const std::exception& e)
+            {
+                log::error(bp_cat, "Uncaught exception from bparser stream close callback: {}", e.what());
+            }
         }
     }
 
@@ -141,17 +146,18 @@ namespace oxen::quic
             if (itr != sent_reqs.end())
             {
                 log::debug(bp_cat, "Successfully matched response to sent request!");
+                auto req = std::move(*itr);
+                sent_reqs.erase(itr);
                 try
                 {
-                    itr->get()->cb(std::move(msg));
+                    req->cb(std::move(msg));
                 }
                 catch (const std::exception& e)
                 {
                     log::error(bp_cat, "Uncaught exception from response handler: {}", e.what());
                 }
-                sent_reqs.erase(itr);
-                return;
             }
+            return;
         }
 
         // `msg` likely isn't valid in the exception handlers below, so extract what we need to
@@ -177,7 +183,7 @@ namespace oxen::quic
         }
         catch (const no_such_endpoint&)
         {
-            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", msg.endpoint());
+            log::warning(bp_cat, "No handler found for endpoint {}, returning error response", ep);
             respond(req_id, convert_sv<std::byte, char>("Invalid endpoint '{}'"_format(ep)), true);
         }
         catch (const std::exception& e)
@@ -185,7 +191,7 @@ namespace oxen::quic
             log::error(
                     bp_cat,
                     "Handler for {} threw an uncaught exception ({}); returning a generic error message",
-                    msg.endpoint(),
+                    ep,
                     e.what());
             respond(req_id, "An error occurred while processing the request"_bsv, true);
         }
@@ -242,6 +248,7 @@ namespace oxen::quic
                 }
 
                 handle_input(message{*this, std::move(buf)});
+                buf.clear();
 
                 // Back to the top to try processing another request that might have arrived in
                 // the same stream buffer
