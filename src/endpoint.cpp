@@ -428,7 +428,7 @@ namespace oxen::quic
         conn_lookup.erase(ccid);
     }
 
-    Connection* Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
+    std::shared_ptr<Connection> Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
     {
         auto ccid = quic_cid{*cid};
 
@@ -436,7 +436,7 @@ namespace oxen::quic
         {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
             {
-                return it_b->second.get();
+                return it_b->second;
             }
         }
 
@@ -611,7 +611,7 @@ namespace oxen::quic
         return std::make_optional<quic_cid>(vid.dcid, vid.dcidlen);
     }
 
-    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
+    std::shared_ptr<Connection> Endpoint::accept_initial_connection(const Packet& pkt)
     {
         log::trace(log_cat, "Accepting new connection...");
 
@@ -701,7 +701,7 @@ namespace oxen::quic
                             token_type,
                             pkt_original_cid);
 
-                    return it_b->second.get();
+                    return it_b->second;
                 }
             }
         }
