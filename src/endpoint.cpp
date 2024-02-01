@@ -305,7 +305,7 @@ namespace oxen::quic
         assert(static_cast<size_t>(written) <= buf.size());
         buf.resize(written);
 
-        send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
+        send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
                 log::warning(
