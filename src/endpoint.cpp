@@ -144,7 +144,7 @@ namespace oxen::quic
 
     void Endpoint::drain_connection(Connection& conn)
     {
-        if (conn.is_draining())
+        if (conn.is_draining() || conn.is_closing())
             return;
 
         conn.halt_events();
@@ -160,7 +160,7 @@ namespace oxen::quic
 
         _execute_close_hooks(conn, io_error{err->error_code});
 
-        draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
         log::debug(log_cat, "Connection ({}) marked as draining", conn.reference_id());
     }
@@ -310,6 +310,10 @@ namespace oxen::quic
         assert(static_cast<size_t>(written) <= buf.size());
         buf.resize(written);
 
+        log::debug(log_cat, "Marked connection ({}) as closing; sending close packet", conn.reference_id());
+
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+
         send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
@@ -318,8 +322,8 @@ namespace oxen::quic
                         "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
                         conn.reference_id());
+                delete_connection(conn);
             }
-            delete_connection(conn);
         });
     }
 
@@ -829,17 +833,17 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        for (auto it_a = draining.begin(); it_a != draining.end();)
+        for (auto it_a = draining_closing.begin(); it_a != draining_closing.end();)
         {
             if (it_a->first < now)
             {
                 if (auto it_b = conns.find(it_a->second); it_b != conns.end())
                 {
-                    log::debug(log_cat, "Deleting draining connection ({})", it_b->first);
+                    log::debug(log_cat, "Deleting closing/draining connection ({})", it_b->first);
                     delete_connection(*it_b->second.get());
                 }
 
-                it_a = draining.erase(it_a);
+                it_a = draining_closing.erase(it_a);
             }
             else
                 ++it_a;

@@ -347,14 +347,15 @@ namespace oxen::quic
         /// The primary Connection
         /// instance is stored as a shared_ptr indexd by scid
         ///
-        ///     When draining connections, they must be kept around for a short period of time to allow for any
-        /// lagging packets to be caught. The unique reference ID is keyed to removal time formatted as a time point
+        ///     When closing (we closed) or draining (they closed) connections, they must be kept around for a short period
+        /// of time to allow for any lagging packets to be caught. The unique reference ID is keyed to removal time formatted
+        /// as a time point
         ///
         std::map<ConnectionID, std::shared_ptr<Connection>> conns;
 
         std::unordered_map<quic_cid, ConnectionID> conn_lookup;
 
-        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
+        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining_closing;
 
         std::optional<quic_cid> handle_packet_connid(const Packet& pkt);
 
