@@ -558,6 +558,9 @@ namespace oxen::quic
             return;
         }
 
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
         send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
@@ -810,6 +813,9 @@ namespace oxen::quic
             log::warning(log_cat, "Error: Failed to construct version negotiation packet: {}", ngtcp2_strerror(nwrite));
             return;
         }
+
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
 
         send_or_queue_packet(p, std::move(buf), /*ecn=*/0);
     }
