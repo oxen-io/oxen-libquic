@@ -643,8 +643,8 @@ namespace oxen::quic
         }
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
-            log::error(log_cat, "0RTT is under development in this implementation; allowing packet");
-            // return nullptr;
+            log::error(log_cat, "0RTT is under development in this implementation; dropping packet");
+            return nullptr;
         }
 
         assert(hdr.type == NGTCP2_PKT_INITIAL);
