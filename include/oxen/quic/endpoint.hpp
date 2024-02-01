@@ -182,6 +182,12 @@ namespace oxen::quic
             return net.call_get(std::forward<Args>(args)...);
         }
 
+        template <typename... Args>
+        void call_soon(Args&&... args)
+        {
+            net.call_soon(std::forward<Args>(args)...);
+        }
+
         // Shortcut for calling net.make_shared<T> to make a std::shared_ptr<T> that has destruction
         // synchronized to the network event loop.
         template <typename T, typename... Args>
@@ -245,7 +251,6 @@ namespace oxen::quic
                 handle_ep_opt(std::move(*option));
         }
 
-
         void handle_packet(const Packet& pkt);
 
         /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
@@ -293,7 +298,7 @@ namespace oxen::quic
 
         const uint8_t* static_secret() { return _static_secret.data(); }
 
-        std::shared_ptr<Connection> fetch_associated_conn(ngtcp2_cid* cid);
+        Connection* fetch_associated_conn(ngtcp2_cid* cid);
 
         ConnectionID next_reference_id();
 
@@ -308,6 +313,8 @@ namespace oxen::quic
         void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec = io_error{0});
 
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
+
+        void _close_conns(std::optional<Direction> d);
 
         void _close_connection(Connection& conn, io_error ec, std::string msg);
 
@@ -365,7 +372,7 @@ namespace oxen::quic
 
         void check_timeouts();
 
-        std::shared_ptr<Connection> accept_initial_connection(const Packet& pkt);
+        Connection* accept_initial_connection(const Packet& pkt);
     };
 
 }  // namespace oxen::quic

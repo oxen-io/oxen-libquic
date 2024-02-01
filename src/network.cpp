@@ -167,7 +167,7 @@ namespace oxen::quic
 
         call([&]() mutable {
             for (const auto& ep : endpoint_map)
-                ep->close_conns();
+                ep->_close_conns(std::nullopt);
 
             pr.set_value();
         });

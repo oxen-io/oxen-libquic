@@ -125,16 +125,21 @@ namespace oxen::quic
 
     void Endpoint::close_conns(std::optional<Direction> d)
     {
-        call([this, d] {
-            // We have to do this in two passes rather than just closing as we go because
-            // `close_connection` can remove from `conns`, invalidating our implicit iterator.
-            std::vector<Connection*> close_me;
-            for (const auto& c : conns)
-                if (!d || *d == c.second->direction())
-                    close_me.push_back(c.second.get());
-            for (auto* c : close_me)
-                _close_connection(*c, io_error{0}, "NO_ERROR");
-        });
+        // We need to defer this because we aren't allowed to close connections during some other
+        // callback, and can't guarantee we aren't in such a callback.
+        call_soon([this, d] { _close_conns(d); });
+    }
+
+    void Endpoint::_close_conns(std::optional<Direction> d)
+    {
+        // We have to do this in two passes rather than just closing as we go because
+        // `_close_connection` can remove from `conns`, invalidating our implicit iterator.
+        std::vector<Connection*> close_me;
+        for (const auto& c : conns)
+            if (!d || *d == c.second->direction())
+                close_me.push_back(c.second.get());
+        for (auto* c : close_me)
+            _close_connection(*c, io_error{0}, "NO_ERROR");
     }
 
     void Endpoint::drain_connection(Connection& conn)
@@ -216,7 +221,7 @@ namespace oxen::quic
     {
         if (!msg)
             msg = ec.strerror();
-        call([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
+        call_soon([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
             _close_connection(conn, std::move(ec), std::move(msg));
         });
     }
@@ -428,7 +433,7 @@ namespace oxen::quic
         conn_lookup.erase(ccid);
     }
 
-    std::shared_ptr<Connection> Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
+    Connection* Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
     {
         auto ccid = quic_cid{*cid};
 
@@ -436,7 +441,7 @@ namespace oxen::quic
         {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
             {
-                return it_b->second;
+                return it_b->second.get();
             }
         }
 
@@ -614,7 +619,7 @@ namespace oxen::quic
         return std::make_optional<quic_cid>(vid.dcid, vid.dcidlen);
     }
 
-    std::shared_ptr<Connection> Endpoint::accept_initial_connection(const Packet& pkt)
+    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
     {
         log::trace(log_cat, "Accepting new connection...");
 
@@ -705,7 +710,7 @@ namespace oxen::quic
                             token_type,
                             pkt_original_cid);
 
-                    return it_b->second;
+                    return it_b->second.get();
                 }
             }
         }
