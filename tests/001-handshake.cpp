@@ -295,6 +295,17 @@ namespace oxen::quic::test
         CHECK(client_ci->is_validated());
     };
 
+    TEST_CASE("001 - multi-listen failure", "[001][dumb][listen][protection]")
+    {
+        Network net;
+        auto ep = net.endpoint(Address{});
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        CHECK_NOTHROW(ep->listen(server_tls));
+        CHECK_THROWS_AS(ep->listen(server_tls), std::logic_error);
+    }
+
     TEST_CASE("001 - Handshaking: Defer", "[001][defer][quietclose]")
     {
         auto client_established = callback_waiter{[](connection_interface&) {}};

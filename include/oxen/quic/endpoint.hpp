@@ -68,28 +68,17 @@ namespace oxen::quic
         {
             check_for_tls_creds<Opt...>();
 
-            std::promise<void> p;
-            auto f = p.get_future();
+            net.call_get([&opts..., this]() mutable {
+                if (inbound_ctx)
+                    throw std::logic_error{"Cannot call listen() more than once"};
 
-            net.call([&opts..., &p, this]() mutable {
-                try
-                {
-                    // initialize client context and client tls context simultaneously
-                    inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
-                    _set_context_globals(inbound_ctx);
-                    _accepting_inbound = true;
+                // initialize client context and client tls context simultaneously
+                inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
+                _set_context_globals(inbound_ctx);
+                _accepting_inbound = true;
 
-                    log::debug(log_cat, "Inbound context ready for incoming connections");
-
-                    p.set_value();
-                }
-                catch (...)
-                {
-                    p.set_exception(std::current_exception());
-                }
+                log::debug(log_cat, "Inbound context ready for incoming connections");
             });
-
-            f.get();
         }
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
