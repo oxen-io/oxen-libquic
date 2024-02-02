@@ -215,14 +215,15 @@ namespace oxen::quic
 
             cid->datalen = cidlen;
             auto* conn = static_cast<Connection*>(user_data);
+            auto& ep = conn->endpoint();
 
             if (ngtcp2_crypto_generate_stateless_reset_token(
-                        token, conn->static_secret(), NGTCP2_STATELESS_RESET_TOKENLEN, cid) != 0)
+                        token, ep._static_secret.data(), ep._static_secret.size(), cid) != 0)
                 return NGTCP2_ERR_CALLBACK_FAILURE;
 
             auto dir_str = conn->is_outbound() ? "CLIENT"s : "SERVER"s;
             log::trace(log_cat, "{} generated new CID for {}", dir_str, conn->reference_id());
-            conn->endpoint().associate_cid(cid, *conn);
+            ep.associate_cid(cid, *conn);
 
             // TODO: send new stateless reset token
             //  write packet using ngtcp2_pkt_write_stateless_reset
@@ -313,11 +314,6 @@ namespace oxen::quic
         _close_quietly = true;
     }
 
-    const uint8_t* Connection::static_secret()
-    {
-        return _endpoint.static_secret();
-    }
-
     void Connection::set_new_path(Path new_path)
     {
         _endpoint.call([this, new_path]() { _path = new_path; });
@@ -338,8 +334,8 @@ namespace oxen::quic
 
         auto len = ngtcp2_crypto_generate_regular_token(
                 token.data(),
-                static_secret(),
-                NGTCP2_STATELESS_RESET_TOKENLEN,
+                _endpoint._static_secret.data(),
+                _endpoint._static_secret.size(),
                 path->remote.addr,
                 path->remote.addrlen,
                 get_timestamp().count());
@@ -410,8 +406,8 @@ namespace oxen::quic
 
         auto len = ngtcp2_crypto_generate_regular_token(
                 token.data(),
-                static_secret(),
-                NGTCP2_STATELESS_RESET_TOKENLEN,
+                _endpoint._static_secret.data(),
+                _endpoint._static_secret.size(),
                 path->remote.addr,
                 path->remote.addrlen,
                 now);

@@ -355,8 +355,6 @@ namespace oxen::quic
 
         void set_new_path(Path new_path);
 
-        const uint8_t* static_secret();
-
         const ConnectionID& reference_id() const override { return _ref_id; }
 
         void set_close_quietly() override;

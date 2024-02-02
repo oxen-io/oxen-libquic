@@ -59,6 +59,8 @@ namespace oxen::quic
         {
             _init_internals();
             ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+            if (_static_secret.empty())
+                _static_secret = make_static_secret();
         }
 
         template <typename... Opt>
@@ -198,6 +200,9 @@ namespace oxen::quic
 
         bool in_event_loop() const;
 
+        // Returns a random value suitable for use as the Endpoint static secret value.
+        static ustring make_static_secret();
+
       private:
         friend class Network;
         friend class Connection;
@@ -216,7 +221,7 @@ namespace oxen::quic
 
         uint64_t _next_rid{0};
 
-        std::array<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> _static_secret;
+        ustring _static_secret;
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
@@ -240,6 +245,7 @@ namespace oxen::quic
         void handle_ep_opt(dgram_data_callback dgram_cb);
         void handle_ep_opt(connection_established_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
+        void handle_ep_opt(opt::static_secret ssecret);
 
         // Takes a std::optional-wrapped option that does nothing if the optional is empty,
         // otherwise passes it through to the above.  This is here to allow runtime-dependent
@@ -296,13 +302,14 @@ namespace oxen::quic
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        const uint8_t* static_secret() { return _static_secret.data(); }
+        const ustring& static_secret() const { return _static_secret; }
 
         Connection* fetch_associated_conn(ngtcp2_cid* cid);
 
         ConnectionID next_reference_id();
 
         void _init_internals();
+        void _init_static_secret();
 
         bool verify_retry_token(const Packet& pkt, ngtcp2_pkt_hd* hdr, ngtcp2_cid* ocid);
 

@@ -68,11 +68,25 @@ namespace oxen::quic
         connection_close_cb = std::move(conn_closed_cb);
     }
 
+    void Endpoint::handle_ep_opt(opt::static_secret secret)
+    {
+        _static_secret = std::move(secret.secret);
+        assert(_static_secret.size() >= 16);  // opt::static_secret should have checked this
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(in_event_loop());
         return ConnectionID{++_next_rid};
+    }
+
+    ustring Endpoint::make_static_secret()
+    {
+        ustring secret;
+        secret.resize(32);
+        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, secret.data(), secret.size());
+        return secret;
     }
 
     void Endpoint::_init_internals()
@@ -93,9 +107,6 @@ namespace oxen::quic
         exp_interval.tv_sec = 0;
         exp_interval.tv_usec = 250'000;
         event_add(expiry_timer.get(), &exp_interval);
-
-        // generate static secret to be used for all token generation
-        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, _static_secret.data(), _static_secret.size());
     }
 
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
