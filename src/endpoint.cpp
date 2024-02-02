@@ -68,11 +68,25 @@ namespace oxen::quic
         connection_close_cb = std::move(conn_closed_cb);
     }
 
+    void Endpoint::handle_ep_opt(opt::static_secret secret)
+    {
+        _static_secret = std::move(secret.secret);
+        assert(_static_secret.size() >= 16);  // opt::static_secret should have checked this
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(in_event_loop());
         return ConnectionID{++_next_rid};
+    }
+
+    ustring Endpoint::make_static_secret()
+    {
+        ustring secret;
+        secret.resize(32);
+        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, secret.data(), secret.size());
+        return secret;
     }
 
     void Endpoint::_init_internals()
@@ -93,9 +107,6 @@ namespace oxen::quic
         exp_interval.tv_sec = 0;
         exp_interval.tv_usec = 250'000;
         event_add(expiry_timer.get(), &exp_interval);
-
-        // generate static secret to be used for all token generation
-        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, _static_secret.data(), _static_secret.size());
     }
 
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
@@ -125,21 +136,26 @@ namespace oxen::quic
 
     void Endpoint::close_conns(std::optional<Direction> d)
     {
-        call([this, d] {
-            // We have to do this in two passes rather than just closing as we go because
-            // `close_connection` can remove from `conns`, invalidating our implicit iterator.
-            std::vector<Connection*> close_me;
-            for (const auto& c : conns)
-                if (!d || *d == c.second->direction())
-                    close_me.push_back(c.second.get());
-            for (auto* c : close_me)
-                _close_connection(*c, io_error{0}, "NO_ERROR");
-        });
+        // We need to defer this because we aren't allowed to close connections during some other
+        // callback, and can't guarantee we aren't in such a callback.
+        call_soon([this, d] { _close_conns(d); });
+    }
+
+    void Endpoint::_close_conns(std::optional<Direction> d)
+    {
+        // We have to do this in two passes rather than just closing as we go because
+        // `_close_connection` can remove from `conns`, invalidating our implicit iterator.
+        std::vector<Connection*> close_me;
+        for (const auto& c : conns)
+            if (!d || *d == c.second->direction())
+                close_me.push_back(c.second.get());
+        for (auto* c : close_me)
+            _close_connection(*c, io_error{0}, "NO_ERROR");
     }
 
     void Endpoint::drain_connection(Connection& conn)
     {
-        if (conn.is_draining())
+        if (conn.is_draining() || conn.is_closing())
             return;
 
         conn.halt_events();
@@ -155,7 +171,7 @@ namespace oxen::quic
 
         _execute_close_hooks(conn, io_error{err->error_code});
 
-        draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
         log::debug(log_cat, "Connection ({}) marked as draining", conn.reference_id());
     }
@@ -216,7 +232,7 @@ namespace oxen::quic
     {
         if (!msg)
             msg = ec.strerror();
-        call([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
+        call_soon([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
             _close_connection(conn, std::move(ec), std::move(msg));
         });
     }
@@ -305,7 +321,11 @@ namespace oxen::quic
         assert(static_cast<size_t>(written) <= buf.size());
         buf.resize(written);
 
-        send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
+        log::debug(log_cat, "Marked connection ({}) as closing; sending close packet", conn.reference_id());
+
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+
+        send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
                 log::warning(
@@ -313,8 +333,8 @@ namespace oxen::quic
                         "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
                         conn.reference_id());
+                delete_connection(conn);
             }
-            delete_connection(conn);
         });
     }
 
@@ -428,7 +448,7 @@ namespace oxen::quic
         conn_lookup.erase(ccid);
     }
 
-    std::shared_ptr<Connection> Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
+    Connection* Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
     {
         auto ccid = quic_cid{*cid};
 
@@ -436,7 +456,7 @@ namespace oxen::quic
         {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
             {
-                return it_b->second;
+                return it_b->second.get();
             }
         }
 
@@ -558,6 +578,9 @@ namespace oxen::quic
             return;
         }
 
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
         send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
@@ -611,7 +634,7 @@ namespace oxen::quic
         return std::make_optional<quic_cid>(vid.dcid, vid.dcidlen);
     }
 
-    std::shared_ptr<Connection> Endpoint::accept_initial_connection(const Packet& pkt)
+    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
     {
         log::trace(log_cat, "Accepting new connection...");
 
@@ -623,15 +646,16 @@ namespace oxen::quic
         {
             log::warning(
                     log_cat,
-                    "Warning: unexpected packet received, length={}, code={}, continuing...",
+                    "Unknown packet received from {}, length={}, code={}; ignoring it.",
+                    pkt.path.remote,
                     pkt.data.size(),
                     ngtcp2_strerror(rv));
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
-            log::error(log_cat, "0RTT is under development in this implementation; allowing packet");
-            // return nullptr;
+            log::error(log_cat, "0RTT is under development in this implementation; dropping packet");
+            return nullptr;
         }
 
         assert(hdr.type == NGTCP2_PKT_INITIAL);
@@ -701,7 +725,7 @@ namespace oxen::quic
                             token_type,
                             pkt_original_cid);
 
-                    return it_b->second;
+                    return it_b->second.get();
                 }
             }
         }
@@ -810,6 +834,9 @@ namespace oxen::quic
             return;
         }
 
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
         send_or_queue_packet(p, std::move(buf), /*ecn=*/0);
     }
 
@@ -817,17 +844,17 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        for (auto it_a = draining.begin(); it_a != draining.end();)
+        for (auto it_a = draining_closing.begin(); it_a != draining_closing.end();)
         {
             if (it_a->first < now)
             {
                 if (auto it_b = conns.find(it_a->second); it_b != conns.end())
                 {
-                    log::debug(log_cat, "Deleting draining connection ({})", it_b->first);
+                    log::debug(log_cat, "Deleting closing/draining connection ({})", it_b->first);
                     delete_connection(*it_b->second.get());
                 }
 
-                it_a = draining.erase(it_a);
+                it_a = draining_closing.erase(it_a);
             }
             else
                 ++it_a;
