@@ -92,8 +92,8 @@ namespace oxen::quic
     void Endpoint::_init_internals()
     {
         log::debug(log_cat, "Starting new UDP socket on {}", _local);
-        socket =
-                std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
+        socket = std::make_unique<UDPSocket>(
+                get_loop().get(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
 
         _local = socket->address();
 
@@ -176,7 +176,7 @@ namespace oxen::quic
         log::debug(log_cat, "Connection ({}) marked as draining", conn.reference_id());
     }
 
-    void Endpoint::handle_packet(const Packet& pkt)
+    void Endpoint::handle_packet(Packet&& pkt)
     {
         auto dcid_opt = handle_packet_connid(pkt);
 
@@ -216,7 +216,20 @@ namespace oxen::quic
         else
             log::debug(log_cat, "Found associated connection to incoming DCID!");
 
-        cptr->handle_conn_packet(pkt);
+        if (cptr->is_outbound())
+            // For a inbound packet on an outbound connection the packet handling code will have set
+            // the actual ip address in the packet, but that might not match the path that we
+            // created the connection with (because, often, we create using the any address), so
+            // forcibly reset the local address to the endpoint bind address so that we don't see it
+            // on an unknown path because of the anyaddr != specific address mismatch.
+            //
+            // We *don't* want to do this for inbound connections because we absolutely have to
+            // return those from the same address they arrived on (otherwise, on a multi-IP machine,
+            // you could have something arrive on IP2 but reply on IP1, which the remote side will
+            // not accept).
+            pkt.path.local = _local;
+
+        cptr->handle_conn_packet(std::move(pkt));
     }
 
     void Endpoint::drop_connection(Connection& conn, io_error err)
@@ -731,24 +744,24 @@ namespace oxen::quic
         }
     }
 
-    io_result Endpoint::send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)
+    io_result Endpoint::send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (!socket)
         {
-            log::warning(log_cat, "Cannot send packets on closed socket (to reach {})", dest);
+            log::warning(log_cat, "Cannot send packets on closed socket ({})", path);
             return io_result{EBADF};
         }
         assert(n_pkts >= 1 && n_pkts <= MAX_BATCH);
 
-        log::trace(log_cat, "Sending {} UDP packet(s) to {}...", n_pkts, dest);
+        log::trace(log_cat, "Sending {} UDP packet(s) {}...", n_pkts, path);
 
-        auto [ret, sent] = socket->send(dest, buf, bufsize, ecn, n_pkts);
+        auto [ret, sent] = socket->send(path, buf, bufsize, ecn, n_pkts);
 
         if (ret.failure() && !ret.blocked())
         {
-            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str_error());
+            log::error(log_cat, "Error sending packets {}: {}", path, ret.str_error());
             n_pkts = 0;  // Drop any packets, as we had a serious error
             return ret;
         }
@@ -795,7 +808,7 @@ namespace oxen::quic
 
         size_t n_pkts = 1;
         size_t bufsize = buf.size();
-        auto res = send_packets(p.remote, buf.data(), &bufsize, ecn, n_pkts);
+        auto res = send_packets(p, buf.data(), &bufsize, ecn, n_pkts);
 
         if (res.blocked())
         {

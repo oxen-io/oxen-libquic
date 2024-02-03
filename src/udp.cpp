@@ -15,6 +15,32 @@ extern "C"
 #include "internal.hpp"
 #include "udp.hpp"
 
+#ifdef IP_RECVDSTADDR
+#define DSTADDR_SOCKOPT_V4 IP_RECVDSTADDR
+#define DSTADDR_SOCKOPT_V6 IPV6_PKTINFO
+#define DSTADDR_CMSG_TYPE_V4 IP_RECVDSTADDR
+#define DSTADDR_CMSG_TYPE_V6 IPV6_PKTINFO
+#elif defined(IP_PKTINFO)
+#define DSTADDR_SOCKOPT_V4 IP_PKTINFO
+#define DSTADDR_SOCKOPT_V6 IPV6_RECVPKTINFO
+#define DSTADDR_CMSG_TYPE_V4 IP_PKTINFO
+#define DSTADDR_CMSG_TYPE_V6 IPV6_PKTINFO
+#endif
+
+#ifdef _WIN32
+#define QUIC_BEGIN_CMSG_HDR(h) WSA_CMSG_FIRSTHDR(h)
+#define QUIC_NEXT_CMSG_HDR(h, c) WSA_CMSG_NXTHDR(h, c)
+#define QUIC_CMSG_DATA(c) WSA_CMSG_DATA(c)
+constexpr int CMSG_ECN_V4 = IP_ECN;
+constexpr int CMSG_ECN_V6 = IPV6_ECN;
+#else
+#define QUIC_BEGIN_CMSG_HDR(h) CMSG_FIRSTHDR(h)
+#define QUIC_NEXT_CMSG_HDR(h, c) CMSG_NXTHDR(h, c)
+#define QUIC_CMSG_DATA(c) CMSG_DATA(c)
+constexpr int CMSG_ECN_V4 = IP_TOS;
+constexpr int CMSG_ECN_V6 = IPV6_TCLASS;
+#endif
+
 namespace oxen::quic
 {
 
@@ -93,12 +119,31 @@ namespace oxen::quic
         if (!receive_callback_)
             throw std::logic_error{"UDPSocket construction requires a non-empty receive callback"};
 
+        const int sockopt_proto = addr.is_ipv6() ? IPPROTO_IPV6 : IPPROTO_IP;
+        const unsigned int sockopt_on = 1;
+
 #ifdef _WIN32
         init_wsa_bs();
 #endif
 
         sock_ = check_rv(socket(addr.is_ipv6() ? AF_INET6 : AF_INET, SOCK_DGRAM, 0));
 
+        // Enable ECN notification on packets we receive:
+#ifndef _WIN32
+        check_rv(setsockopt(
+                sock_, sockopt_proto, addr.is_ipv6() ? IPV6_RECVTCLASS : IP_RECVTOS, &sockopt_on, sizeof(sockopt_on)));
+        set_ecn();
+#endif
+
+        // Enable destination address info in the packet info:
+        check_rv(setsockopt(
+                sock_,
+                sockopt_proto,
+                addr.is_ipv6() ? DSTADDR_SOCKOPT_V6 : DSTADDR_SOCKOPT_V4,
+                &sockopt_on,
+                sizeof(sockopt_on)));
+
+        // Bind!
         check_rv(bind(sock_, addr, addr.socklen()));
         check_rv(getsockname(sock_, bound_, bound_.socklen_ptr()));
 
@@ -108,17 +153,6 @@ namespace oxen::quic
         ioctlsocket(sock_, FIONBIO, &mode);
 #else
         check_rv(fcntl(sock_, F_SETFL, O_NONBLOCK));
-#endif
-
-        // Enable ECN notification on packets we receive:
-#ifndef _WIN32
-        const unsigned int on = 1;
-        if (addr.is_ipv6())
-            check_rv(setsockopt(sock_, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on)));
-        else
-            check_rv(setsockopt(sock_, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on)));
-
-        set_ecn();
 #endif
 
         rev_.reset(event_new(
@@ -193,12 +227,20 @@ namespace oxen::quic
         receive_callback_(Packet{bound_, payload, hdr});
     }
 
+    union alignas(cmsghdr) recv_cmsg_data
+    {
+        char ecn[CMSG_SPACE(sizeof(int))];  // a char most places but an int on windows because yay
+        char pktinfo4[CMSG_SPACE(sizeof(in_pktinfo))];
+        char pktinfo6[CMSG_SPACE(sizeof(in6_pktinfo))];
+    };
+
     io_result UDPSocket::receive()
     {
 #ifdef OXEN_LIBQUIC_RECVMMSG
         std::array<sockaddr_in6, DATAGRAM_BATCH_SIZE> peers;
         std::array<iovec, DATAGRAM_BATCH_SIZE> iovs;
         std::array<mmsghdr, DATAGRAM_BATCH_SIZE> msgs = {};
+        std::array<recv_cmsg_data, DATAGRAM_BATCH_SIZE> cmsgs = {};
 
         std::array<std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD>, DATAGRAM_BATCH_SIZE> data;
 
@@ -211,6 +253,8 @@ namespace oxen::quic
             h.msg_iovlen = 1;
             h.msg_name = &peers[i];
             h.msg_namelen = sizeof(peers[i]);
+            h.msg_control = &cmsgs[i];
+            h.msg_controllen = sizeof(cmsgs[i]);
         }
 
         size_t count = 0;
@@ -249,6 +293,9 @@ namespace oxen::quic
 
         sockaddr_storage peer{};
         std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD> data;
+
+        recv_cmsg_data cmsg{};
+
 #ifdef _WIN32
         // Microsoft renames everything but uses the same structure just to be obtuse:
         WSABUF iov;
@@ -259,6 +306,8 @@ namespace oxen::quic
         hdr.dwBufferCount = 1;
         hdr.name = reinterpret_cast<sockaddr*>(&peer);
         hdr.namelen = sizeof(peer);
+        hdr.Control.buf = &cmsg;
+        hdr.Control.len = sizeof(cmsg);
 #else
         iovec iov;
         iov.iov_base = data.data();
@@ -268,6 +317,8 @@ namespace oxen::quic
         hdr.msg_iovlen = 1;
         hdr.msg_name = &peer;
         hdr.msg_namelen = sizeof(peer);
+        hdr.msg_control = &cmsg;
+        hdr.msg_controllen = sizeof(cmsg);
 #endif
 
         size_t count = 0;
@@ -333,12 +384,12 @@ namespace oxen::quic
 #endif
 
     std::pair<io_result, size_t> UDPSocket::send(
-            const Address& dest, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
+            const Path& path, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
     {
         auto* next_buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
         int rv = 0;
         size_t sent = 0;
-        sockaddr* dest_sa = const_cast<Address&>(dest);
+        sockaddr* dest_sa = const_cast<Address&>(path.remote);
 
         if (ecn != ecn_)
         {
@@ -382,7 +433,7 @@ namespace oxen::quic
             hdr.msg_iov = &iov;
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
-            hdr.msg_namelen = dest.socklen();
+            hdr.msg_namelen = path.remote.socklen();
             if (gso_count > 1)
             {
                 auto& control = controls[msg_count];
@@ -453,7 +504,7 @@ namespace oxen::quic
             hdr.msg_iov = &iovs[i];
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
-            hdr.msg_namelen = dest.socklen();
+            hdr.msg_namelen = path.remote.socklen();
         }
 
         do
@@ -472,14 +523,14 @@ namespace oxen::quic
         hdr.lpBuffers = &iov;
         hdr.dwBufferCount = 1;
         hdr.name = dest_sa;
-        hdr.namelen = dest.socklen();
+        hdr.namelen = path.remote.socklen();
 #else
         msghdr hdr{};
         iovec iov;
         hdr.msg_iov = &iov;
         hdr.msg_iovlen = 1;
         hdr.msg_name = dest_sa;
-        hdr.msg_namelen = dest.socklen();
+        hdr.msg_namelen = path.remote.socklen();
 #endif
 
         for (size_t i = 0; i < n_pkts; ++i)
@@ -518,6 +569,36 @@ namespace oxen::quic
     {
         writeable_callbacks_.push_back(std::move(cb));
         event_add(wev_.get(), nullptr);
+    }
+
+    Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
+            path{local,
+#ifdef _WIN32
+                 {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
+#else
+                 {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}
+#endif
+            },
+            data{data}
+    {
+        assert(path.remote.is_ipv4() || path.remote.is_ipv6());
+
+        const int ecn_type = path.remote.is_ipv4() ? CMSG_ECN_V4 : CMSG_ECN_V6;
+
+        for (auto cmsg = CMSG_FIRSTHDR(&hdr); cmsg; cmsg = CMSG_NXTHDR(&hdr, cmsg))
+        {
+            if (cmsg->cmsg_level != (path.remote.is_ipv4() ? IPPROTO_IP : IPPROTO_IPV6) || cmsg->cmsg_len == 0)
+                continue;
+
+            // ECN flag:
+            if (cmsg->cmsg_type == ecn_type)
+                pkt_info.ecn = *reinterpret_cast<uint8_t*>(QUIC_CMSG_DATA(cmsg));
+            // extract the destination address into path.local
+            else if (cmsg->cmsg_type == DSTADDR_CMSG_TYPE_V4)
+                path.local.set_addr(&reinterpret_cast<const struct in_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi_addr);
+            else if (cmsg->cmsg_type == DSTADDR_CMSG_TYPE_V6)
+                path.local.set_addr(&reinterpret_cast<const struct in6_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi6_addr);
+        }
     }
 
 }  // namespace oxen::quic

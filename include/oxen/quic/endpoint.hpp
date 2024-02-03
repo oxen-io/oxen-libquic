@@ -246,7 +246,7 @@ namespace oxen::quic
                 handle_ep_opt(std::move(*option));
         }
 
-        void handle_packet(const Packet& pkt);
+        void handle_packet(Packet&& pkt);
 
         /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
         ///
@@ -264,7 +264,7 @@ namespace oxen::quic
         /// If a more serious error occurs (other than a blocked socket) then `n_pkts` is set to 0
         /// (effectively dropping all packets) and a result is returned with `.failure()` true (and
         /// `.blocked()` false).
-        io_result send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
+        io_result send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
 
         void drop_connection(Connection& conn, io_error err);
 
