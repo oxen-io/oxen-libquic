@@ -6,6 +6,10 @@ extern "C"
 #include <netinet/udp.h>
 #endif
 
+#ifdef __APPLE__
+#define __APPLE_USE_RFC_3542
+#endif
+
 #include <fcntl.h>
 #include <unistd.h>
 }
