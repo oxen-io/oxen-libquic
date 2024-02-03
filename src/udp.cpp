@@ -19,18 +19,6 @@ extern "C"
 #include "internal.hpp"
 #include "udp.hpp"
 
-#ifdef IP_RECVDSTADDR
-#define DSTADDR_SOCKOPT_V4 IP_RECVDSTADDR
-#define DSTADDR_SOCKOPT_V6 IPV6_PKTINFO
-#define DSTADDR_CMSG_TYPE_V4 IP_RECVDSTADDR
-#define DSTADDR_CMSG_TYPE_V6 IPV6_PKTINFO
-#elif defined(IP_PKTINFO)
-#define DSTADDR_SOCKOPT_V4 IP_PKTINFO
-#define DSTADDR_SOCKOPT_V6 IPV6_RECVPKTINFO
-#define DSTADDR_CMSG_TYPE_V4 IP_PKTINFO
-#define DSTADDR_CMSG_TYPE_V6 IPV6_PKTINFO
-#endif
-
 #ifdef _WIN32
 #define CMSG_FIRSTHDR(h) WSA_CMSG_FIRSTHDR(h)
 #define CMSG_NXTHDR(h, c) WSA_CMSG_NXTHDR(h, c)
@@ -139,16 +127,35 @@ namespace oxen::quic
         set_ecn();
 #endif
 
-        // Enable destination address info in the packet info:
-        check_rv(setsockopt(
-                sock_,
-                sockopt_proto,
-                addr.is_ipv6() ? DSTADDR_SOCKOPT_V6 : DSTADDR_SOCKOPT_V4,
-#ifdef _WIN32
-                (const char*)
+#ifdef __APPLE__
+        // As usual, macOS is a pile of garbage: it is completely broken when trying to get pktinfo
+        // on a dual-stack socket: instead of giving us useful packet info, it either gives us
+        // invalid garbage that changes on every packet, or else just doesn't give us anything at
+        // all.  Thus we turn this on only for IPv4 sockets; expect proper working OS APIs on macOS
+        // is apparently a "you're holding it wrong" problem, so to hell with it: if you're a user
+        // and you want it to work you need to upgrade (i.e. switch) to an OS made by someone who
+        // realizes that making an OS involves more than deciding on right shade of lipstick to
+        // apply to a pig.
+        const bool broken_os = addr.is_ipv6();
+#else
+        constexpr bool broken_os = false;
 #endif
-                &sockopt_on,
-                sizeof(sockopt_on)));
+        // Enable destination address info in the packet info:
+        if (!broken_os)
+            check_rv(setsockopt(
+                    sock_,
+                    sockopt_proto,
+                    addr.is_ipv6() ? IPV6_RECVPKTINFO :
+#ifdef IP_RECVDSTADDR
+                                   IP_RECVDSTADDR,
+#else
+                                   IP_PKTINFO,
+#endif
+#ifdef _WIN32
+                    (const char*)
+#endif
+                    &sockopt_on,
+                    sizeof(sockopt_on)));
 
         // Bind!
         check_rv(bind(sock_, addr, addr.socklen()));
@@ -673,12 +680,18 @@ namespace oxen::quic
             // ECN flag:
             if (cmsg->cmsg_type == ecn_type)
                 pkt_info.ecn = *reinterpret_cast<uint8_t*>(QUIC_CMSG_DATA(cmsg));
-            // extract the destination address into path.local
-            else if (cmsg->cmsg_type == DSTADDR_CMSG_TYPE_V4)
+                // extract the destination address into path.local
+#ifdef IP_RECVDSTADDR
+            else if (cmsg->cmsg_type == IP_RECVDSTADDR)
+                path.local.set_addr(reinterpret_cast<const struct in_addr*>(QUIC_CMSG_DATA(cmsg)));
+#else
+            else if (cmsg->cmsg_type == IP_PKTINFO)
                 path.local.set_addr(&reinterpret_cast<const struct in_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi_addr);
-            else if (cmsg->cmsg_type == DSTADDR_CMSG_TYPE_V6)
+#endif
+            else if (cmsg->cmsg_type == IPV6_PKTINFO)
                 path.local.set_addr(&reinterpret_cast<const struct in6_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi6_addr);
         }
+        log::trace(log_cat, "incoming packet path is {}", path);
     }
 
 }  // namespace oxen::quic
