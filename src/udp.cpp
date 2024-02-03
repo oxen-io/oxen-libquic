@@ -32,17 +32,17 @@ extern "C"
 #endif
 
 #ifdef _WIN32
-#define QUIC_BEGIN_CMSG_HDR(h) WSA_CMSG_FIRSTHDR(h)
-#define QUIC_NEXT_CMSG_HDR(h, c) WSA_CMSG_NXTHDR(h, c)
+#define CMSG_FIRSTHDR(h) WSA_CMSG_FIRSTHDR(h)
+#define CMSG_NXTHDR(h, c) WSA_CMSG_NXTHDR(h, c)
 #define QUIC_CMSG_DATA(c) WSA_CMSG_DATA(c)
+#define CMSG_SPACE(c) WSA_CMSG_SPACE(c)
+#define CMSG_LEN(c) WSA_CMSG_LEN(c)
 constexpr int CMSG_ECN_V4 = IP_ECN;
 constexpr int CMSG_ECN_V6 = IPV6_ECN;
 #else
-#define QUIC_BEGIN_CMSG_HDR(h) CMSG_FIRSTHDR(h)
-#define QUIC_NEXT_CMSG_HDR(h, c) CMSG_NXTHDR(h, c)
-#define QUIC_CMSG_DATA(c) CMSG_DATA(c)
 constexpr int CMSG_ECN_V4 = IP_TOS;
 constexpr int CMSG_ECN_V6 = IPV6_TCLASS;
+#define QUIC_CMSG_DATA(c) CMSG_DATA(c)
 #endif
 
 namespace oxen::quic
@@ -144,6 +144,9 @@ namespace oxen::quic
                 sock_,
                 sockopt_proto,
                 addr.is_ipv6() ? DSTADDR_SOCKOPT_V6 : DSTADDR_SOCKOPT_V4,
+#ifdef _WIN32
+                (const char*)
+#endif
                 &sockopt_on,
                 sizeof(sockopt_on)));
 
@@ -310,7 +313,7 @@ namespace oxen::quic
         hdr.dwBufferCount = 1;
         hdr.name = reinterpret_cast<sockaddr*>(&peer);
         hdr.namelen = sizeof(peer);
-        hdr.Control.buf = &cmsg;
+        hdr.Control.buf = (char*)&cmsg;
         hdr.Control.len = sizeof(cmsg);
 #else
         iovec iov;
@@ -476,7 +479,7 @@ namespace oxen::quic
                     cm->cmsg_level = source_cmsg_level;
                     cm->cmsg_type = source_cmsg_type;
                     cm->cmsg_len = CMSG_LEN(source_addrlen);
-                    std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                    std::memcpy(QUIC_CMSG_DATA(cm), &source_addr, source_addrlen);
                     actual_size += CMSG_SPACE(source_addrlen);
                     if (gso_count > 1)
                         cm = CMSG_NXTHDR(&hdr, cm);
@@ -487,7 +490,7 @@ namespace oxen::quic
                     cm->cmsg_type = UDP_SEGMENT;
                     cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
                     actual_size += CMSG_SPACE(sizeof(uint16_t));
-                    *reinterpret_cast<uint16_t*>(CMSG_DATA(cm)) = gso_size;
+                    *reinterpret_cast<uint16_t*>(QUIC_CMSG_DATA(cm)) = gso_size;
                 }
                 hdr.msg_controllen = actual_size;
             }
@@ -563,7 +566,7 @@ namespace oxen::quic
                 cm->cmsg_level = source_cmsg_level;
                 cm->cmsg_type = source_cmsg_type;
                 cm->cmsg_len = CMSG_LEN(source_addrlen);
-                std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                std::memcpy(QUIC_CMSG_DATA(cm), &source_addr, source_addrlen);
             }
         }
 
@@ -596,13 +599,18 @@ namespace oxen::quic
         alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(in6_pktinfo))> control;
         if (set_source_addr)
         {
+#ifdef _WIN32
+            hdr.Control.buf = control.data();
+            hdr.Control.len = control.size();
+#else
             hdr.msg_control = control.data();
             hdr.msg_controllen = control.size();
+#endif
             auto* cm = CMSG_FIRSTHDR(&hdr);
             cm->cmsg_level = source_cmsg_level;
             cm->cmsg_type = source_cmsg_type;
             cm->cmsg_len = CMSG_LEN(source_addrlen);
-            std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+            std::memcpy(QUIC_CMSG_DATA(cm), &source_addr, source_addrlen);
         }
 
         for (size_t i = 0; i < n_pkts; ++i)

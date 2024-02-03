@@ -24,6 +24,7 @@ namespace oxen::quic
 
 #ifdef _WIN32
     using msghdr = WSAMSG;
+    using cmsghdr = WSACMSGHDR;
 #else
     using msghdr = ::msghdr;
 #endif
