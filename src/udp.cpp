@@ -397,6 +397,30 @@ namespace oxen::quic
             set_ecn();
         }
 
+        const bool set_source_addr = bound_.is_any_addr() && !path.local.is_any_addr();
+        const bool source_ipv4 = path.local.is_ipv4();
+        union
+        {
+            in_pktinfo v4;
+            in6_pktinfo v6;
+        } source_addr;
+        const size_t source_addrlen = source_ipv4 ? sizeof(in_pktinfo) : sizeof(in6_pktinfo);
+        const int source_cmsg_level = source_ipv4 ? IPPROTO_IP : IPPROTO_IPV6;
+        const int source_cmsg_type = source_ipv4 ? IP_PKTINFO : IPV6_PKTINFO;
+        if (set_source_addr)
+        {
+            std::memset(&source_addr, 0, sizeof(source_addr));
+            if (source_ipv4)
+#ifdef _WIN32
+                source_addr.v4.ipi_addr
+#else
+                source_addr.v4.ipi_spec_dst
+#endif
+                        = path.local.in4().sin_addr;
+            else
+                source_addr.v6.ipi6_addr = path.local.in6().sin6_addr;
+        }
+
 #ifdef OXEN_LIBQUIC_UDP_GSO
 
         // With GSO, we use *one* sendmmsg call which can contain multiple batches of packets; each
@@ -404,7 +428,9 @@ namespace oxen::quic
         //
         // We could have up to the full MAX_BATCH, with the worst case being every packet being a
         // different size than the one before it.
-        std::array<std::array<char, CMSG_SPACE(sizeof(uint16_t))>, DATAGRAM_BATCH_SIZE> controls{};
+        alignas(cmsghdr) std::
+                array<std::array<char, CMSG_SPACE(sizeof(uint16_t)) + CMSG_SPACE(sizeof(in6_pktinfo))>, DATAGRAM_BATCH_SIZE>
+                        controls;
         std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
         std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
 
@@ -434,16 +460,32 @@ namespace oxen::quic
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
             hdr.msg_namelen = path.remote.socklen();
-            if (gso_count > 1)
+            if (set_source_addr || gso_count > 1)
             {
                 auto& control = controls[msg_count];
                 hdr.msg_control = control.data();
                 hdr.msg_controllen = control.size();
+                size_t actual_size = 0;
                 auto* cm = CMSG_FIRSTHDR(&hdr);
-                cm->cmsg_level = SOL_UDP;
-                cm->cmsg_type = UDP_SEGMENT;
-                cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
-                *reinterpret_cast<uint16_t*>(CMSG_DATA(cm)) = gso_size;
+                if (set_source_addr)
+                {
+                    cm->cmsg_level = source_cmsg_level;
+                    cm->cmsg_type = source_cmsg_type;
+                    cm->cmsg_len = CMSG_LEN(source_addrlen);
+                    std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                    actual_size += CMSG_SPACE(source_addrlen);
+                    if (gso_count > 1)
+                        cm = CMSG_NXTHDR(&hdr, cm);
+                }
+                if (gso_count > 1)
+                {
+                    cm->cmsg_level = SOL_UDP;
+                    cm->cmsg_type = UDP_SEGMENT;
+                    cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
+                    actual_size += CMSG_SPACE(sizeof(uint16_t));
+                    *reinterpret_cast<uint16_t*>(CMSG_DATA(cm)) = gso_size;
+                }
+                hdr.msg_controllen = actual_size;
             }
         }
 
@@ -492,6 +534,8 @@ namespace oxen::quic
         std::array<mmsghdr, MAX_BATCH> msgs{};
         std::array<iovec, MAX_BATCH> iovs{};
 
+        alignas(cmsghdr) std::array<std::array<char, CMSG_SPACE(sizeof(in6_pktinfo))>, MAX_BATCH> controls;
+
         for (size_t i = 0; i < n_pkts; i++)
         {
             assert(bufsize[i] > 0);
@@ -505,6 +549,18 @@ namespace oxen::quic
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
             hdr.msg_namelen = path.remote.socklen();
+
+            if (set_source_addr)
+            {
+                auto& control = controls[i];
+                hdr.msg_control = control.data();
+                hdr.msg_controllen = control.size();
+                auto* cm = CMSG_FIRSTHDR(&hdr);
+                cm->cmsg_level = source_cmsg_level;
+                cm->cmsg_type = source_cmsg_type;
+                cm->cmsg_len = CMSG_LEN(source_addrlen);
+                std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+            }
         }
 
         do
@@ -532,6 +588,18 @@ namespace oxen::quic
         hdr.msg_name = dest_sa;
         hdr.msg_namelen = path.remote.socklen();
 #endif
+
+        alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(in6_pktinfo))> control;
+        if (set_source_addr)
+        {
+            hdr.msg_control = control.data();
+            hdr.msg_controllen = control.size();
+            auto* cm = CMSG_FIRSTHDR(&hdr);
+            cm->cmsg_level = source_cmsg_level;
+            cm->cmsg_type = source_cmsg_type;
+            cm->cmsg_len = CMSG_LEN(source_addrlen);
+            std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+        }
 
         for (size_t i = 0; i < n_pkts; ++i)
         {
