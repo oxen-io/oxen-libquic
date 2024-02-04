@@ -78,6 +78,7 @@ namespace oxen::quic
         {
             if (close_callback)
                 close_callback(*this, app_code);
+            _conn = nullptr;
         }
 
         // Called immediately after set_ready so that a subclass can do thing as soon as the stream
