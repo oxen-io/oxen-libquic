@@ -113,6 +113,9 @@ namespace oxen::quic
 
     inline constexpr uint64_t DEFAULT_MAX_BIDI_STREAMS = 32;
 
+    inline constexpr std::chrono::seconds DEFAULT_HANDSHAKE_TIMEOUT = 10s;
+    inline constexpr std::chrono::seconds DEFAULT_IDLE_TIMEOUT = 30s;
+
     // NGTCP2 sets the path_pmtud_payload to 1200 on connection creation, then discovers upwards
     // to a theoretical max of 1452. In 'lazy' mode, we take in split packets under the current max
     // pmtud size. In 'greedy' mode, we take in up to double the current pmtud size to split amongst

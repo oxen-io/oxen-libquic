@@ -53,7 +53,9 @@ namespace oxen::quic
         ConnectionID _rid;
 
         // - `is_timeout` should be true if this is being constructed as a non-response because we
-        //   didn't get any reply from the other side in time.
+        //   didn't get any reply from the other side in time.  This *can* happen earlier than the
+        //   requested timeout in cases where we detect early that the response cannot arrive, such
+        //   as the connection closing.
         message(BTRequestStream& bp, bstring req, bool is_timeout = false);
 
       public:
@@ -250,6 +252,7 @@ namespace oxen::quic
 
       protected:
         void check_timeouts() override;
+        void check_timeouts(std::optional<std::chrono::steady_clock::time_point> now);
 
         void receive(bstring_view data) override;
 
