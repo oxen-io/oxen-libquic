@@ -44,6 +44,10 @@ namespace oxen::quic
     inline constexpr uint64_t CONN_WRITE_CLOSE_FAIL = ERROR_BASE + 1000;
     // Failed to send connection close:
     inline constexpr uint64_t CONN_SEND_CLOSE_FAIL = ERROR_BASE + 1001;
+    // Failed to write packet
+    inline constexpr uint64_t CONN_SEND_FAIL = ERROR_BASE + 1002;
+    // Connection closing because it reached idle timeout
+    inline constexpr uint64_t CONN_IDLE_CLOSED = ERROR_BASE + 1003;
 
     inline std::string quic_strerror(uint64_t e)
     {
@@ -63,6 +67,10 @@ namespace oxen::quic
                 return "Error - Failed to write connection close"s;
             case CONN_SEND_CLOSE_FAIL:
                 return "Error - Failed to send connection close"s;
+            case CONN_SEND_FAIL:
+                return "Error - Failed to send packet"s;
+            case CONN_IDLE_CLOSED:
+                return "Connection closed by idle timeout"s;
             default:
                 return "Application error code {}"_format(e);
         }

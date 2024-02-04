@@ -79,6 +79,10 @@ namespace oxen::quic
                 throw std::invalid_argument{"Error: could not set port in unknown sock_addr"};
         }
 
+        // Helpers for setting the IP (only, not the port!) from C networking code
+        void set_addr(const struct in_addr* addr);
+        void set_addr(const struct in6_addr* addr);
+
         // Converts an IPv4 address into an IPv4-mapped IPv6 address.  The address must already be
         // an IPv4 address (throws if not).
         void map_ipv4_as_ipv6();

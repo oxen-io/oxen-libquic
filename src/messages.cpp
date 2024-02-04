@@ -6,43 +6,6 @@
 
 namespace oxen::quic
 {
-    Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
-            path{local,
-#ifdef _WIN32
-                 {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
-#else
-                 {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}
-#endif
-            },
-            data{data}
-    {
-        // ECN flag:
-        assert(path.remote.is_ipv4() || path.remote.is_ipv6());
-#ifdef _WIN32
-        for (auto cmsg = WSA_CMSG_FIRSTHDR(&hdr); cmsg; cmsg = WSA_CMSG_NXTHDR(&hdr, cmsg))
-        {
-            if ((path.remote.is_ipv4() ? (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_ECN)
-                                       : (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_ECN)) &&
-                cmsg->cmsg_len > 0)
-            {
-                pkt_info.ecn = *reinterpret_cast<uint8_t*>(WSA_CMSG_DATA(cmsg));
-                break;
-            }
-        }
-#else
-        for (auto cmsg = CMSG_FIRSTHDR(&hdr); cmsg; cmsg = CMSG_NXTHDR(&hdr, cmsg))
-        {
-            if ((path.remote.is_ipv4() ? (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS)
-                                       : (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS)) &&
-                cmsg->cmsg_len > 0)
-            {
-                pkt_info.ecn = *reinterpret_cast<uint8_t*>(CMSG_DATA(cmsg));
-                break;
-            }
-        }
-#endif
-    }
-
     rotating_buffer::rotating_buffer(DatagramIO& d) : datagram{d}, bufsize{d.rbufsize}, rowsize{d.rbufsize / 4}
     {
         for (auto& v : buf)
