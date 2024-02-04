@@ -1,0 +1,5 @@
+#include <oxen/quic/version.hpp>
+
+namespace oxen::quic {
+    std::array<int, 3> VERSION{@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@};
+}

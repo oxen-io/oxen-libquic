@@ -7,8 +7,8 @@ namespace oxen::quic
     void TestHelper::migrate_connection(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
-            conn._endpoint.handle_packet(packet);
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+            conn._endpoint.handle_packet(std::move(packet));
         });
 
         auto& new_addr = new_sock->address();
@@ -25,8 +25,8 @@ namespace oxen::quic
     void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
-            conn._endpoint.handle_packet(packet);
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+            conn._endpoint.handle_packet(std::move(packet));
         });
 
         auto& new_addr = new_sock->address();
@@ -43,8 +43,8 @@ namespace oxen::quic
     void TestHelper::nat_rebinding(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](const auto& packet) {
-            conn._endpoint.handle_packet(packet);
+        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+            conn._endpoint.handle_packet(std::move(packet));
         });
 
         auto& new_addr = new_sock->address();

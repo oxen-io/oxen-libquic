@@ -9,7 +9,7 @@ namespace oxen::quic
     DatagramIO::DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
-            rbufsize{endpoint._rbufsize},
+            rbufsize{endpoint.datagram_bufsize()},
             recv_buffer{*this},
             _packet_splitting(_conn->packet_splitting_enabled())
     {
