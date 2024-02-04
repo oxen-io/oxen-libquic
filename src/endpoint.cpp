@@ -68,6 +68,12 @@ namespace oxen::quic
         connection_close_cb = std::move(conn_closed_cb);
     }
 
+    void Endpoint::handle_ep_opt(opt::static_secret secret)
+    {
+        _static_secret = std::move(secret.secret);
+        assert(_static_secret.size() >= 16);  // opt::static_secret should have checked this
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -75,11 +81,19 @@ namespace oxen::quic
         return ConnectionID{++_next_rid};
     }
 
+    ustring Endpoint::make_static_secret()
+    {
+        ustring secret;
+        secret.resize(32);
+        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, secret.data(), secret.size());
+        return secret;
+    }
+
     void Endpoint::_init_internals()
     {
         log::debug(log_cat, "Starting new UDP socket on {}", _local);
-        socket =
-                std::make_unique<UDPSocket>(get_loop().get(), _local, [this](const auto& packet) { handle_packet(packet); });
+        socket = std::make_unique<UDPSocket>(
+                get_loop().get(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
 
         _local = socket->address();
 
@@ -93,9 +107,6 @@ namespace oxen::quic
         exp_interval.tv_sec = 0;
         exp_interval.tv_usec = 250'000;
         event_add(expiry_timer.get(), &exp_interval);
-
-        // generate static secret to be used for all token generation
-        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, _static_secret.data(), _static_secret.size());
     }
 
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
@@ -125,21 +136,26 @@ namespace oxen::quic
 
     void Endpoint::close_conns(std::optional<Direction> d)
     {
-        call([this, d] {
-            // We have to do this in two passes rather than just closing as we go because
-            // `close_connection` can remove from `conns`, invalidating our implicit iterator.
-            std::vector<Connection*> close_me;
-            for (const auto& c : conns)
-                if (!d || *d == c.second->direction())
-                    close_me.push_back(c.second.get());
-            for (auto* c : close_me)
-                _close_connection(*c, io_error{0}, "NO_ERROR");
-        });
+        // We need to defer this because we aren't allowed to close connections during some other
+        // callback, and can't guarantee we aren't in such a callback.
+        call_soon([this, d] { _close_conns(d); });
+    }
+
+    void Endpoint::_close_conns(std::optional<Direction> d)
+    {
+        // We have to do this in two passes rather than just closing as we go because
+        // `_close_connection` can remove from `conns`, invalidating our implicit iterator.
+        std::vector<Connection*> close_me;
+        for (const auto& c : conns)
+            if (!d || *d == c.second->direction())
+                close_me.push_back(c.second.get());
+        for (auto* c : close_me)
+            _close_connection(*c, io_error{0}, "NO_ERROR");
     }
 
     void Endpoint::drain_connection(Connection& conn)
     {
-        if (conn.is_draining())
+        if (conn.is_draining() || conn.is_closing())
             return;
 
         conn.halt_events();
@@ -155,12 +171,12 @@ namespace oxen::quic
 
         _execute_close_hooks(conn, io_error{err->error_code});
 
-        draining.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
         log::debug(log_cat, "Connection ({}) marked as draining", conn.reference_id());
     }
 
-    void Endpoint::handle_packet(const Packet& pkt)
+    void Endpoint::handle_packet(Packet&& pkt)
     {
         auto dcid_opt = handle_packet_connid(pkt);
 
@@ -200,20 +216,27 @@ namespace oxen::quic
         else
             log::debug(log_cat, "Found associated connection to incoming DCID!");
 
-        cptr->handle_conn_packet(pkt);
+        if (cptr->is_outbound())
+            // For a inbound packet on an outbound connection the packet handling code will have set
+            // the actual ip address in the packet, but that might not match the path that we
+            // created the connection with (because, often, we create using the any address), so
+            // forcibly reset the local address to the endpoint bind address so that we don't see it
+            // on an unknown path because of the anyaddr != specific address mismatch.
+            //
+            // We *don't* want to do this for inbound connections because we absolutely have to
+            // return those from the same address they arrived on (otherwise, on a multi-IP machine,
+            // you could have something arrive on IP2 but reply on IP1, which the remote side will
+            // not accept).
+            pkt.path.local = _local;
+
+        cptr->handle_conn_packet(std::move(pkt));
     }
 
-    void Endpoint::drop_connection(Connection& conn)
+    void Endpoint::drop_connection(Connection& conn, io_error err)
     {
-        const auto* err = ngtcp2_conn_get_ccerr(conn);
+        log::debug(log_cat, "Dropping connection ({}) with errcode {}", conn.reference_id(), err.code());
 
-        log::debug(
-                log_cat,
-                "Dropping connection ({}), Reason: {}",
-                conn.reference_id(),
-                err->reason ? std::string_view{reinterpret_cast<const char*>(err->reason), err->reasonlen} : "None"sv);
-
-        _execute_close_hooks(conn, io_error{err->error_code});
+        _execute_close_hooks(conn, std::move(err));
 
         delete_connection(conn);
     }
@@ -222,7 +245,7 @@ namespace oxen::quic
     {
         if (!msg)
             msg = ec.strerror();
-        call([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
+        call_soon([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
             _close_connection(conn, std::move(ec), std::move(msg));
         });
     }
@@ -264,10 +287,9 @@ namespace oxen::quic
         {
             log::info(
                     log_cat,
-                    "Connection ({}) passed idle expiry timer; closing now without close "
-                    "packet",
+                    "Connection ({}) passed idle expiry timer; closing now without close packet",
                     conn.reference_id());
-            drop_connection(conn);
+            drop_connection(conn, io_error{CONN_IDLE_CLOSED});
             return;
         }
 
@@ -277,7 +299,9 @@ namespace oxen::quic
         if (ec.ngtcp2_code() == NGTCP2_ERR_HANDSHAKE_TIMEOUT)
         {
             log::info(
-                    log_cat, "Connection ({}) passed idle expiry timer; closing now with close packet", conn.reference_id());
+                    log_cat,
+                    "Connection ({}) timed out during handshake; closing now with close packet",
+                    conn.reference_id());
         }
 
         _execute_close_hooks(conn, ec);
@@ -310,7 +334,11 @@ namespace oxen::quic
         assert(static_cast<size_t>(written) <= buf.size());
         buf.resize(written);
 
-        send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
+        log::debug(log_cat, "Marked connection ({}) as closing; sending close packet", conn.reference_id());
+
+        draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
+
+        send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
                 log::warning(
@@ -318,8 +346,8 @@ namespace oxen::quic
                         "Error: failed to send close packet [{}]; removing connection ({})",
                         rv.str_error(),
                         conn.reference_id());
+                delete_connection(conn);
             }
-            delete_connection(conn);
         });
     }
 
@@ -445,7 +473,7 @@ namespace oxen::quic
             }
         }
 
-        log::warning(log_cat, "Could not find connection associated with {}", ccid);
+        log::debug(log_cat, "Could not find connection associated with {}", ccid);
 
         return nullptr;
     }
@@ -563,6 +591,9 @@ namespace oxen::quic
             return;
         }
 
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
         send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
@@ -628,15 +659,16 @@ namespace oxen::quic
         {
             log::warning(
                     log_cat,
-                    "Warning: unexpected packet received, length={}, code={}, continuing...",
+                    "Unknown packet received from {}, length={}, code={}; ignoring it.",
+                    pkt.path.remote,
                     pkt.data.size(),
                     ngtcp2_strerror(rv));
             return nullptr;
         }
         if (hdr.type == NGTCP2_PKT_0RTT)
         {
-            log::error(log_cat, "0RTT is under development in this implementation; allowing packet");
-            // return nullptr;
+            log::error(log_cat, "0RTT is under development in this implementation; dropping packet");
+            return nullptr;
         }
 
         assert(hdr.type == NGTCP2_PKT_INITIAL);
@@ -712,24 +744,24 @@ namespace oxen::quic
         }
     }
 
-    io_result Endpoint::send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)
+    io_result Endpoint::send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (!socket)
         {
-            log::warning(log_cat, "Cannot send packets on closed socket (to reach {})", dest);
+            log::warning(log_cat, "Cannot send packets on closed socket ({})", path);
             return io_result{EBADF};
         }
         assert(n_pkts >= 1 && n_pkts <= MAX_BATCH);
 
-        log::trace(log_cat, "Sending {} UDP packet(s) to {}...", n_pkts, dest);
+        log::trace(log_cat, "Sending {} UDP packet(s) {}...", n_pkts, path);
 
-        auto [ret, sent] = socket->send(dest, buf, bufsize, ecn, n_pkts);
+        auto [ret, sent] = socket->send(path, buf, bufsize, ecn, n_pkts);
 
         if (ret.failure() && !ret.blocked())
         {
-            log::error(log_cat, "Error sending packets to {}: {}", dest, ret.str_error());
+            log::error(log_cat, "Error sending packets {}: {}", path, ret.str_error());
             n_pkts = 0;  // Drop any packets, as we had a serious error
             return ret;
         }
@@ -776,7 +808,7 @@ namespace oxen::quic
 
         size_t n_pkts = 1;
         size_t bufsize = buf.size();
-        auto res = send_packets(p.remote, buf.data(), &bufsize, ecn, n_pkts);
+        auto res = send_packets(p, buf.data(), &bufsize, ecn, n_pkts);
 
         if (res.blocked())
         {
@@ -815,6 +847,9 @@ namespace oxen::quic
             return;
         }
 
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
         send_or_queue_packet(p, std::move(buf), /*ecn=*/0);
     }
 
@@ -822,17 +857,17 @@ namespace oxen::quic
     {
         auto now = get_time();
 
-        for (auto it_a = draining.begin(); it_a != draining.end();)
+        for (auto it_a = draining_closing.begin(); it_a != draining_closing.end();)
         {
             if (it_a->first < now)
             {
                 if (auto it_b = conns.find(it_a->second); it_b != conns.end())
                 {
-                    log::debug(log_cat, "Deleting draining connection ({})", it_b->first);
+                    log::debug(log_cat, "Deleting closing/draining connection ({})", it_b->first);
                     delete_connection(*it_b->second.get());
                 }
 
-                it_a = draining.erase(it_a);
+                it_a = draining_closing.erase(it_a);
             }
             else
                 ++it_a;

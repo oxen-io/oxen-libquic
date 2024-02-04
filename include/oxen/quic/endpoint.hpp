@@ -34,29 +34,16 @@ extern "C"
 
 namespace oxen::quic
 {
+    template <typename... Opt>
+    static constexpr void check_for_tls_creds()
+    {
+        static_assert(
+                (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
+    }
+
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
-        friend class TestHelper;
-
-      private:
-        void handle_ep_opt(opt::enable_datagrams dc);
-        void handle_ep_opt(opt::outbound_alpns alpns);
-        void handle_ep_opt(opt::inbound_alpns alpns);
-        void handle_ep_opt(opt::handshake_timeout timeout);
-        void handle_ep_opt(dgram_data_callback dgram_cb);
-        void handle_ep_opt(connection_established_callback conn_established_cb);
-        void handle_ep_opt(connection_closed_callback conn_closed_cb);
-
-        // Takes a std::optional-wrapped option that does nothing if the optional is empty,
-        // otherwise passes it through to the above.  This is here to allow runtime-dependent
-        // options (i.e. where whether or not the option is required is not known at compile time).
-        template <typename Opt>
-        void handle_ep_opt(std::optional<Opt> option)
-        {
-            if (option)
-                handle_ep_opt(std::move(*option));
-        }
-
       public:
         // Non-movable/non-copyable; you must always hold a Endpoint in a shared_ptr
         Endpoint(const Endpoint&) = delete;
@@ -72,44 +59,34 @@ namespace oxen::quic
         {
             _init_internals();
             ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+            if (_static_secret.empty())
+                _static_secret = make_static_secret();
         }
 
         template <typename... Opt>
         void listen(Opt&&... opts)
         {
+            check_for_tls_creds<Opt...>();
 
-            static_assert(
-                    (0 + ... + std::is_convertible_v<remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
-                    "Endpoint listen requires exactly one std::shared_ptr<TLSCreds> argument");
+            net.call_get([&opts..., this]() mutable {
+                if (inbound_ctx)
+                    throw std::logic_error{"Cannot call listen() more than once"};
 
-            std::promise<void> p;
-            auto f = p.get_future();
+                // initialize client context and client tls context simultaneously
+                inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
+                _set_context_globals(inbound_ctx);
+                _accepting_inbound = true;
 
-            net.call([&opts..., &p, this]() mutable {
-                try
-                {
-                    // initialize client context and client tls context simultaneously
-                    inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
-                    _set_context_globals(inbound_ctx);
-                    _accepting_inbound = true;
-
-                    log::debug(log_cat, "Inbound context ready for incoming connections");
-
-                    p.set_value();
-                }
-                catch (...)
-                {
-                    p.set_exception(std::current_exception());
-                }
+                log::debug(log_cat, "Inbound context ready for incoming connections");
             });
-
-            f.get();
         }
 
         // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
         std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
         {
+            check_for_tls_creds<Opt...>();
+
             std::promise<std::shared_ptr<Connection>> p;
             auto f = p.get_future();
 
@@ -163,6 +140,27 @@ namespace oxen::quic
             return f.get();
         }
 
+        // query a list of all active inbound and outbound connections paired with a conn_interface
+        std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
+
+        const Address& local() const { return _local; }
+
+        bool is_accepting() const { return _accepting_inbound; }
+
+        bool datagrams_enabled() const { return _datagrams; }
+
+        bool packet_splitting_enabled() const { return _packet_splitting; }
+
+        int datagram_bufsize() const { return _rbufsize; }
+
+        Splitting splitting_policy() const { return _policy; }
+
+        void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
+
+        void close_conns(std::optional<Direction> d = std::nullopt);
+
+        std::shared_ptr<connection_interface> get_conn(ConnectionID rid);
+
         template <typename... Args>
         void call(Args&&... args)
         {
@@ -175,9 +173,11 @@ namespace oxen::quic
             return net.call_get(std::forward<Args>(args)...);
         }
 
-        const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
-
-        const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
+        template <typename... Args>
+        void call_soon(Args&&... args)
+        {
+            net.call_soon(std::forward<Args>(args)...);
+        }
 
         // Shortcut for calling net.make_shared<T> to make a std::shared_ptr<T> that has destruction
         // synchronized to the network event loop.
@@ -187,12 +187,66 @@ namespace oxen::quic
             return net.make_shared<T>(std::forward<Args>(args)...);
         }
 
-        // query a list of all active inbound and outbound connections paired with a conn_interface
-        std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
-
-        void handle_packet(const Packet& pkt);
-
         bool in_event_loop() const;
+
+        // Returns a random value suitable for use as the Endpoint static secret value.
+        static ustring make_static_secret();
+
+      private:
+        friend class Network;
+        friend class Connection;
+        friend struct Callbacks;
+        friend class TestHelper;
+
+        Network& net;
+        Address _local;
+        event_ptr expiry_timer;
+        std::unique_ptr<UDPSocket> socket;
+        bool _accepting_inbound{false};
+        bool _datagrams{false};
+        bool _packet_splitting{false};
+        Splitting _policy{Splitting::NONE};
+        int _rbufsize{4096};
+
+        uint64_t _next_rid{0};
+
+        ustring _static_secret;
+
+        std::shared_ptr<IOContext> outbound_ctx;
+        std::shared_ptr<IOContext> inbound_ctx;
+
+        std::vector<ustring> outbound_alpns;
+        std::vector<ustring> inbound_alpns;
+        std::chrono::nanoseconds handshake_timeout{DEFAULT_HANDSHAKE_TIMEOUT};
+
+        std::map<ustring, ustring> anti_replay_db;
+        std::map<ustring, ustring> encoded_transport_params;
+        std::map<ustring, ustring> path_validation_tokens;
+
+        const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
+
+        const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
+
+        void handle_ep_opt(opt::enable_datagrams dc);
+        void handle_ep_opt(opt::outbound_alpns alpns);
+        void handle_ep_opt(opt::inbound_alpns alpns);
+        void handle_ep_opt(opt::handshake_timeout timeout);
+        void handle_ep_opt(dgram_data_callback dgram_cb);
+        void handle_ep_opt(connection_established_callback conn_established_cb);
+        void handle_ep_opt(connection_closed_callback conn_closed_cb);
+        void handle_ep_opt(opt::static_secret ssecret);
+
+        // Takes a std::optional-wrapped option that does nothing if the optional is empty,
+        // otherwise passes it through to the above.  This is here to allow runtime-dependent
+        // options (i.e. where whether or not the option is required is not known at compile time).
+        template <typename Opt>
+        void handle_ep_opt(std::optional<Opt> option)
+        {
+            if (option)
+                handle_ep_opt(std::move(*option));
+        }
+
+        void handle_packet(Packet&& pkt);
 
         /// Attempts to send up to `n_pkts` packets to an address over this endpoint's socket.
         ///
@@ -210,30 +264,12 @@ namespace oxen::quic
         /// If a more serious error occurs (other than a blocked socket) then `n_pkts` is set to 0
         /// (effectively dropping all packets) and a result is returned with `.failure()` true (and
         /// `.blocked()` false).
-        io_result send_packets(const Address& dest, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
+        io_result send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
 
-        void close_conns(std::optional<Direction> d = std::nullopt);
+        void drop_connection(Connection& conn, io_error err);
 
-        void drop_connection(Connection& conn);
-
-        void close_connection(Connection& conn, io_error ec = io_error{0}, std::optional<std::string> msg = std::nullopt);
-
-        const Address& local() const { return _local; }
-
-        bool is_accepting() const { return _accepting_inbound; }
-
-        bool datagrams_enabled() const { return _datagrams; }
-
-        bool packet_splitting_enabled() const { return _packet_splitting; }
-
-        int datagram_bufsize() const { return _rbufsize; }
-
-        Splitting splitting_policy() const { return _policy; }
-
-        // this is public so the connection constructor can delegate initialize its own local copy to call later
         dgram_data_callback dgram_recv_cb;
 
-        // public so connections can call when handling conn packets
         void delete_connection(Connection& conn);
         void drain_connection(Connection& conn);
 
@@ -255,44 +291,14 @@ namespace oxen::quic
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        std::shared_ptr<connection_interface> get_conn(ConnectionID rid);
-
-        int _rbufsize{4096};
-
-        const uint8_t* static_secret() { return _static_secret.data(); }
-
-      private:
-        Network& net;
-        Address _local;
-        event_ptr expiry_timer;
-        std::unique_ptr<UDPSocket> socket;
-        bool _accepting_inbound{false};
-        bool _datagrams{false};
-        bool _packet_splitting{false};
-        Splitting _policy{Splitting::NONE};
-
-        uint64_t _next_rid{0};
-
-        std::array<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> _static_secret;
-
-        std::shared_ptr<IOContext> outbound_ctx;
-        std::shared_ptr<IOContext> inbound_ctx;
-
-        std::vector<ustring> outbound_alpns;
-        std::vector<ustring> inbound_alpns;
-        std::chrono::nanoseconds handshake_timeout{5s};
-
-        std::map<ustring, ustring> anti_replay_db;
-
-        std::map<ustring, ustring> encoded_transport_params;
-
-        std::map<ustring, ustring> path_validation_tokens;
+        const ustring& static_secret() const { return _static_secret; }
 
         Connection* fetch_associated_conn(ngtcp2_cid* cid);
 
         ConnectionID next_reference_id();
 
         void _init_internals();
+        void _init_static_secret();
 
         bool verify_retry_token(const Packet& pkt, ngtcp2_pkt_hd* hdr, ngtcp2_cid* ocid);
 
@@ -303,6 +309,8 @@ namespace oxen::quic
         void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec = io_error{0});
 
         void _set_context_globals(std::shared_ptr<IOContext>& ctx);
+
+        void _close_conns(std::optional<Direction> d);
 
         void _close_connection(Connection& conn, io_error ec, std::string msg);
 
@@ -335,14 +343,15 @@ namespace oxen::quic
         /// The primary Connection
         /// instance is stored as a shared_ptr indexd by scid
         ///
-        ///     When draining connections, they must be kept around for a short period of time to allow for any
-        /// lagging packets to be caught. The unique reference ID is keyed to removal time formatted as a time point
+        ///     When closing (we closed) or draining (they closed) connections, they must be kept around for a short period
+        /// of time to allow for any lagging packets to be caught. The unique reference ID is keyed to removal time formatted
+        /// as a time point
         ///
         std::map<ConnectionID, std::shared_ptr<Connection>> conns;
 
         std::unordered_map<quic_cid, ConnectionID> conn_lookup;
 
-        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining;
+        std::map<std::chrono::steady_clock::time_point, ConnectionID> draining_closing;
 
         std::optional<quic_cid> handle_packet_connid(const Packet& pkt);
 
