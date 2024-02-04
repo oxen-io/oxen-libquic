@@ -24,13 +24,21 @@ extern "C"
 #include "udp.hpp"
 
 #ifdef _WIN32
+
 #define CMSG_FIRSTHDR(h) WSA_CMSG_FIRSTHDR(h)
 #define CMSG_NXTHDR(h, c) WSA_CMSG_NXTHDR(h, c)
 #define QUIC_CMSG_DATA(c) WSA_CMSG_DATA(c)  // conflicts without the QUIC_ prefix
 #define CMSG_SPACE(c) WSA_CMSG_SPACE(c)
 #define CMSG_LEN(c) WSA_CMSG_LEN(c)
-#else
+
+#ifndef IPV6_RECVPKTINFO
+#define IPV6_RECVPKTINFO IPV6_PKTINFO
+#endif
+
+#else  // not windows
+
 #define QUIC_CMSG_DATA(c) CMSG_DATA(c)
+
 #endif
 
 namespace oxen::quic
