@@ -1,3 +1,49 @@
+oxen-libquic (1.0.0-3~ubuntu2304) lunar; urgency=medium
+
+  * Bump static gnutls build version to latest release
+  * Log level tweaks
+  * Add a compile-time failure if not providing TLS creds to connect(...)
+  * Disable log statement about no early data
+  * Add configurable idle timeout; change default to 30s
+  * BTRequestStream: fire pending callbacks as timeouts when closing
+  * Make oxen/quic/version.hpp header less annoying
+  * Allow individual handshake timeouts on connections
+  * Increase default handshake timeout to 10s
+  * Fix use-after-move
+  * BTRequestStream: don't invoke close callback if there isn't one
+  * Fix return for unfound replies/errors
+  * Remove from sent_reqs before invoking the callback
+  * Fix log message in handshake timeout case
+  * Make sure buf is cleared after we process it
+  * Downgrade log statement for normal use
+  * macos sucks
+  * Add warning when respond can't respond
+  * Fix connection dropping during packet processing
+  * Add remote address to unexpected packet warning
+  * Shrink buffer to ngtcp2-returned size
+  * tiny optimization: don't go through call_get
+  * Privatize Endpoint
+  * Defer public connection closing via call_soon
+  * Add closing period for connections
+  * Drop 0RTT
+  * Allow providing an Endpoint static secret
+  * Throw if we listen() multiple times & call_get
+  * Properly detect incoming local address
+  * Set packet source address when appropriate
+  * Trash fix for trash OS
+  * Trash fixes for the other trash OS
+  * De-hang tests; de-bool promises; macro require_future
+  * More apple defective OS workarounds
+  * Fix ECN support
+  * Fix log source root overwrite
+  * Windows compilation fix
+  * Longer timeout for ARM failures
+  * Add Debian 11 sendmsg jobs
+  * Zero control data
+  * Make IPV6_RECVPKTINFO work on Windows
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Sun, 04 Feb 2024 16:26:51 -0400
+
 oxen-libquic (1.0.0-2~ubuntu2304) lunar; urgency=medium
 
   * Move IOChannel into its own header
