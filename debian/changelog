@@ -1,3 +1,9 @@
+oxen-libquic (1.0.0-4~deb12) bookworm; urgency=medium
+
+  * Fix close hooks on pending streams not firing on connection fail
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Sun, 04 Feb 2024 19:00:32 -0400
+
 oxen-libquic (1.0.0-3~deb12) bookworm; urgency=medium
 
   * Bump static gnutls build version to latest release
