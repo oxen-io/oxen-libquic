@@ -460,7 +460,7 @@ namespace oxen::quic
         alignas(cmsghdr) std::array<
                 std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(uint16_t)) + CMSG_SPACE(sizeof(in6_pktinfo))>,
                 DATAGRAM_BATCH_SIZE>
-                controls;
+                controls{};
         std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
         std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
 
@@ -565,7 +565,7 @@ namespace oxen::quic
         std::array<iovec, MAX_BATCH> iovs{};
 
         alignas(cmsghdr) std::array<std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))>, MAX_BATCH>
-                controls;
+                controls{};
 
         for (size_t i = 0; i < n_pkts; i++)
         {
@@ -626,7 +626,7 @@ namespace oxen::quic
         hdr.msg_namelen = path.remote.socklen();
 #endif
 
-        alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))> control;
+        alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))> control{};
 #ifdef _WIN32
         hdr.Control.buf = control.data();
         auto& hdr_msg_controllen = hdr.Control.len;
