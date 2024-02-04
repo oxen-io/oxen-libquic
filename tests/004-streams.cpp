@@ -41,8 +41,8 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::promise<bool> data_promise;
-        std::future<bool> data_future = data_promise.get_future();
+        std::promise<void> data_promise;
+        std::future<void> data_future = data_promise.get_future();
         opt::max_streams max_streams{8};
 
         Address server_local{};
@@ -50,7 +50,7 @@ namespace oxen::quic::test
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
-            data_promise.set_value(true);
+            data_promise.set_value();
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -66,7 +66,7 @@ namespace oxen::quic::test
         auto client_stream = conn_interface->open_stream();
         client_stream->send(msg);
 
-        REQUIRE(data_future.get());
+        require_future(data_future);
         REQUIRE(conn_interface->get_streams_available() == max_streams.stream_count - 1);
     };
 
@@ -77,8 +77,8 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::promise<bool> data_promise;
-        std::future<bool> data_future = data_promise.get_future();
+        std::promise<void> data_promise;
+        std::future<void> data_future = data_promise.get_future();
         opt::max_streams server_config{10}, client_config{8};
 
         std::shared_ptr<connection_interface> server_ci;
@@ -88,7 +88,7 @@ namespace oxen::quic::test
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
-            data_promise.set_value(true);
+            data_promise.set_value();
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -116,7 +116,7 @@ namespace oxen::quic::test
         auto client_stream = client_ci->open_stream();
         client_stream->send(msg);
 
-        REQUIRE(data_future.get());
+        require_future(data_future);
 
         REQUIRE(client_ci->get_max_streams() == client_config.stream_count);
         REQUIRE(server_ci->get_streams_available() == client_config.stream_count);
@@ -141,8 +141,8 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{};
 
-        std::vector<std::promise<bool>> send_promises{n_sends}, receive_promises{n_recvs};
-        std::vector<std::future<bool>> send_futures{n_sends}, receive_futures{n_recvs};
+        std::vector<std::promise<void>> send_promises{n_sends}, receive_promises{n_recvs};
+        std::vector<std::future<void>> send_futures{n_sends}, receive_futures{n_recvs};
 
         for (size_t i = 0; i < n_recvs; ++i)
         {
@@ -157,7 +157,7 @@ namespace oxen::quic::test
             try
             {
                 data_check += 1;
-                receive_promises.at(index++).set_value(true);
+                receive_promises.at(index++).set_value();
             }
             catch (std::exception& e)
             {
@@ -181,12 +181,12 @@ namespace oxen::quic::test
         {
             streams[i] = conn_interface->open_stream();
             streams[i]->send(msg);
-            send_promises[i].set_value(true);
+            send_promises[i].set_value();
         }
 
         // 2) check the first 8
         for (size_t i = 0; i < n_streams - 4; ++i)
-            REQUIRE(receive_futures[i].get());
+            require_future(receive_futures[i]);
 
         // 3) close 5 streams
         for (size_t i = 0; i < 5; ++i)
@@ -194,7 +194,7 @@ namespace oxen::quic::test
 
         // 4) check the last 4
         for (size_t i = n_streams - 4; i < n_streams; ++i)
-            REQUIRE(receive_futures[i].get());
+            require_future(receive_futures[i]);
 
         // 5) open 2 more streams and send
         for (int i = 0; i < 2; ++i)
@@ -202,56 +202,56 @@ namespace oxen::quic::test
             streams[i] = conn_interface->open_stream();
             streams[i]->send(msg);
             // set send promise
-            send_promises[i + n_streams].set_value(true);
+            send_promises[i + n_streams].set_value();
         }
 
         // 6) check final stream received data
-        REQUIRE(receive_futures[n_streams].get());
+        require_future(receive_futures[n_streams]);
 
         // 7) verify
         for (auto& f : send_futures)
-            REQUIRE(f.get());
+            require_future(f);
 
         auto* conn = TestHelper::get_conn(client_endpoint, conn_interface);
 
         REQUIRE(conn);
 
-        std::promise<bool> p;
-        std::future<bool> f = p.get_future();
+        std::promise<void> p;
+        std::future<void> f = p.get_future();
 
         client_endpoint->call([&]() {
             REQUIRE(conn->num_pending() == 1);
-            p.set_value(true);
+            p.set_value();
         });
 
-        REQUIRE(f.get());
+        require_future(f);
 
         REQUIRE(data_check == n_recvs);
     };
 
     struct ClientStream : public Stream
     {
-        std::promise<bool> p;
+        std::promise<void> p;
 
-        ClientStream(Connection& _c, Endpoint& _e, std::promise<bool> _p) : Stream{_c, _e}, p{std::move(_p)} {}
+        ClientStream(Connection& _c, Endpoint& _e, std::promise<void> _p) : Stream{_c, _e}, p{std::move(_p)} {}
 
         void receive(bstring_view) override
         {
             log::debug(log_cat, "Calling custom stream data callback... data received...");
-            p.set_value(true);
+            p.set_value();
         }
     };
 
     struct ServerStream : public Stream
     {
-        std::promise<bool> p;
+        std::promise<void> p;
 
-        ServerStream(Connection& _c, Endpoint& _e, std::promise<bool> _p) : Stream{_c, _e}, p{std::move(_p)} {}
+        ServerStream(Connection& _c, Endpoint& _e, std::promise<void> _p) : Stream{_c, _e}, p{std::move(_p)} {}
 
         void receive(bstring_view) override
         {
             log::debug(log_cat, "Calling custom stream data callback... data received...");
-            p.set_value(true);
+            p.set_value();
         }
     };
 
@@ -260,21 +260,21 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::promise<bool> ss_p, sc_p, cs_p, cc_p;
-        std::future<bool> ss_f = ss_p.get_future(), sc_f = sc_p.get_future(), cs_f = cs_p.get_future(),
+        std::promise<void> ss_p, sc_p, cs_p, cc_p;
+        std::future<void> ss_f = ss_p.get_future(), sc_f = sc_p.get_future(), cs_f = cs_p.get_future(),
                           cc_f = cc_p.get_future();
 
         stream_data_callback standard_server_cb = [&](Stream& s, bstring_view dat) {
             log::debug(log_cat, "Calling standard stream data callback... data received...");
             REQUIRE(msg == dat);
-            ss_p.set_value(true);
+            ss_p.set_value();
             s.send(msg);
         };
 
         stream_data_callback standard_client_cb = [&](Stream& s, bstring_view dat) {
             log::debug(log_cat, "Calling standard stream data callback... data received...");
             REQUIRE(msg == dat);
-            cs_p.set_value(true);
+            cs_p.set_value();
             s.send(msg);
         };
 
@@ -295,16 +295,16 @@ namespace oxen::quic::test
 
         REQUIRE_NOTHROW(client_stream->send(msg));
 
-        REQUIRE(ss_f.get());
-        REQUIRE(cc_f.get());
+        require_future(ss_f);
+        require_future(cc_f);
 
         auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         auto server_stream = server_ci->open_stream<ServerStream>(std::move(sc_p));
 
         REQUIRE_NOTHROW(server_stream->send(msg));
 
-        REQUIRE(cs_f.get());
-        REQUIRE(sc_f.get());
+        require_future(cs_f);
+        require_future(sc_f);
     };
 
     TEST_CASE("004 - Subclassing quic::stream, custom to custom", "[004][customstream][subclass]")
@@ -312,8 +312,8 @@ namespace oxen::quic::test
         Network test_net{};
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::promise<bool> server_promise, client_promise;
-        std::future<bool> server_future = server_promise.get_future();
+        std::promise<void> server_promise, client_promise;
+        std::future<void> server_future = server_promise.get_future();
 
         stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
             return e.make_shared<ServerStream>(c, e, std::move(client_promise));
@@ -340,7 +340,7 @@ namespace oxen::quic::test
 
         REQUIRE_NOTHROW(client_stream->send(msg));
 
-        REQUIRE(server_future.get());
+        require_future(server_future);
     };
 
     struct CustomStream : public Stream
@@ -517,21 +517,25 @@ namespace oxen::quic::test
         log::info(bp_cat, "Client opening Custom Stream A!");
         client_a = client_ci->open_stream<CustomStreamA>(std::move(cp1));
         REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
-        CHECK(require_future(sf1) == "Stream A!");
+        require_future(sf1);
+        CHECK(sf1.get() == "Stream A!");
 
         log::info(bp_cat, "Client opening Custom Stream B!");
         client_b = client_ci->open_stream<CustomStreamB>(std::move(cp2));
         REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
-        CHECK(require_future(sf2) == "Stream B!");
+        require_future(sf2);
+        CHECK(sf2.get() == "Stream B!");
 
         log::info(bp_cat, "Client opening Custom Stream C!");
         client_c = client_ci->open_stream<CustomStreamC>(std::move(cp3));
         REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
-        CHECK(require_future(sf3) == "Stream C!");
+        require_future(sf3);
+        CHECK(sf3.get() == "Stream C!");
 
         client_d = client_ci->open_stream();
         client_d->send("Stream d!"_bs);
-        CHECK(require_future(sf4) == "Stream d!");
+        require_future(sf4);
+        CHECK(sf4.get() == "Stream d!");
 
         client_ci->close_connection();
         REQUIRE(server_closed.wait());
@@ -679,10 +683,14 @@ namespace oxen::quic::test
         s3->send("Stream C!"_bs);
         s4->send("Stream D!"_bs);
 
-        CHECK(require_future(cf1) == "🤔 0");
-        CHECK(require_future(cf2) == "🤔 4");
-        CHECK(require_future(cf3) == "🤔 8");
-        CHECK(require_future(cf4) == "🤔 12");
+        require_future(cf1);
+        require_future(cf2);
+        require_future(cf3);
+        require_future(cf4);
+        CHECK(cf1.get() == "🤔 0");
+        CHECK(cf2.get() == "🤔 4");
+        CHECK(cf3.get() == "🤔 8");
+        CHECK(cf4.get() == "🤔 12");
 
         {
             std::lock_guard lock{mut};
@@ -954,5 +962,38 @@ namespace oxen::quic::test
         // Connection has gone away, but we still have the pointer; this call should do nothing:
         stream->send("But wait, there's more!"s);
     };
+
+    TEST_CASE("004 - Connection closed during stream callback", "[004][streams][closing]")
+    {
+        Network test_net{};
+
+        Address server_local{};
+        Address client_local{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        auto server_endpoint = test_net.endpoint(server_local);
+        server_endpoint->listen(server_tls, [&](Stream& s, bstring_view data) { s.send(data); });
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        auto client_endpoint = test_net.endpoint(client_local);
+
+        std::promise<void> got_data;
+        {
+            auto conn = client_endpoint->connect(client_remote, client_tls);
+            auto s = conn->open_stream<Stream>([&](Stream& s, bstring_view) {
+                if (auto conn = s.endpoint.get_conn(s.reference_id))
+                    conn->close_connection();
+
+                got_data.set_value();
+            });
+            s->send("hello"s);
+        }
+
+        require_future(got_data.get_future());
+        std::this_thread::sleep_for(50ms);
+
+        REQUIRE("still alive"sv != "is success"sv);
+    }
 
 }  // namespace oxen::quic::test

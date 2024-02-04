@@ -127,12 +127,10 @@ namespace oxen::quic
 
     std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
-    template <typename F>
-    auto require_future(F&& f, std::chrono::milliseconds timeout = 1s)
-    {
-        REQUIRE(f.wait_for(timeout) == std::future_status::ready);
-        return f.get();
-    }
+#define _require_future2(f, timeout) REQUIRE(f.wait_for(timeout) == std::future_status::ready)
+#define _require_future1(f) _require_future2(f, 1s)
+#define GET_REQUIRE_FUTURE_MACRO(_1, _2, NAME, ...) NAME
+#define require_future(...) GET_REQUIRE_FUTURE_MACRO(__VA_ARGS__, _require_future2, _require_future1)(__VA_ARGS__)
 
     template <typename T>
     struct functional_helper : public functional_helper<decltype(&T::operator())>
