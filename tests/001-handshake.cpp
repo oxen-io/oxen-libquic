@@ -624,4 +624,51 @@ namespace oxen::quic::test
         CHECK(client_conn_closed.wait(125ms * macos_sucks));
         CHECK(client_errcode == static_cast<uint64_t>(NGTCP2_ERR_HANDSHAKE_TIMEOUT));
     }
+
+    TEST_CASE("001 - Handshake timeout stream close", "[001][handshake][timeout][stream]")
+    {
+        auto net1 = std::make_unique<Network>();
+        Network net2{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        uint64_t client_errcode = 424242;
+
+        callback_waiter client_conn_closed{
+                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+
+        std::optional<bool> stream_callback_called;
+        std::shared_ptr<Endpoint> client_endpoint;
+        std::shared_ptr<connection_interface> client_ci;
+
+        auto server_endpoint = net1->endpoint(server_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        server_endpoint.reset();
+        net1.reset();  // kill the server
+
+#ifdef __APPLE__
+        constexpr int macos_sucks = 10;
+#else
+        constexpr int macos_sucks = 1;
+#endif
+
+        opt::handshake_timeout timeout{100ms * macos_sucks};
+
+        SECTION("Client endpoint handshake timeout")
+        {
+            client_endpoint = net2.endpoint(client_local, client_conn_closed, timeout);
+            client_ci = client_endpoint->connect(client_remote, client_tls);
+            auto client_bp = client_ci->open_stream<BTRequestStream>();
+            client_bp->command("hi", "body", [&](message m) { stream_callback_called = m.timed_out; });
+        }
+        CHECK_FALSE(client_conn_closed.wait(25ms * macos_sucks));
+
+        CHECK(client_conn_closed.wait(125ms * macos_sucks));
+        REQUIRE(stream_callback_called);
+        CHECK(*stream_callback_called);
+    }
 }  // namespace oxen::quic::test
