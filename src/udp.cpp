@@ -11,8 +11,11 @@ extern "C"
 #endif
 
 #include <fcntl.h>
-#include <netinet/ip.h>
 #include <unistd.h>
+
+#ifndef _WIN32
+#include <netinet/ip.h>
+#endif
 }
 
 #include <system_error>
