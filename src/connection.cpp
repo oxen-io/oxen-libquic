@@ -1120,6 +1120,18 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::stream_execute_close(Stream& stream, uint64_t app_code)
+    {
+        const bool was_closing = stream._is_closing;
+        stream._is_closing = stream._is_shutdown = true;
+
+        if (!was_closing)
+        {
+            log::trace(log_cat, "Invoking stream close callback");
+            stream.closed(app_code);
+        }
+    }
+
     void Connection::stream_closed(int64_t id, uint64_t app_code)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -1131,17 +1143,9 @@ namespace oxen::quic
             return;
 
         auto& stream = *it->second;
-        const bool was_closing = stream._is_closing;
-        stream._is_closing = stream._is_shutdown = true;
-
-        if (!was_closing)
-        {
-            log::trace(log_cat, "Invoking stream close callback");
-            stream.closed(app_code);
-        }
+        stream_execute_close(stream, app_code);
 
         log::info(log_cat, "Erasing stream {}", id);
-        stream._conn = nullptr;
         _streams.erase(it);
 
         if (!ngtcp2_conn_is_local_stream(conn.get(), id))
@@ -1155,6 +1159,14 @@ namespace oxen::quic
     void Connection::close_all_streams()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+        for (const auto& [id, stream] : _stream_queue)
+            stream_execute_close(*stream, STREAM_ERROR_CONNECTION_CLOSED);
+        _stream_queue.clear();
+        for (const auto& s : pending_streams)
+            stream_execute_close(*s, STREAM_ERROR_CONNECTION_CLOSED);
+        pending_streams.clear();
+
         while (!_streams.empty())
             stream_closed(_streams.begin()->first, STREAM_ERROR_CONNECTION_CLOSED);
     }
