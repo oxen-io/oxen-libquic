@@ -7,10 +7,10 @@ Subject: old-cmake-install-compat
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 297b75c..9966e47 100644
+index 5ae3c37..b4f1812 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -123,7 +123,7 @@ endif()
+@@ -122,7 +122,7 @@ endif()
  if(LIBQUIC_INSTALL)
      install(
          DIRECTORY include/oxen ${CMAKE_CURRENT_BINARY_DIR}/include/oxen
