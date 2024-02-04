@@ -1,3 +1,9 @@
+oxen-libquic (1.0.0-4~ubuntu1804) bionic; urgency=medium
+
+  * Fix close hooks on pending streams not firing on connection fail
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Sun, 04 Feb 2024 19:00:57 -0400
+
 oxen-libquic (1.0.0-3~ubuntu1804) bionic; urgency=medium
 
   * Bump static gnutls build version to latest release
