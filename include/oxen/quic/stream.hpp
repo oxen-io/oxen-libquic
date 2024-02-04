@@ -231,7 +231,7 @@ namespace oxen::quic
 
         prepared_datagram pending_datagram(bool) override
         {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
             throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
         }
 

@@ -16,27 +16,27 @@ namespace oxen::quic::test
 
         std::shared_ptr<Stream> server_stream;
 
-        std::promise<bool> server_promise, client_promise, stream_promise;
-        std::future<bool> server_future = server_promise.get_future(), client_future = client_promise.get_future(),
+        std::promise<void> server_promise, client_promise, stream_promise;
+        std::future<void> server_future = server_promise.get_future(), client_future = client_promise.get_future(),
                           stream_future = stream_promise.get_future();
 
         stream_open_callback server_io_open_cb = [&](IOChannel& s) {
             log::debug(log_cat, "Calling server stream open callback... stream opened...");
             server_stream = s.get_stream();
-            stream_promise.set_value(true);
+            stream_promise.set_value();
             return 0;
         };
 
         stream_data_callback server_io_data_cb = [&](IOChannel&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
-            server_promise.set_value(true);
+            server_promise.set_value();
         };
 
         stream_data_callback client_io_data_cb = [&](IOChannel&, bstring_view) {
             log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
-            client_promise.set_value(true);
+            client_promise.set_value();
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -55,12 +55,12 @@ namespace oxen::quic::test
         auto client_stream = conn_interface->open_stream();
         client_stream->send(msg);
 
-        REQUIRE(stream_future.get());
+        require_future(stream_future);
 
         server_stream->send(msg);
 
-        REQUIRE(client_future.get());
-        REQUIRE(server_future.get());
+        require_future(client_future);
+        require_future(server_future);
         REQUIRE(data_check == 2);
     };
 
@@ -76,8 +76,8 @@ namespace oxen::quic::test
         std::shared_ptr<Stream> server_extracted_stream, client_extracted_stream;
         std::shared_ptr<connection_interface> server_ci;
 
-        std::vector<std::promise<bool>> server_promises{3}, client_promises{3};
-        std::vector<std::future<bool>> server_futures{3}, client_futures{3};
+        std::vector<std::promise<void>> server_promises{3}, client_promises{3};
+        std::vector<std::future<void>> server_futures{3}, client_futures{3};
 
         for (int i = 0; i < 3; ++i)
         {
@@ -90,7 +90,7 @@ namespace oxen::quic::test
             server_extracted_stream = s.get_stream();
             try
             {
-                server_promises.at(si).set_value(true);
+                server_promises.at(si).set_value();
                 ++si;
             }
             catch (std::exception& e)
@@ -105,7 +105,7 @@ namespace oxen::quic::test
             client_extracted_stream = s.get_stream();
             try
             {
-                client_promises.at(ci).set_value(true);
+                client_promises.at(ci).set_value();
                 ++ci;
             }
             catch (std::exception& e)
@@ -120,7 +120,7 @@ namespace oxen::quic::test
             data_check += 1;
             try
             {
-                server_promises.at(si).set_value(true);
+                server_promises.at(si).set_value();
                 ++si;
             }
             catch (std::exception& e)
@@ -134,7 +134,7 @@ namespace oxen::quic::test
             data_check += 1;
             try
             {
-                client_promises.at(ci).set_value(true);
+                client_promises.at(ci).set_value();
                 ++ci;
             }
             catch (std::exception& e)
@@ -159,8 +159,8 @@ namespace oxen::quic::test
         auto client_stream = client_ci->open_stream();
         client_stream->send(msg);
 
-        REQUIRE(server_futures[0].get());
-        REQUIRE(server_futures[1].get());
+        require_future(server_futures[0]);
+        require_future(server_futures[1]);
 
         server_extracted_stream->send(response);
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
@@ -168,11 +168,11 @@ namespace oxen::quic::test
         server_stream->send(msg);
 
         for (auto& c : client_futures)
-            REQUIRE(c.get());
+            require_future(c);
 
         client_extracted_stream->send(response);
 
-        REQUIRE(server_futures[2].get());
+        require_future(server_futures[2]);
         REQUIRE(data_check == 4);
     };
 }  // namespace oxen::quic::test
