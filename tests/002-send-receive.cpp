@@ -43,7 +43,7 @@ namespace oxen::quic::test
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
 
-        REQUIRE(d_future.get());
+        require_future(d_future);
     };
 
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][bidirectional]")
@@ -51,8 +51,8 @@ namespace oxen::quic::test
         Network test_net{};
         auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::vector<std::promise<bool>> d_promises{2};
-        std::vector<std::future<bool>> d_futures{2};
+        std::vector<std::promise<void>> d_promises{2};
+        std::vector<std::future<void>> d_futures{2};
 
         for (int i = 0; i < 2; ++i)
             d_futures[i] = d_promises[i].get_future();
@@ -62,7 +62,7 @@ namespace oxen::quic::test
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
-            d_promises.at(index).set_value(true);
+            d_promises.at(index).set_value();
             index += 1;
         };
 
@@ -85,7 +85,7 @@ namespace oxen::quic::test
 
         server_stream->send(good_msg);
 
-        REQUIRE(d_futures[0].get());
+        require_future(d_futures[0]);
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -95,7 +95,7 @@ namespace oxen::quic::test
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
 
-        REQUIRE(d_futures[1].get());
+        require_future(d_futures[1]);
     };
 
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][2x2]")
@@ -103,8 +103,8 @@ namespace oxen::quic::test
         Network test_net{};
         auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
 
-        std::vector<std::promise<bool>> d_promises{2};
-        std::vector<std::future<bool>> d_futures{2};
+        std::vector<std::promise<void>> d_promises{2};
+        std::vector<std::future<void>> d_futures{2};
 
         for (int i = 0; i < 2; ++i)
             d_futures[i] = d_promises[i].get_future();
@@ -114,7 +114,7 @@ namespace oxen::quic::test
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
-            d_promises.at(index).set_value(true);
+            d_promises.at(index).set_value();
             index += 1;
         };
 
@@ -136,7 +136,7 @@ namespace oxen::quic::test
 
         server_a_stream->send(good_msg);
 
-        REQUIRE(d_futures[0].get());
+        require_future(d_futures[0]);
 
         auto server_b_ci = server_endpoint_a->connect(server_remote_b, server_tls);
 
@@ -144,7 +144,7 @@ namespace oxen::quic::test
 
         server_b_stream->send(good_msg);
 
-        REQUIRE(d_futures[1].get());
+        require_future(d_futures[1]);
     };
 
     TEST_CASE("002 - Client to server transmission, larger string ownership", "[002][simple][larger][ownership]")
@@ -222,8 +222,7 @@ namespace oxen::quic::test
             }
         }
 
-        auto wait_result = done_receiving.get_future().wait_for(5s);
-        REQUIRE(wait_result == std::future_status::ready);
+        require_future(done_receiving.get_future(), 5s);
         {
             std::lock_guard lock{received_mut};
             CHECK(good == tests);
@@ -490,7 +489,7 @@ namespace oxen::quic::test
             client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
         }
 
-        CHECK(done.wait_for(5s) == std::future_status::ready);
+        require_future(done);
         std::lock_guard lock{mut};
         CHECK(good_responses == num_requests);
         CHECK(responses == good_responses);
@@ -568,7 +567,7 @@ namespace oxen::quic::test
                 client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
             }
 
-            CHECK(done.wait_for(5s) == std::future_status::ready);
+            require_future(done, 3s);
             CHECK(good_responses == num_requests);
             CHECK(responses == good_responses);
         }
@@ -693,7 +692,7 @@ namespace oxen::quic::test
         client_bp->command("ep3", "", resp_handler);
         client_bp->command("nuh uh", "", resp_handler);
 
-        REQUIRE(done.wait_for(5s) == std::future_status::ready);
+        require_future(done);
         CHECK(responses == std::unordered_multiset{{"h1-ep1"s, "hg-ep3"s}});
         CHECK(errors == std::unordered_multiset{{"Invalid endpoint 'nuh uh'"s, "Invalid endpoint 'ep2'"s}});
     }

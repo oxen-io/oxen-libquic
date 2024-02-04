@@ -155,13 +155,13 @@ namespace oxen::quic::test
             Network test_net{};
             auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
-            std::promise<bool> data_promise;
-            std::future<bool> data_future = data_promise.get_future();
+            std::promise<void> data_promise;
+            std::future<void> data_future = data_promise.get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
 
-                data_promise.set_value(true);
+                data_promise.set_value();
             };
 
             opt::enable_datagrams default_gram{};
@@ -191,7 +191,7 @@ namespace oxen::quic::test
 
             conn_interface->send_datagram(msg);
 
-            REQUIRE(data_future.get());
+            require_future(data_future);
         };
     };
 
@@ -205,14 +205,14 @@ namespace oxen::quic::test
 
             std::atomic<int> data_counter{0};
 
-            std::promise<bool> data_promise;
-            std::future<bool> data_future = data_promise.get_future();
+            std::promise<void> data_promise;
+            std::future<void> data_future = data_promise.get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
                 log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
                 ++data_counter;
                 if (data == "final"_bs)
-                    data_promise.set_value(true);
+                    data_promise.set_value();
             };
 
             opt::enable_datagrams split_dgram{Splitting::ACTIVE};
@@ -290,8 +290,8 @@ namespace oxen::quic::test
             std::atomic<int> data_counter{0};
             int bufsize = 16, n = (bufsize / 2) + 1;
 
-            std::vector<std::promise<bool>> data_promises{(size_t)n};
-            std::vector<std::future<bool>> data_futures{(size_t)n};
+            std::vector<std::promise<void>> data_promises{(size_t)n};
+            std::vector<std::future<void>> data_futures{(size_t)n};
 
             for (int i = 0; i < n; ++i)
                 data_futures[i] = data_promises[i].get_future();
@@ -302,7 +302,7 @@ namespace oxen::quic::test
                 try
                 {
                     data_counter += 1;
-                    data_promises.at(index).set_value(true);
+                    data_promises.at(index).set_value();
                     index += 1;
                 }
                 catch (std::exception& e)
@@ -347,7 +347,7 @@ namespace oxen::quic::test
                 conn_interface->send_datagram(std::basic_string_view<uint8_t>{good_msg});
 
             for (auto& f : data_futures)
-                REQUIRE(f.get());
+                require_future(f);
 
             REQUIRE(data_counter == int(n));
 
@@ -374,8 +374,8 @@ namespace oxen::quic::test
             std::atomic<int> data_counter{0};
             size_t n = 5;
 
-            std::vector<std::promise<bool>> data_promises{n};
-            std::vector<std::future<bool>> data_futures{n};
+            std::vector<std::promise<void>> data_promises{n};
+            std::vector<std::future<void>> data_futures{n};
 
             for (size_t i = 0; i < n; ++i)
                 data_futures[i] = data_promises[i].get_future();
@@ -386,7 +386,7 @@ namespace oxen::quic::test
                 try
                 {
                     data_counter += 1;
-                    data_promises.at(index).set_value(true);
+                    data_promises.at(index).set_value();
                     index += 1;
                 }
                 catch (std::exception& e)
@@ -437,7 +437,7 @@ namespace oxen::quic::test
             conn_interface->send_datagram(std::basic_string_view<uint8_t>{small_msg});
 
             for (auto& f : data_futures)
-                REQUIRE(f.get());
+                require_future(f);
 
             REQUIRE(data_counter == int(n));
         };
@@ -458,8 +458,8 @@ namespace oxen::quic::test
 
             std::atomic<int> index{0}, counter{0};
 
-            std::vector<std::promise<bool>> data_promises{(size_t)bufsize};
-            std::vector<std::future<bool>> data_futures{(size_t)bufsize};
+            std::vector<std::promise<void>> data_promises{(size_t)bufsize};
+            std::vector<std::future<void>> data_futures{(size_t)bufsize};
 
             for (int i = 0; i < bufsize; ++i)
                 data_futures[i] = data_promises[i].get_future();
@@ -474,7 +474,7 @@ namespace oxen::quic::test
 
                 try
                 {
-                    data_promises.at(index).set_value(true);
+                    data_promises.at(index).set_value();
                     index += 1;
                 }
                 catch (std::exception& e)
@@ -519,7 +519,7 @@ namespace oxen::quic::test
                 conn_interface->send_datagram(bstring_view{successful_msg});
 
             for (auto& f : data_futures)
-                REQUIRE(f.get());
+                require_future(f);
 
             REQUIRE(counter == bufsize);
             REQUIRE(received == successful_msg);
@@ -548,8 +548,8 @@ namespace oxen::quic::test
             std::atomic<int> data_counter{0};
             size_t n = 13;
 
-            std::vector<std::promise<bool>> data_promises{n};
-            std::vector<std::future<bool>> data_futures{n};
+            std::vector<std::promise<void>> data_promises{n};
+            std::vector<std::future<void>> data_futures{n};
 
             for (size_t i = 0; i < n; ++i)
                 data_futures[i] = data_promises[i].get_future();
@@ -561,7 +561,7 @@ namespace oxen::quic::test
                 {
                     data_counter += 1;
                     log::trace(log_cat, "Data counter: {}", data_counter.load());
-                    data_promises.at(index).set_value(true);
+                    data_promises.at(index).set_value();
                     index += 1;
                 }
                 catch (std::exception& e)
@@ -604,8 +604,8 @@ namespace oxen::quic::test
 
             TestHelper::enable_dgram_flip_flop(*conn_interface);
 
-            std::promise<bool> pr;
-            std::future<bool> ftr = pr.get_future();
+            std::promise<void> pr;
+            std::future<void> ftr = pr.get_future();
 
             client->call([&]() {
                 conn_interface->send_datagram(std::basic_string_view<uint8_t>{big});
@@ -622,13 +622,13 @@ namespace oxen::quic::test
                 conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
                 conn_interface->send_datagram(std::basic_string_view<uint8_t>{small});
 
-                pr.set_value(true);
+                pr.set_value();
             });
 
-            REQUIRE(ftr.get());
+            require_future(ftr);
 
             for (auto& f : data_futures)
-                REQUIRE(f.get());
+                require_future(f);
 
             REQUIRE(data_counter == (int)n);
             auto flip_flop_count = TestHelper::disable_dgram_flip_flop(*conn_interface);

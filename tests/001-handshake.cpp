@@ -306,6 +306,78 @@ namespace oxen::quic::test
         CHECK_THROWS_AS(ep->listen(server_tls), std::logic_error);
     }
 
+    TEST_CASE("001 - Path local address", "[001][handshake][path][local]")
+    {
+        Path client_path, server_path;
+        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{"0.0.0.0", 0};
+        Address client_local{"0.0.0.0", 0};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        CHECK_NOTHROW(server_endpoint->listen(server_tls));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+
+        // Client should see it's any address as local:
+        CHECK(client_path.local.host() == "0.0.0.0");
+        // But server should see the address the client connected to, even though it's listening on
+        // the any address:
+        CHECK(server_path.local.host() == "127.0.0.1");
+    };
+
+    TEST_CASE("001 - Non-default path local address", "[001][handshake][path][local][nondefault]")
+    {
+        // This test is very similar to the above, but uses a connection to 127.0.0.2 instead of
+        // 127.0.0.1 (which generally doesn't work on Windows/macOS, even though the entire
+        // 127.0.0.1/8 range is supposed to be localhost).
+        //
+        // Unlike the above, here the client connects to 127.0.0.2 and so, if the server sends back
+        // packets without properly setting the source address, those packets will come from
+        // 127.0.0.1, not .2, and the client will drop them as coming from an unknown path and thus
+        // the connection to the server will fail.
+
+#if defined(__APPLE__) || defined(_WIN32)
+        SKIP("This test requires 127.0.0.2, which doesn't work on Apple/Windows");
+#endif
+
+        Path client_path, server_path;
+        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{"0.0.0.0", 0};
+        Address client_local{"0.0.0.0", 0};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        CHECK_NOTHROW(server_endpoint->listen(server_tls));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.2"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+
+        CHECK(client_path.local.host() == "0.0.0.0");
+        CHECK(server_path.local.host() == "127.0.0.2");
+    };
+
     TEST_CASE("001 - Handshaking: Defer", "[001][defer][quietclose]")
     {
         auto client_established = callback_waiter{[](connection_interface&) {}};
