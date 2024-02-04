@@ -88,8 +88,7 @@ namespace oxen::quic
         /// number of packets that were actually sent (between 0 and n_pkts).
         ///
         /// Payloads should be packed sequentially starting at `bufs` with the length of each
-        /// payload given by the `bufsize` array.  The ecn flag on the socket will be updated to the
-        /// given ecn value (if not already set to it).
+        /// payload given by the `bufsize` array.  The given ecn value will be used for the packets.
         ///
         /// If not all packets could be sent because the socket would block it is up to the caller
         /// to deal with it: if such a block occurs it is always the first `n` packets that will
@@ -119,8 +118,6 @@ namespace oxen::quic
 
         socket_t sock_;
         Address bound_;
-        unsigned int ecn_{0};
-        void set_ecn();
 
         event_base* ev_ = nullptr;
 
