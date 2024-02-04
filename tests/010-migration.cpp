@@ -17,8 +17,8 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{}, client_secondary{}, client_local_b{};
 
-        std::promise<bool> d_promise;
-        std::promise<bool> conn_promise_a, conn_promise_b, conn_promise_c;
+        std::promise<void> d_promise;
+        std::promise<void> conn_promise_a, conn_promise_b, conn_promise_c;
 
         auto d_future = d_promise.get_future();
         auto conn_future_a = conn_promise_a.get_future();
@@ -33,7 +33,7 @@ namespace oxen::quic::test
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
-            d_promise.set_value(true);
+            d_promise.set_value();
         };
 
         auto server_established = callback_waiter{[](connection_interface&) {}};
@@ -66,7 +66,7 @@ namespace oxen::quic::test
                 // }
 
                 address_flipped = true;
-                conn_promise_a.set_value(true);
+                conn_promise_a.set_value();
             }
             else
             {
@@ -74,11 +74,11 @@ namespace oxen::quic::test
                 {
                     log::trace(log_cat, "Skipping address flip!");
                     secondary_connected = true;
-                    conn_promise_b.set_value(true);
+                    conn_promise_b.set_value();
                 }
                 else
                 {
-                    conn_promise_c.set_value(true);
+                    conn_promise_c.set_value();
                 }
             }
         };
@@ -90,12 +90,12 @@ namespace oxen::quic::test
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
         REQUIRE(server_established.wait());
-        REQUIRE(conn_future_a.get());
+        require_future(conn_future_a);
 
         auto client_stream = client_ci->open_stream();
 
         REQUIRE_NOTHROW(client_stream->send(good_msg));
-        REQUIRE(d_future.get());
+        require_future(d_future);
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
@@ -107,7 +107,7 @@ namespace oxen::quic::test
         auto client_endpoint_b = test_net.endpoint(client_local_b, client_established_b);
         auto client_ci_b = client_endpoint_b->connect(client_remote_b, client_tls);
 
-        CHECK(conn_future_b.get());
+        require_future(conn_future_b);
         CHECK(client_established_b.wait());
     };
 }  // namespace oxen::quic::test

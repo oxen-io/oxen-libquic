@@ -134,6 +134,8 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         CHECK_NOTHROW(server_endpoint->listen(server_tls));
 
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
         SECTION("Pubkey failures")
         {
             SECTION("Incorrect pubkey in remote")
@@ -145,11 +147,12 @@ namespace oxen::quic::test
 
                 auto client_closed =
                         callback_waiter{[&client_error](connection_interface&, uint64_t) { client_error = 1000; }};
-                RemoteAddress client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
                 auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
 
-                auto client_ci = client_endpoint->connect(client_remote, client_tls);
+                RemoteAddress bad_client_remote{defaults::CLIENT_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+                auto client_ci = client_endpoint->connect(bad_client_remote, client_tls);
 
                 CHECK(not client_established_2.wait());
                 CHECK(client_attempt != 1000);
@@ -164,13 +167,24 @@ namespace oxen::quic::test
                 // RemoteAddress client_remote{"127.0.0.1"s, server_endpoint->local().port()};
                 CHECK(true);
             };
+
+            SECTION("No TLS creds in connect/listen")
+            {
+                // If uncommented, any of these lines should not compile! connect() and listen()
+                // each require exactly one TLSCreds shared pointer to be provided.
+
+                // server_endpoint->connect(client_remote);                          // no tls
+                // server_endpoint->connect(client_tls, client_remote, client_tls);  // multiple tls
+                // server_endpoint->listen(client_remote);                           // no tls
+                // server_endpoint->listen(server_tls, client_remote, server_tls);   // multiple tls
+
+                CHECK(true);
+            };
         }
 
         SECTION("Pubkey successes")
         {
             auto client_endpoint = test_net.endpoint(client_local, client_established);
-
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
             SECTION("Correct pubkey in remote")
             {
@@ -279,6 +293,89 @@ namespace oxen::quic::test
         CHECK(client_established.wait());
         CHECK(server_established.wait());
         CHECK(client_ci->is_validated());
+    };
+
+    TEST_CASE("001 - multi-listen failure", "[001][dumb][listen][protection]")
+    {
+        Network net;
+        auto ep = net.endpoint(Address{});
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        CHECK_NOTHROW(ep->listen(server_tls));
+        CHECK_THROWS_AS(ep->listen(server_tls), std::logic_error);
+    }
+
+    TEST_CASE("001 - Path local address", "[001][handshake][path][local]")
+    {
+        Path client_path, server_path;
+        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{"0.0.0.0", 0};
+        Address client_local{"0.0.0.0", 0};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        CHECK_NOTHROW(server_endpoint->listen(server_tls));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+
+        // Client should see it's any address as local:
+        CHECK(client_path.local.host() == "0.0.0.0");
+        // But server should see the address the client connected to, even though it's listening on
+        // the any address:
+        CHECK(server_path.local.host() == "127.0.0.1");
+    };
+
+    TEST_CASE("001 - Non-default path local address", "[001][handshake][path][local][nondefault]")
+    {
+        // This test is very similar to the above, but uses a connection to 127.0.0.2 instead of
+        // 127.0.0.1 (which generally doesn't work on Windows/macOS, even though the entire
+        // 127.0.0.1/8 range is supposed to be localhost).
+        //
+        // Unlike the above, here the client connects to 127.0.0.2 and so, if the server sends back
+        // packets without properly setting the source address, those packets will come from
+        // 127.0.0.1, not .2, and the client will drop them as coming from an unknown path and thus
+        // the connection to the server will fail.
+
+#if defined(__APPLE__) || defined(_WIN32)
+        SKIP("This test requires 127.0.0.2, which doesn't work on Apple/Windows");
+#endif
+
+        Path client_path, server_path;
+        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+
+        Network test_net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{"0.0.0.0", 0};
+        Address client_local{"0.0.0.0", 0};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        CHECK_NOTHROW(server_endpoint->listen(server_tls));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.2"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto client_ci = client_endpoint->connect(client_remote, client_tls);
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+
+        CHECK(client_path.local.host() == "0.0.0.0");
+        CHECK(server_path.local.host() == "127.0.0.2");
     };
 
     TEST_CASE("001 - Handshaking: Defer", "[001][defer][quietclose]")
@@ -417,4 +514,114 @@ namespace oxen::quic::test
         };
     };
 
+    TEST_CASE("001 - Idle timeout", "[001][idle][timeout]")
+    {
+        Network net{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        uint64_t server_errcode = 4242;
+        uint64_t client_errcode = 424242;
+
+        callback_waiter server_conn_closed{
+                [&server_errcode](connection_interface&, uint64_t errcode) { server_errcode = errcode; }};
+        callback_waiter client_conn_closed{
+                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+
+        auto server_endpoint = net.endpoint(server_local, server_conn_closed);
+        auto client_endpoint = net.endpoint(client_local, client_conn_closed);
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        SECTION("Client fast timeout")
+        {
+            server_endpoint->listen(server_tls);
+            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{250ms});
+        }
+        SECTION("Server fast timeout")
+        {
+            server_endpoint->listen(server_tls, opt::idle_timeout{250ms});
+            auto client_ci = client_endpoint->connect(client_remote, client_tls);
+        }
+
+        CHECK_FALSE(server_conn_closed.wait(100ms));
+
+        CHECK(server_conn_closed.wait(500ms));
+        CHECK(server_errcode == CONN_IDLE_CLOSED);
+        CHECK(client_conn_closed.wait(500ms));
+        CHECK(client_errcode == CONN_IDLE_CLOSED);
+    }
+
+    TEST_CASE("001 - Handshake timeout", "[001][handshake][timeout]")
+    {
+        auto net1 = std::make_unique<Network>();
+        Network net2{};
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        uint64_t client_errcode = 424242;
+
+        callback_waiter client_conn_closed{
+                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+
+#if 0
+        // This code doesn't work: ngtcp2 (at least as of 1.1.0) apparently considers the client to
+        // be post-handshake by the point the server gets this key (presumably because it doesn't
+        // need anything else from the server), so the handshake established timeout just doesn't
+        // fire on the client and, no matter how long we block the server, the only timeout that
+        // will happen is the idle timeout.
+        server_tls->set_key_verify_callback([](const ustring_view&, const ustring_view&) {
+            // This stalls the entire network object; this is a really terrible thing to do outside
+            // of test code, but will let us simulate a slow handshake.
+            log::critical(log_cat, "key verify sleeping...");
+            std::this_thread::sleep_for(30s);
+            log::critical(log_cat, "key verify done sleeping");
+            return true;
+        });
+#endif
+        // So what we do instead is just shutdown the server's network entirely before even trying
+        // to connect to client.  Unfortunately we don't really have a way to reliably kill the
+        // outgoing client connection mid-handshake, so these tests can only really *half* test that
+        // the handshake argument is being dealt with properly (not ideal, but probably fine since
+        // the Connection code is largely the same in terms of where it deals with the handshake
+        // timeout value).
+
+        std::shared_ptr<Endpoint> client_endpoint;
+        std::shared_ptr<connection_interface> client_ci;
+
+        auto server_endpoint = net1->endpoint(server_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        server_endpoint.reset();
+        net1.reset();  // kill the server
+
+#ifdef __APPLE__
+        constexpr int macos_sucks = 10;
+#else
+        constexpr int macos_sucks = 1;
+#endif
+
+        opt::handshake_timeout timeout{100ms * macos_sucks};
+
+        SECTION("Client endpoint handshake timeout")
+        {
+            client_endpoint = net2.endpoint(client_local, client_conn_closed, timeout);
+            client_ci = client_endpoint->connect(client_remote, client_tls);
+        }
+        SECTION("Client connect handshake timeout")
+        {
+            client_endpoint = net2.endpoint(client_local, client_conn_closed);
+            client_ci = client_endpoint->connect(client_remote, client_tls, timeout);
+        }
+        CHECK_FALSE(client_conn_closed.wait(25ms * macos_sucks));
+
+        CHECK(client_conn_closed.wait(125ms * macos_sucks));
+        CHECK(client_errcode == static_cast<uint64_t>(NGTCP2_ERR_HANDSHAKE_TIMEOUT));
+    }
 }  // namespace oxen::quic::test

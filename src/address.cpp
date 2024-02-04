@@ -55,6 +55,35 @@ namespace oxen::quic
             throw std::invalid_argument{"What on earth did you pass to this constructor?"};
     }
 
+    void Address::set_addr(const struct in_addr* addr)
+    {
+        if (_sock_addr.ss_family == AF_INET6)
+        {
+            // We're changing from IPv6 to IPv4, so need to preserve the port value:
+            auto p = reinterpret_cast<sockaddr_in6&>(_sock_addr).sin6_port;
+            auto& sin = reinterpret_cast<sockaddr_in&>(_sock_addr);
+            sin.sin_family = AF_INET;
+            sin.sin_port = p;
+            update_socklen(sizeof(sockaddr_in));
+        }
+        std::memcpy(&reinterpret_cast<sockaddr_in&>(_sock_addr).sin_addr, addr, sizeof(struct in_addr));
+    }
+
+    void Address::set_addr(const struct in6_addr* addr)
+    {
+        if (_sock_addr.ss_family == AF_INET)
+        {
+            // We're changing from IPv4 to IPv6, so need to preserve the port value and non-address
+            // parts of the sockaddr_in6
+            auto p = reinterpret_cast<sockaddr_in&>(_sock_addr).sin_port;
+            auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
+            std::memset(&sin6, 0, sizeof(sockaddr_in6));
+            sin6.sin6_family = AF_INET6;
+            sin6.sin6_port = p;
+        }
+        std::memcpy(&reinterpret_cast<sockaddr_in6&>(_sock_addr).sin6_addr, addr, sizeof(struct in6_addr));
+    }
+
     static inline constexpr auto ipv6_ipv4_mapped_prefix = "\0\0\0\0\0\0\0\0\0\0\xff\xff"sv;
     static_assert(ipv6_ipv4_mapped_prefix.size() == 12);
 

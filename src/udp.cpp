@@ -6,8 +6,16 @@ extern "C"
 #include <netinet/udp.h>
 #endif
 
+#ifdef __APPLE__
+#define __APPLE_USE_RFC_3542
+#endif
+
 #include <fcntl.h>
 #include <unistd.h>
+
+#ifndef _WIN32
+#include <netinet/ip.h>
+#endif
 }
 
 #include <system_error>
@@ -15,11 +23,39 @@ extern "C"
 #include "internal.hpp"
 #include "udp.hpp"
 
+#ifdef _WIN32
+
+#define CMSG_FIRSTHDR(h) WSA_CMSG_FIRSTHDR(h)
+#define CMSG_NXTHDR(h, c) WSA_CMSG_NXTHDR(h, c)
+#define QUIC_CMSG_DATA(c) WSA_CMSG_DATA(c)  // conflicts without the QUIC_ prefix
+#define CMSG_SPACE(c) WSA_CMSG_SPACE(c)
+#define CMSG_LEN(c) WSA_CMSG_LEN(c)
+
+#ifndef IPV6_RECVPKTINFO
+#define IPV6_RECVPKTINFO IPV6_PKTINFO
+#endif
+
+#else  // not windows
+
+#define QUIC_CMSG_DATA(c) CMSG_DATA(c)
+
+#endif
+
 namespace oxen::quic
 {
 
 #ifdef _WIN32
     static_assert(std::is_same_v<UDPSocket::socket_t, SOCKET>);
+    constexpr int QUIC_IPV4_ECN = IP_ECN;
+    constexpr uint8_t QUIC_ECN_MASK = 0xff;
+#else
+    constexpr uint8_t QUIC_ECN_MASK = IPTOS_ECN_MASK;
+    constexpr int QUIC_IPV4_ECN =
+#if defined(__APPLE__)  // Apple got --><-- this close to getting it right but then got it wrong
+            IP_RECVTOS;
+#else
+            IP_TOS;
+#endif
 #endif
 
     /// Checks rv for being -1 and, if so, raises a system_error from errno.  Otherwise returns it.
@@ -93,12 +129,52 @@ namespace oxen::quic
         if (!receive_callback_)
             throw std::logic_error{"UDPSocket construction requires a non-empty receive callback"};
 
+        const int sockopt_proto = addr.is_ipv6() ? IPPROTO_IPV6 : IPPROTO_IP;
+        const unsigned int sockopt_on = 1;
+
 #ifdef _WIN32
         init_wsa_bs();
 #endif
 
         sock_ = check_rv(socket(addr.is_ipv6() ? AF_INET6 : AF_INET, SOCK_DGRAM, 0));
 
+        // Enable ECN notification on packets we receive:
+#ifndef _WIN32
+        check_rv(setsockopt(
+                sock_, sockopt_proto, addr.is_ipv6() ? IPV6_RECVTCLASS : IP_RECVTOS, &sockopt_on, sizeof(sockopt_on)));
+#endif
+
+#ifdef __APPLE__
+        // As usual, macOS is a pile of garbage: it is completely broken when trying to get pktinfo
+        // on a dual-stack socket: instead of giving us useful packet info, it either gives us
+        // invalid garbage that changes on every packet, or else just doesn't give us anything at
+        // all.  Thus we turn this on only for IPv4 sockets; expect proper working OS APIs on macOS
+        // is apparently a "you're holding it wrong" problem, so to hell with it: if you're a user
+        // and you want it to work you need to upgrade (i.e. switch) to an OS made by someone who
+        // realizes that making an OS involves more than deciding on right shade of lipstick to
+        // apply to a pig.
+        const bool broken_os = addr.is_ipv6();
+#else
+        constexpr bool broken_os = false;
+#endif
+        // Enable destination address info in the packet info:
+        if (!broken_os)
+            check_rv(setsockopt(
+                    sock_,
+                    sockopt_proto,
+                    addr.is_ipv6() ? IPV6_RECVPKTINFO :
+#ifdef IP_RECVDSTADDR
+                                   IP_RECVDSTADDR,
+#else
+                                   IP_PKTINFO,
+#endif
+#ifdef _WIN32
+                    (const char*)
+#endif
+                    &sockopt_on,
+                    sizeof(sockopt_on)));
+
+        // Bind!
         check_rv(bind(sock_, addr, addr.socklen()));
         check_rv(getsockname(sock_, bound_, bound_.socklen_ptr()));
 
@@ -108,17 +184,6 @@ namespace oxen::quic
         ioctlsocket(sock_, FIONBIO, &mode);
 #else
         check_rv(fcntl(sock_, F_SETFL, O_NONBLOCK));
-#endif
-
-        // Enable ECN notification on packets we receive:
-#ifndef _WIN32
-        const unsigned int on = 1;
-        if (addr.is_ipv6())
-            check_rv(setsockopt(sock_, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on)));
-        else
-            check_rv(setsockopt(sock_, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on)));
-
-        set_ecn();
 #endif
 
         rev_.reset(event_new(
@@ -152,20 +217,6 @@ namespace oxen::quic
 #endif
     }
 
-    // Updates the socket's ECN value to `ecn_`.
-    void UDPSocket::set_ecn()
-    {
-#ifndef _WIN32
-        int rv;
-        if (bound_.is_ipv6())
-            rv = setsockopt(sock_, IPPROTO_IPV6, IPV6_TCLASS, &ecn_, sizeof(ecn_));
-        else
-            rv = setsockopt(sock_, IPPROTO_IP, IP_TOS, &ecn_, sizeof(ecn_));
-        if (rv == -1)  // Just warn; this isn't fatal
-            log::warning(log_cat, "Failed to update ECN on socket: {}", strerror(errno));
-#endif
-    }
-
     void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
     {
         if (payload.empty())
@@ -193,12 +244,20 @@ namespace oxen::quic
         receive_callback_(Packet{bound_, payload, hdr});
     }
 
+    union alignas(cmsghdr) recv_cmsg_data
+    {
+        char ecn[CMSG_SPACE(sizeof(int))];  // a char most places but an int on windows because yay
+        char pktinfo4[CMSG_SPACE(sizeof(in_pktinfo))];
+        char pktinfo6[CMSG_SPACE(sizeof(in6_pktinfo))];
+    };
+
     io_result UDPSocket::receive()
     {
 #ifdef OXEN_LIBQUIC_RECVMMSG
         std::array<sockaddr_in6, DATAGRAM_BATCH_SIZE> peers;
         std::array<iovec, DATAGRAM_BATCH_SIZE> iovs;
         std::array<mmsghdr, DATAGRAM_BATCH_SIZE> msgs = {};
+        std::array<recv_cmsg_data, DATAGRAM_BATCH_SIZE> cmsgs = {};
 
         std::array<std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD>, DATAGRAM_BATCH_SIZE> data;
 
@@ -211,6 +270,8 @@ namespace oxen::quic
             h.msg_iovlen = 1;
             h.msg_name = &peers[i];
             h.msg_namelen = sizeof(peers[i]);
+            h.msg_control = &cmsgs[i];
+            h.msg_controllen = sizeof(cmsgs[i]);
         }
 
         size_t count = 0;
@@ -249,6 +310,9 @@ namespace oxen::quic
 
         sockaddr_storage peer{};
         std::array<std::byte, MAX_PMTUD_UDP_PAYLOAD> data;
+
+        recv_cmsg_data cmsg{};
+
 #ifdef _WIN32
         // Microsoft renames everything but uses the same structure just to be obtuse:
         WSABUF iov;
@@ -259,6 +323,8 @@ namespace oxen::quic
         hdr.dwBufferCount = 1;
         hdr.name = reinterpret_cast<sockaddr*>(&peer);
         hdr.namelen = sizeof(peer);
+        hdr.Control.buf = (char*)&cmsg;
+        hdr.Control.len = sizeof(cmsg);
 #else
         iovec iov;
         iov.iov_base = data.data();
@@ -268,6 +334,8 @@ namespace oxen::quic
         hdr.msg_iovlen = 1;
         hdr.msg_name = &peer;
         hdr.msg_namelen = sizeof(peer);
+        hdr.msg_control = &cmsg;
+        hdr.msg_controllen = sizeof(cmsg);
 #endif
 
         size_t count = 0;
@@ -308,6 +376,32 @@ namespace oxen::quic
 #endif
     }
 
+    template <typename CM>
+    static size_t set_ecn_cmsg(CM* cm, const int ecn, const bool ipv4)
+    {
+        if (ipv4)
+        {
+            cm->cmsg_level = IPPROTO_IP;
+#ifdef _WIN32
+            cm->cmsg_type = IP_ECN;
+#else
+            cm->cmsg_type = IP_TOS;
+#endif
+        }
+        else
+        {
+            cm->cmsg_level = IPPROTO_IPV6;
+#ifdef _WIN32
+            cm->cmsg_type = IPV6_ECN;
+#else
+            cm->cmsg_type = IPV6_TCLASS;
+#endif
+        }
+        cm->cmsg_len = CMSG_LEN(sizeof(ecn));
+        std::memcpy(QUIC_CMSG_DATA(cm), &ecn, sizeof(ecn));
+        return CMSG_SPACE(sizeof(ecn));
+    }
+
     // We support different compilation modes for trying different methods of UDP sending by setting
     // these defines; these shouldn't be set directly but rather through the cmake -DLIBQUIC_SEND
     // option.  At most one of these may be defined.
@@ -333,17 +427,35 @@ namespace oxen::quic
 #endif
 
     std::pair<io_result, size_t> UDPSocket::send(
-            const Address& dest, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
+            const Path& path, const std::byte* buf, const size_t* bufsize, uint8_t ecn, size_t n_pkts)
     {
         auto* next_buf = const_cast<char*>(reinterpret_cast<const char*>(buf));
         int rv = 0;
         size_t sent = 0;
-        sockaddr* dest_sa = const_cast<Address&>(dest);
+        sockaddr* dest_sa = const_cast<Address&>(path.remote);
 
-        if (ecn != ecn_)
+        const bool set_source_addr = bound_.is_any_addr() && !path.local.is_any_addr();
+        const bool source_ipv4 = path.local.is_ipv4();
+        union
         {
-            ecn_ = ecn;
-            set_ecn();
+            in_pktinfo v4;
+            in6_pktinfo v6;
+        } source_addr;
+        const size_t source_addrlen = source_ipv4 ? sizeof(in_pktinfo) : sizeof(in6_pktinfo);
+        const int source_cmsg_level = source_ipv4 ? IPPROTO_IP : IPPROTO_IPV6;
+        const int source_cmsg_type = source_ipv4 ? IP_PKTINFO : IPV6_PKTINFO;
+        if (set_source_addr)
+        {
+            std::memset(&source_addr, 0, sizeof(source_addr));
+            if (source_ipv4)
+#ifdef _WIN32
+                source_addr.v4.ipi_addr
+#else
+                source_addr.v4.ipi_spec_dst
+#endif
+                        = path.local.in4().sin_addr;
+            else
+                source_addr.v6.ipi6_addr = path.local.in6().sin6_addr;
         }
 
 #ifdef OXEN_LIBQUIC_UDP_GSO
@@ -353,7 +465,10 @@ namespace oxen::quic
         //
         // We could have up to the full MAX_BATCH, with the worst case being every packet being a
         // different size than the one before it.
-        std::array<std::array<char, CMSG_SPACE(sizeof(uint16_t))>, DATAGRAM_BATCH_SIZE> controls{};
+        alignas(cmsghdr) std::array<
+                std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(uint16_t)) + CMSG_SPACE(sizeof(in6_pktinfo))>,
+                DATAGRAM_BATCH_SIZE>
+                controls{};
         std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
         std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
 
@@ -374,6 +489,7 @@ namespace oxen::quic
 
             auto& iov = iovs[msg_count];
             auto& msg = msgs[msg_count];
+            auto& control = controls[msg_count];
             iov.iov_base = next_buf;
             iov.iov_len = gso_count * gso_size;
             next_buf += iov.iov_len;
@@ -382,18 +498,33 @@ namespace oxen::quic
             hdr.msg_iov = &iov;
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
-            hdr.msg_namelen = dest.socklen();
+            hdr.msg_namelen = path.remote.socklen();
+            hdr.msg_control = control.data();
+            hdr.msg_controllen = control.size();
+
+            auto* cm = CMSG_FIRSTHDR(&hdr);
+            size_t actual_size = set_ecn_cmsg(cm, ecn, source_ipv4);
+
+            if (set_source_addr)
+            {
+                cm = CMSG_NXTHDR(&hdr, cm);
+                cm->cmsg_level = source_cmsg_level;
+                cm->cmsg_type = source_cmsg_type;
+                cm->cmsg_len = CMSG_LEN(source_addrlen);
+                std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                actual_size += CMSG_SPACE(source_addrlen);
+            }
+
             if (gso_count > 1)
             {
-                auto& control = controls[msg_count];
-                hdr.msg_control = control.data();
-                hdr.msg_controllen = control.size();
-                auto* cm = CMSG_FIRSTHDR(&hdr);
+                cm = CMSG_NXTHDR(&hdr, cm);
                 cm->cmsg_level = SOL_UDP;
                 cm->cmsg_type = UDP_SEGMENT;
                 cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
-                *reinterpret_cast<uint16_t*>(CMSG_DATA(cm)) = gso_size;
+                actual_size += CMSG_SPACE(sizeof(uint16_t));
+                *reinterpret_cast<uint16_t*>(QUIC_CMSG_DATA(cm)) = gso_size;
             }
+            hdr.msg_controllen = actual_size;
         }
 
         do
@@ -441,6 +572,9 @@ namespace oxen::quic
         std::array<mmsghdr, MAX_BATCH> msgs{};
         std::array<iovec, MAX_BATCH> iovs{};
 
+        alignas(cmsghdr) std::array<std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))>, MAX_BATCH>
+                controls{};
+
         for (size_t i = 0; i < n_pkts; i++)
         {
             assert(bufsize[i] > 0);
@@ -453,7 +587,25 @@ namespace oxen::quic
             hdr.msg_iov = &iovs[i];
             hdr.msg_iovlen = 1;
             hdr.msg_name = dest_sa;
-            hdr.msg_namelen = dest.socklen();
+            hdr.msg_namelen = path.remote.socklen();
+
+            auto& control = controls[i];
+            hdr.msg_control = control.data();
+            hdr.msg_controllen = control.size();
+
+            auto* cm = CMSG_FIRSTHDR(&hdr);
+            size_t actual_size = set_ecn_cmsg(cm, ecn, source_ipv4);
+
+            if (set_source_addr)
+            {
+                cm = CMSG_NXTHDR(&hdr, cm);
+                cm->cmsg_level = source_cmsg_level;
+                cm->cmsg_type = source_cmsg_type;
+                cm->cmsg_len = CMSG_LEN(source_addrlen);
+                std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                actual_size += CMSG_SPACE(source_addrlen);
+            }
+            hdr.msg_controllen = actual_size;
         }
 
         do
@@ -472,15 +624,40 @@ namespace oxen::quic
         hdr.lpBuffers = &iov;
         hdr.dwBufferCount = 1;
         hdr.name = dest_sa;
-        hdr.namelen = dest.socklen();
+        hdr.namelen = path.remote.socklen();
 #else
         msghdr hdr{};
         iovec iov;
         hdr.msg_iov = &iov;
         hdr.msg_iovlen = 1;
         hdr.msg_name = dest_sa;
-        hdr.msg_namelen = dest.socklen();
+        hdr.msg_namelen = path.remote.socklen();
 #endif
+
+        alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))> control{};
+#ifdef _WIN32
+        hdr.Control.buf = control.data();
+        auto& hdr_msg_controllen = hdr.Control.len;
+#else
+        hdr.msg_control = control.data();
+        auto& hdr_msg_controllen = hdr.msg_controllen;
+#endif
+        hdr_msg_controllen = control.size();
+
+        auto* cm = CMSG_FIRSTHDR(&hdr);
+        size_t actual_size = set_ecn_cmsg(cm, ecn, source_ipv4);
+
+        if (set_source_addr)
+        {
+            cm = CMSG_NXTHDR(&hdr, cm);
+            cm->cmsg_level = source_cmsg_level;
+            cm->cmsg_type = source_cmsg_type;
+            cm->cmsg_len = CMSG_LEN(source_addrlen);
+            std::memcpy(QUIC_CMSG_DATA(cm), &source_addr, source_addrlen);
+            actual_size += CMSG_SPACE(source_addrlen);
+        }
+
+        hdr_msg_controllen = actual_size;
 
         for (size_t i = 0; i < n_pkts; ++i)
         {
@@ -518,6 +695,53 @@ namespace oxen::quic
     {
         writeable_callbacks_.push_back(std::move(cb));
         event_add(wev_.get(), nullptr);
+    }
+
+    Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
+            path{local,
+#ifdef _WIN32
+                 {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
+#else
+                 {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}
+#endif
+            },
+            data{data}
+    {
+        assert(path.remote.is_ipv4() || path.remote.is_ipv6());
+
+        const int ecn_type = path.remote.is_ipv4() ? QUIC_IPV4_ECN : IPV6_TCLASS;
+        ;
+
+        for (auto cmsg = CMSG_FIRSTHDR(&hdr); cmsg; cmsg = CMSG_NXTHDR(&hdr, cmsg))
+        {
+            if (cmsg->cmsg_level != (path.remote.is_ipv4() ? IPPROTO_IP : IPPROTO_IPV6) || cmsg->cmsg_len == 0)
+                continue;
+
+            // ECN flag:
+            if (cmsg->cmsg_type == ecn_type)
+            {
+                if (path.remote.is_ipv4())
+                    pkt_info.ecn = *reinterpret_cast<uint8_t*>(QUIC_CMSG_DATA(cmsg)) & QUIC_ECN_MASK;
+                else
+                {
+                    int tclass;
+                    std::memcpy(&tclass, QUIC_CMSG_DATA(cmsg), sizeof(int));
+                    pkt_info.ecn = static_cast<uint8_t>(tclass & QUIC_ECN_MASK);
+                }
+            }
+
+            // extract the destination address into path.local
+#ifdef IP_RECVDSTADDR
+            else if (cmsg->cmsg_type == IP_RECVDSTADDR)
+                path.local.set_addr(reinterpret_cast<const struct in_addr*>(QUIC_CMSG_DATA(cmsg)));
+#else
+            else if (cmsg->cmsg_type == IP_PKTINFO)
+                path.local.set_addr(&reinterpret_cast<const struct in_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi_addr);
+#endif
+            else if (cmsg->cmsg_type == IPV6_PKTINFO)
+                path.local.set_addr(&reinterpret_cast<const struct in6_pktinfo*>(QUIC_CMSG_DATA(cmsg))->ipi6_addr);
+        }
+        log::trace(log_cat, "incoming packet path is {}", path);
     }
 
 }  // namespace oxen::quic
