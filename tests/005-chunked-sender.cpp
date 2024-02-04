@@ -17,8 +17,8 @@ namespace oxen::quic::test
         std::string expected =
                 "HELLO![CHUNK-1][CHUNK-2][CHUNK-3][Chunk-4][Chunk-5][Chunk-6][chunk-7][chunk-8][chunk-9][chunk-10]Goodbye."s;
 
-        std::promise<bool> finished_p;
-        std::future<bool> finished_f = finished_p.get_future();
+        std::promise<void> finished_p;
+        std::future<void> finished_f = finished_p.get_future();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view data) {
             std::lock_guard lock{recv_mut};
@@ -27,7 +27,7 @@ namespace oxen::quic::test
             try
             {
                 if (received.size() == expected.size())
-                    finished_p.set_value(true);
+                    finished_p.set_value();
             }
             catch (std::exception& e)
             {
@@ -101,7 +101,7 @@ namespace oxen::quic::test
                 },
                 parallel_chunks);
 
-        REQUIRE(finished_f.get());
+        require_future(finished_f);
 
         {
             std::lock_guard lock{recv_mut};

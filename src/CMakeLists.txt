@@ -1,5 +1,7 @@
 set(libquic_send_allowed "gso, sendmmsg, sendmsg")
 
+configure_file(version.cpp.in version.cpp @ONLY)
+
 add_library(quic
     address.cpp
     btstream.cpp
@@ -16,6 +18,7 @@ add_library(quic
     stream.cpp
     udp.cpp
     utils.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
 target_link_libraries(quic

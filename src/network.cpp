@@ -152,7 +152,7 @@ namespace oxen::quic
 
     void Network::close_immediate()
     {
-        log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::info(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (loop_thread)
             event_base_loopbreak(ev_loop.get());
@@ -167,7 +167,7 @@ namespace oxen::quic
 
         call([&]() mutable {
             for (const auto& ep : endpoint_map)
-                ep->close_conns();
+                ep->_close_conns(std::nullopt);
 
             pr.set_value();
         });
