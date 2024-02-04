@@ -567,7 +567,7 @@ namespace oxen::quic::test
                 client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
             }
 
-            require_future(done);
+            require_future(done, 3s);
             CHECK(good_responses == num_requests);
             CHECK(responses == good_responses);
         }
