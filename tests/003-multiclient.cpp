@@ -35,8 +35,8 @@ namespace oxen::quic::test
         auto msg = "hello from the other siiiii-iiiiide"_bsv;
 
         std::atomic<int> data_check{0};
-        std::vector<std::promise<bool>> stream_promises{4};
-        std::vector<std::future<bool>> stream_futures{4};
+        std::vector<std::promise<void>> stream_promises{4};
+        std::vector<std::future<void>> stream_futures{4};
 
         for (int i = 0; i < 4; ++i)
             stream_futures[i] = stream_promises[i].get_future();
@@ -53,7 +53,7 @@ namespace oxen::quic::test
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
             log::debug(log_cat, "Calling server stream data callback... data received...");
             data_check += 1;
-            p_itr->set_value(true);
+            p_itr->set_value();
             ++p_itr;
         };
 
@@ -107,7 +107,7 @@ namespace oxen::quic::test
         }};
 
         for (auto& f : stream_futures)
-            REQUIRE(f.get());
+            require_future(f);
 
         async_thread_b.join();
         async_thread_a.join();
