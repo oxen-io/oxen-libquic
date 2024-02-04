@@ -151,13 +151,13 @@ namespace oxen::quic
 
         int64_t stream_id() const override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return std::numeric_limits<int64_t>::min();
         }
 
         std::shared_ptr<Stream> get_stream() override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return nullptr;
         }
 
@@ -171,18 +171,18 @@ namespace oxen::quic
 
         bool is_closing_impl() const override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
         }
         bool sent_fin() const override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return false;
         }
-        void set_fin(bool) override { log::debug(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        void set_fin(bool) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
         size_t unsent_impl() const override
         {
-            log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             size_t sum{0};
             if (send_buffer.empty())
                 return sum;
@@ -194,7 +194,7 @@ namespace oxen::quic
         void wrote(size_t) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
         std::vector<ngtcp2_vec> pending() override
         {
-            log::warning(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
             return {};
         }
     };

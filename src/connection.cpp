@@ -41,283 +41,277 @@ namespace oxen::quic
         }
     }
 
-    int hook_func(
-            gnutls_session_t session, unsigned int htype, unsigned when, unsigned int incoming, const gnutls_datum_t* msg)
+    // ngtcp2 internal callback functions (that are deliberately source only, not a published
+    // header); we group them all in this struct to make them slightly easier to manage, but more
+    // importantly, because `Callbacks` is a friend-with-benefits of Endpoint that can touch its
+    // privates.
+    struct Callbacks
     {
-        (void)session;
-        (void)htype;
-        (void)when;
-        (void)incoming;
-        (void)msg;
-        /* we could save session data here */
 
-        return 0;
-    }
-
-    int on_ack_datagram(ngtcp2_conn* /* conn */, uint64_t dgram_id, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return static_cast<Connection*>(user_data)->ack_datagram(dgram_id);
-    }
-
-    int on_recv_datagram(ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return static_cast<Connection*>(user_data)->recv_datagram(
-                {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
-    }
-
-    int on_recv_token(ngtcp2_conn* /* conn */, const uint8_t* token, size_t tokenlen, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return static_cast<Connection*>(user_data)->recv_token(token, tokenlen);
-    }
-
-    int on_recv_stream_data(
-            ngtcp2_conn* /*conn*/,
-            uint32_t flags,
-            int64_t stream_id,
-            uint64_t /*offset*/,
-            const uint8_t* data,
-            size_t datalen,
-            void* user_data,
-            void* /*stream_user_data*/)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return static_cast<Connection*>(user_data)->stream_receive(
-                stream_id, {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
-    }
-
-    int on_acked_stream_data_offset(
-            ngtcp2_conn* /*conn_*/,
-            int64_t stream_id,
-            uint64_t offset,
-            uint64_t datalen,
-            void* user_data,
-            void* /*stream_user_data*/)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::trace(log_cat, "Ack [{},{}]", offset, offset + datalen);
-        return static_cast<Connection*>(user_data)->stream_ack(stream_id, datalen);
-    }
-
-    int on_stream_open(ngtcp2_conn* /*conn*/, int64_t stream_id, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return static_cast<Connection*>(user_data)->stream_opened(stream_id);
-    }
-
-    int on_stream_close(
-            ngtcp2_conn* /*conn*/,
-            uint32_t /*flags*/,
-            int64_t stream_id,
-            uint64_t app_error_code,
-            void* user_data,
-            void* /*stream_user_data*/)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
-        return 0;
-    }
-
-    int on_stream_reset(
-            ngtcp2_conn* /*conn*/,
-            int64_t stream_id,
-            uint64_t /*final_size*/,
-            uint64_t app_error_code,
-            void* user_data,
-            void* /*stream_user_data*/)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
-        return 0;
-    }
-
-    int on_handshake_completed(ngtcp2_conn*, void* user_data)
-    {
-        auto* conn = static_cast<Connection*>(user_data);
-        auto dir_str = conn->is_inbound() ? "SERVER"s : "CLIENT"s;
-
-        log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
-
-        int rv = 0;
-
-        if (conn->is_inbound())
+        static int on_ack_datagram(ngtcp2_conn* /* conn */, uint64_t dgram_id, void* user_data)
         {
-            rv = conn->server_handshake_completed();
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return static_cast<Connection*>(user_data)->ack_datagram(dgram_id);
+        }
+
+        static int on_recv_datagram(
+                ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return static_cast<Connection*>(user_data)->recv_datagram(
+                    {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+        }
+
+        static int on_recv_token(ngtcp2_conn* /* conn */, const uint8_t* token, size_t tokenlen, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return static_cast<Connection*>(user_data)->recv_token(token, tokenlen);
+        }
+
+        static int on_recv_stream_data(
+                ngtcp2_conn* /*conn*/,
+                uint32_t flags,
+                int64_t stream_id,
+                uint64_t /*offset*/,
+                const uint8_t* data,
+                size_t datalen,
+                void* user_data,
+                void* /*stream_user_data*/)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return static_cast<Connection*>(user_data)->stream_receive(
+                    stream_id, {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+        }
+
+        static int on_acked_stream_data_offset(
+                ngtcp2_conn* /*conn_*/,
+                int64_t stream_id,
+                uint64_t offset,
+                uint64_t datalen,
+                void* user_data,
+                void* /*stream_user_data*/)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            log::trace(log_cat, "Ack [{},{}]", offset, offset + datalen);
+            return static_cast<Connection*>(user_data)->stream_ack(stream_id, datalen);
+        }
+
+        static int on_stream_open(ngtcp2_conn* /*conn*/, int64_t stream_id, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            return static_cast<Connection*>(user_data)->stream_opened(stream_id);
+        }
+
+        static int on_stream_close(
+                ngtcp2_conn* /*conn*/,
+                uint32_t /*flags*/,
+                int64_t stream_id,
+                uint64_t app_error_code,
+                void* user_data,
+                void* /*stream_user_data*/)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+            return 0;
+        }
+
+        static int on_stream_reset(
+                ngtcp2_conn* /*conn*/,
+                int64_t stream_id,
+                uint64_t /*final_size*/,
+                uint64_t app_error_code,
+                void* user_data,
+                void* /*stream_user_data*/)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+            return 0;
+        }
+
+        static int on_handshake_completed(ngtcp2_conn*, void* user_data)
+        {
+            auto* conn = static_cast<Connection*>(user_data);
+            auto dir_str = conn->is_inbound() ? "SERVER"s : "CLIENT"s;
+
+            log::trace(log_cat, "HANDSHAKE COMPLETED on {} connection", dir_str);
+
+            int rv = 0;
+
+            if (conn->is_inbound())
+            {
+                rv = conn->server_handshake_completed();
+
+                if (conn->conn_established_cb)
+                    conn->conn_established_cb(*conn);
+                else
+                    conn->endpoint().connection_established(*conn);
+            }
+            else
+                rv = conn->client_handshake_completed();
+
+            return rv;
+        }
+
+        static int on_handshake_confirmed(ngtcp2_conn*, void* user_data)
+        {
+            auto* conn = static_cast<Connection*>(user_data);
+
+            // server should never call this, as it "confirms" on handshake completed
+            assert(conn->is_outbound());
+            log::trace(log_cat, "HANDSHAKE CONFIRMED on CLIENT connection");
 
             if (conn->conn_established_cb)
                 conn->conn_established_cb(*conn);
             else
                 conn->endpoint().connection_established(*conn);
-        }
-        else
-            rv = conn->client_handshake_completed();
-
-        return rv;
-    }
-
-    int on_handshake_confirmed(ngtcp2_conn*, void* user_data)
-    {
-        auto* conn = static_cast<Connection*>(user_data);
-
-        // server should never call this, as it "confirms" on handshake completed
-        assert(conn->is_outbound());
-        log::trace(log_cat, "HANDSHAKE CONFIRMED on CLIENT connection");
-
-        if (conn->conn_established_cb)
-            conn->conn_established_cb(*conn);
-        else
-            conn->endpoint().connection_established(*conn);
-
-        return 0;
-    }
-
-    void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx)
-    {
-        (void)rand_ctx;
-        (void)gnutls_rnd(GNUTLS_RND_RANDOM, dest, destlen);
-    }
-
-    int on_connection_id_status(
-            ngtcp2_conn* /* _conn */,
-            ngtcp2_connection_id_status_type type,
-            uint64_t /* seq */,
-            const ngtcp2_cid* cid,
-            const uint8_t* /* token */,
-            void* user_data)
-    {
-        auto* conn = static_cast<Connection*>(user_data);
-
-        auto dir_str = conn->is_inbound() ? "SERVER"s : "CLIENT"s;
-        auto action = type == NGTCP2_CONNECTION_ID_STATUS_TYPE_ACTIVATE ? "ACTIVATING"s : "DEACTIVATING"s;
-        log::trace(log_cat, "{} {} DCID:{}", dir_str, action, oxenc::to_hex(cid->data, cid->data + cid->datalen));
-
-        // auto& ep = conn->endpoint();
-
-        switch (type)
-        {
-            case NGTCP2_CONNECTION_ID_STATUS_TYPE_ACTIVATE:
-                // ep.associate_cid(cid, *conn);
-                break;
-            case NGTCP2_CONNECTION_ID_STATUS_TYPE_DEACTIVATE:
-                // ep.dissociate_cid(cid, *conn);
-                break;
-            default:
-                break;
-        }
-
-        return 0;
-    }
-
-    int get_new_connection_id_cb(ngtcp2_conn* /* _conn */, ngtcp2_cid* cid, uint8_t* token, size_t cidlen, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        if (gnutls_rnd(GNUTLS_RND_RANDOM, cid->data, cidlen) != 0)
-            return NGTCP2_ERR_CALLBACK_FAILURE;
-
-        cid->datalen = cidlen;
-        auto* conn = static_cast<Connection*>(user_data);
-
-        if (ngtcp2_crypto_generate_stateless_reset_token(
-                    token, conn->static_secret(), NGTCP2_STATELESS_RESET_TOKENLEN, cid) != 0)
-            return NGTCP2_ERR_CALLBACK_FAILURE;
-
-        auto dir_str = conn->is_outbound() ? "CLIENT"s : "SERVER"s;
-        log::trace(log_cat, "{} generated new CID for {}", dir_str, conn->reference_id());
-        conn->endpoint().associate_cid(cid, *conn);
-
-        // TODO: send new stateless reset token
-        //  write packet using ngtcp2_pkt_write_stateless_reset
-        //  define recv_stateless_reset for client
-        //  set stateless_reset_present in transport params
-
-        return 0;
-    }
-
-    int remove_connection_id_cb(ngtcp2_conn* /* _conn */, const ngtcp2_cid* cid, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        auto* conn = static_cast<Connection*>(user_data);
-        auto dir_str = conn->is_outbound() ? "CLIENT"s : "SERVER"s;
-        log::trace(log_cat, "{} dissociating CID for {}", dir_str, conn->reference_id());
-        conn->endpoint().dissociate_cid(cid, *conn);
-
-        return 0;
-    }
-
-    int extend_max_local_streams_bidi([[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        auto& conn = *static_cast<Connection*>(user_data);
-        assert(_conn == conn);
-
-        if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn); remaining > 0)
-            conn.check_pending_streams(remaining);
-
-        return 0;
-    }
-
-    int on_path_validation(
-            ngtcp2_conn* _conn [[maybe_unused]],
-            uint32_t flags,
-            const ngtcp2_path* path,
-            const ngtcp2_path* /* old_path */,
-            ngtcp2_path_validation_result res,
-            void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        auto& conn = *static_cast<Connection*>(user_data);
-        assert(_conn == conn);
-
-        if (conn.is_outbound())
-        {
-            log::trace(log_cat, "Client updating remote addr...");
-            conn.set_remote_addr(path->remote);
 
             return 0;
         }
-        else if (res != NGTCP2_PATH_VALIDATION_RESULT_SUCCESS)
+
+        static void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx)
         {
-            log::debug(log_cat, "Path validation unsuccessful!");
+            (void)rand_ctx;
+            (void)gnutls_rnd(GNUTLS_RND_RANDOM, dest, destlen);
+        }
+
+        static int on_connection_id_status(
+                ngtcp2_conn* /* _conn */,
+                ngtcp2_connection_id_status_type type,
+                uint64_t /* seq */,
+                const ngtcp2_cid* cid,
+                const uint8_t* /* token */,
+                void* user_data)
+        {
+            auto* conn = static_cast<Connection*>(user_data);
+
+            auto dir_str = conn->is_inbound() ? "SERVER"s : "CLIENT"s;
+            auto action = type == NGTCP2_CONNECTION_ID_STATUS_TYPE_ACTIVATE ? "ACTIVATING"s : "DEACTIVATING"s;
+            log::trace(log_cat, "{} {} DCID:{}", dir_str, action, oxenc::to_hex(cid->data, cid->data + cid->datalen));
+
+            // auto& ep = conn->endpoint();
+
+            switch (type)
+            {
+                case NGTCP2_CONNECTION_ID_STATUS_TYPE_ACTIVATE:
+                    // ep.associate_cid(cid, *conn);
+                    break;
+                case NGTCP2_CONNECTION_ID_STATUS_TYPE_DEACTIVATE:
+                    // ep.dissociate_cid(cid, *conn);
+                    break;
+                default:
+                    break;
+            }
+
             return 0;
         }
-        else if (not(flags & NGTCP2_PATH_VALIDATION_FLAG_NEW_TOKEN))
+
+        static int get_new_connection_id(
+                ngtcp2_conn* /* _conn */, ngtcp2_cid* cid, uint8_t* token, size_t cidlen, void* user_data)
         {
-            log::debug(log_cat, "Path validation successful!");
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+            if (gnutls_rnd(GNUTLS_RND_RANDOM, cid->data, cidlen) != 0)
+                return NGTCP2_ERR_CALLBACK_FAILURE;
+
+            cid->datalen = cidlen;
+            auto* conn = static_cast<Connection*>(user_data);
+            auto& ep = conn->endpoint();
+
+            if (ngtcp2_crypto_generate_stateless_reset_token(
+                        token, ep._static_secret.data(), ep._static_secret.size(), cid) != 0)
+                return NGTCP2_ERR_CALLBACK_FAILURE;
+
+            auto dir_str = conn->is_outbound() ? "CLIENT"s : "SERVER"s;
+            log::trace(log_cat, "{} generated new CID for {}", dir_str, conn->reference_id());
+            ep.associate_cid(cid, *conn);
+
+            // TODO: send new stateless reset token
+            //  write packet using ngtcp2_pkt_write_stateless_reset
+            //  define recv_stateless_reset for client
+            //  set stateless_reset_present in transport params
+
             return 0;
         }
-        else
-            return conn.server_path_validation(path);
-    }
 
-    int on_early_data_rejected(ngtcp2_conn* _conn, void* user_data)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        static int remove_connection_id(ngtcp2_conn* /* _conn */, const ngtcp2_cid* cid, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        auto& conn = *static_cast<Connection*>(user_data);
-        assert(_conn == conn);
+            auto* conn = static_cast<Connection*>(user_data);
+            auto dir_str = conn->is_outbound() ? "CLIENT"s : "SERVER"s;
+            log::trace(log_cat, "{} dissociating CID for {}", dir_str, conn->reference_id());
+            conn->endpoint().dissociate_cid(cid, *conn);
 
-        (void)conn;
-        (void)_conn;
+            return 0;
+        }
 
-        return 0;
-    }
+        static int extend_max_local_streams_bidi(
+                [[maybe_unused]] ngtcp2_conn* _conn, uint64_t /*max_streams*/, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+            auto& conn = *static_cast<Connection*>(user_data);
+            assert(_conn == conn);
+
+            if (auto remaining = ngtcp2_conn_get_streams_bidi_left(conn); remaining > 0)
+                conn.check_pending_streams(remaining);
+
+            return 0;
+        }
+
+        static int on_path_validation(
+                ngtcp2_conn* _conn [[maybe_unused]],
+                uint32_t flags,
+                const ngtcp2_path* path,
+                const ngtcp2_path* /* old_path */,
+                ngtcp2_path_validation_result res,
+                void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+            auto& conn = *static_cast<Connection*>(user_data);
+            assert(_conn == conn);
+
+            if (conn.is_outbound())
+            {
+                log::trace(log_cat, "Client updating remote addr...");
+                conn.set_remote_addr(path->remote);
+
+                return 0;
+            }
+            else if (res != NGTCP2_PATH_VALIDATION_RESULT_SUCCESS)
+            {
+                log::debug(log_cat, "Path validation unsuccessful!");
+                return 0;
+            }
+            else if (not(flags & NGTCP2_PATH_VALIDATION_FLAG_NEW_TOKEN))
+            {
+                log::debug(log_cat, "Path validation successful!");
+                return 0;
+            }
+            else
+                return conn.server_path_validation(path);
+        }
+
+        static int on_early_data_rejected(ngtcp2_conn* _conn, void* user_data)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
+            auto& conn = *static_cast<Connection*>(user_data);
+            assert(_conn == conn);
+
+            (void)conn;
+            (void)_conn;
+
+            return 0;
+        }
+    };
 
     void Connection::set_close_quietly()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         _close_quietly = true;
-    }
-
-    const uint8_t* Connection::static_secret()
-    {
-        return _endpoint.static_secret();
     }
 
     void Connection::set_new_path(Path new_path)
@@ -340,8 +334,8 @@ namespace oxen::quic
 
         auto len = ngtcp2_crypto_generate_regular_token(
                 token.data(),
-                static_secret(),
-                NGTCP2_STATELESS_RESET_TOKENLEN,
+                _endpoint._static_secret.data(),
+                _endpoint._static_secret.size(),
                 path->remote.addr,
                 path->remote.addrlen,
                 get_timestamp().count());
@@ -373,16 +367,16 @@ namespace oxen::quic
             Moreover, decoding and setting 0RTT transport parameters must be handled in connection creation. Both that
             location and the required callbacks are comment-blocked in the relevant location.
         */
-        if (not tls_session->get_early_data_accepted())
-        {
-            log::info(log_cat, "Early data was rejected by server!");
+        // if (not tls_session->get_early_data_accepted())
+        //{
+        // log::info(log_cat, "Early data was rejected by server!");
 
-            // if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
-            // {
-            //     log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
-            //     return -1;
-            // }
-        }
+        // if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
+        // {
+        //     log::error(log_cat, "ngtcp2_conn_tls_early_data_rejected: {}", ngtcp2_strerror(rv));
+        //     return -1;
+        // }
+        //}
 
         // ustring data;
         // data.resize(256);
@@ -412,8 +406,8 @@ namespace oxen::quic
 
         auto len = ngtcp2_crypto_generate_regular_token(
                 token.data(),
-                static_secret(),
-                NGTCP2_STATELESS_RESET_TOKENLEN,
+                _endpoint._static_secret.data(),
+                _endpoint._static_secret.size(),
                 path->remote.addr,
                 path->remote.addrlen,
                 now);
@@ -558,9 +552,9 @@ namespace oxen::quic
                         "Note: {} encountered ngtcp2 error {}; signaling endpoint to delete connection",
                         reference_id(),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                    _endpoint.drop_connection(*this);
+                    _endpoint.drop_connection(*this, io_error{rv});
                 });
                 break;
             case NGTCP2_ERR_CRYPTO:
@@ -573,9 +567,9 @@ namespace oxen::quic
                         reference_id(),
                         ngtcp2_conn_get_tls_alert(*this),
                         ngtcp2_strerror(rv));
-                _endpoint.call([this]() {
+                _endpoint.call([this, rv]() {
                     log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                    _endpoint.drop_connection(*this);
+                    _endpoint.drop_connection(*this, io_error{rv});
                 });
                 break;
             default:
@@ -674,7 +668,7 @@ namespace oxen::quic
 
             if (int rv = ngtcp2_conn_open_bidi_stream(conn.get(), &stream->_stream_id, stream.get()); rv != 0)
             {
-                log::warning(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
+                log::debug(log_cat, "Stream not ready [Code: {}]; adding to pending streams list", ngtcp2_strerror(rv));
                 assert(!stream->_ready);
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
@@ -766,7 +760,7 @@ namespace oxen::quic
             log::debug(log_cat, "enable_datagram_flip_flop_test is true; sent packet count: {}", debug_datagram_counter);
         }
 
-        auto rv = endpoint().send_packets(_path.remote, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
+        auto rv = endpoint().send_packets(_path, send_buffer.data(), send_buffer_size.data(), send_ecn, n_packets);
 
         if (rv.blocked())
         {
@@ -791,7 +785,7 @@ namespace oxen::quic
 
             _endpoint.call([this]() {
                 log::debug(log_cat, "Endpoint deleting {}", reference_id());
-                _endpoint.drop_connection(*this);
+                _endpoint.drop_connection(*this, io_error{CONN_SEND_FAIL});
             });
 
             return false;
@@ -1412,26 +1406,26 @@ namespace oxen::quic
             std::chrono::nanoseconds handshake_timeout)
     {
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
-        callbacks.path_validation = on_path_validation;
+        callbacks.path_validation = Callbacks::on_path_validation;
         callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
         callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
         callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
-        callbacks.recv_stream_data = on_recv_stream_data;
-        callbacks.acked_stream_data_offset = on_acked_stream_data_offset;
-        callbacks.stream_close = on_stream_close;
-        callbacks.extend_max_local_streams_bidi = extend_max_local_streams_bidi;
-        callbacks.rand = rand_cb;
-        callbacks.get_new_connection_id = get_new_connection_id_cb;
-        callbacks.remove_connection_id = remove_connection_id_cb;
-        callbacks.dcid_status = on_connection_id_status;
+        callbacks.recv_stream_data = Callbacks::on_recv_stream_data;
+        callbacks.acked_stream_data_offset = Callbacks::on_acked_stream_data_offset;
+        callbacks.stream_close = Callbacks::on_stream_close;
+        callbacks.extend_max_local_streams_bidi = Callbacks::extend_max_local_streams_bidi;
+        callbacks.rand = Callbacks::rand_cb;
+        callbacks.get_new_connection_id = Callbacks::get_new_connection_id;
+        callbacks.remove_connection_id = Callbacks::remove_connection_id;
+        callbacks.dcid_status = Callbacks::on_connection_id_status;
         callbacks.update_key = ngtcp2_crypto_update_key_cb;
-        callbacks.stream_reset = on_stream_reset;
+        callbacks.stream_reset = Callbacks::on_stream_reset;
         callbacks.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
         callbacks.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
         callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
-        callbacks.stream_open = on_stream_open;
-        callbacks.handshake_completed = on_handshake_completed;
+        callbacks.stream_open = Callbacks::on_stream_open;
+        callbacks.handshake_completed = Callbacks::on_handshake_completed;
 
         ngtcp2_settings_default(&settings);
 
@@ -1444,7 +1438,7 @@ namespace oxen::quic
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
-        settings.handshake_timeout = handshake_timeout.count();
+        settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
 
         ngtcp2_transport_params_default(&params);
 
@@ -1456,7 +1450,7 @@ namespace oxen::quic
         params.initial_max_stream_data_bidi_local = 6_Mi;
         params.initial_max_stream_data_bidi_remote = 6_Mi;
         params.initial_max_stream_data_uni = 6_Mi;
-        params.max_idle_timeout = std::chrono::nanoseconds(5min).count();
+        params.max_idle_timeout = std::chrono::nanoseconds{context->config.idle_timeout}.count();
         params.active_connection_id_limit = MAX_ACTIVE_CIDS;
 
         // config values
@@ -1472,9 +1466,9 @@ namespace oxen::quic
             params.max_udp_payload_size = NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE;  // 65527
             settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;                // 1500 - 48 (approximate overhead)
             // settings.no_tx_udp_payload_size_shaping = 1;
-            callbacks.recv_datagram = on_recv_datagram;
+            callbacks.recv_datagram = Callbacks::on_recv_datagram;
 #ifndef NDEBUG
-            callbacks.ack_datagram = on_ack_datagram;
+            callbacks.ack_datagram = Callbacks::on_ack_datagram;
 #endif
 
             di = _endpoint.make_shared<dgram_interface>(*this);
@@ -1497,7 +1491,7 @@ namespace oxen::quic
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,
-            std::chrono::nanoseconds handshake_timeout,
+            std::chrono::nanoseconds default_handshake_timeout,
             std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
@@ -1540,6 +1534,7 @@ namespace oxen::quic
         ngtcp2_conn* connptr;
         int rv = 0;
 
+        auto handshake_timeout = context->config.handshake_timeout.value_or(default_handshake_timeout);
         if (rv = init(settings, params, callbacks, handshake_timeout); rv != 0)
             log::critical(log_cat, "Error: {} connection not created", d_str);
 
@@ -1548,9 +1543,9 @@ namespace oxen::quic
         if (is_outbound())
         {
             callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
-            callbacks.handshake_confirmed = on_handshake_confirmed;
+            callbacks.handshake_confirmed = Callbacks::on_handshake_confirmed;
             callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
-            callbacks.recv_new_token = on_recv_token;
+            callbacks.recv_new_token = Callbacks::on_recv_token;
 
             // Clients should be the ones providing a remote pubkey here. This way we can emplace it into
             // the gnutlssession object to be verified. Servers should be verifying via callback
@@ -1666,7 +1661,7 @@ namespace oxen::quic
 
         event_add(packet_retransmit_timer.get(), nullptr);
 
-        log::info(log_cat, "Successfully created new {} connection object", d_str);
+        log::info(log_cat, "Successfully created new {} connection object {}", d_str, _ref_id);
     }
 
     std::shared_ptr<Connection> Connection::make_conn(
@@ -1677,7 +1672,7 @@ namespace oxen::quic
             const Path& path,
             std::shared_ptr<IOContext> ctx,
             const std::vector<ustring>& alpns,
-            std::chrono::nanoseconds handshake_timeout,
+            std::chrono::nanoseconds default_handshake_timeout,
             std::optional<ustring> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
@@ -1685,7 +1680,18 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{new Connection{
-                ep, rid, scid, dcid, path, std::move(ctx), alpns, handshake_timeout, remote_pk, hdr, token_type, ocid}};
+                ep,
+                rid,
+                scid,
+                dcid,
+                path,
+                std::move(ctx),
+                alpns,
+                default_handshake_timeout,
+                remote_pk,
+                hdr,
+                token_type,
+                ocid}};
 
         conn->packet_io_ready();
 
