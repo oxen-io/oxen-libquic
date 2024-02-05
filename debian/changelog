@@ -1,5 +1,11 @@
 oxen-libquic (1.0.0-6~ubuntu2004) focal; urgency=medium
 
+  * Fix libevent linker issue
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 17:14:05 -0400
+
+oxen-libquic (1.0.0-6~ubuntu2004) focal; urgency=medium
+
   * Remove fmt and oxen logging from headers
 
  -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 16:59:37 -0400
