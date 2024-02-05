@@ -1,0 +1,1281 @@
+From: Jason Rhinelander <jason@imaginary.ca>
+Date: Mon, 5 Feb 2024 16:50:47 -0400
+Subject: Remove fmt and oxen logging from headers
+
+Having them in headers breaks packaging because it means we would have
+to build packages for both oxen-logging, spdlog, and fmt, which is a
+nuissance.
+
+This PR changes the code so that we only use fmt/spdlog/oxen-logging
+internal (in src/ and test/) but *don't* use or require it from any
+headers.
+
+There is a tiny bit of fmt-dependent code left in quic/format.hpp, but
+this is now not included by default and is an optional include an
+application with fmt available can include to be able to format quic
+types.
+
+For the most part this just moves logs into the cpp and changes a few
+formatted strings to work via stl functions, but a few trace logs got
+dropped because they seemed unimportant enough to move into the cpp
+file.
+---
+ include/oxen/quic.hpp                |  2 ++
+ include/oxen/quic/address.hpp        |  2 +-
+ include/oxen/quic/btstream.hpp       | 16 ++---------
+ include/oxen/quic/connection.hpp     |  5 ++--
+ include/oxen/quic/connection_ids.hpp |  8 +++---
+ include/oxen/quic/context.hpp        | 10 +++----
+ include/oxen/quic/datagram.hpp       | 47 +++++++--------------------------
+ include/oxen/quic/endpoint.hpp       |  9 ++++---
+ include/oxen/quic/error.hpp          | 13 ++++-----
+ include/oxen/quic/format.hpp         | 15 ++++++-----
+ include/oxen/quic/formattable.hpp    | 11 ++++++++
+ include/oxen/quic/gnutls_crypto.hpp  | 38 +++------------------------
+ include/oxen/quic/iochannel.hpp      |  2 +-
+ include/oxen/quic/network.hpp        | 36 ++++---------------------
+ include/oxen/quic/opt.hpp            |  3 ++-
+ include/oxen/quic/stream.hpp         | 30 +++++++++------------
+ include/oxen/quic/utils.hpp          |  8 ------
+ src/CMakeLists.txt                   |  2 ++
+ src/address.cpp                      |  2 ++
+ src/btstream.cpp                     | 14 ++++++++++
+ src/connection_ids.cpp               | 21 +++++++++++++++
+ src/context.cpp                      |  9 +++++++
+ src/datagram.cpp                     | 51 ++++++++++++++++++++++++++++++++++++
+ src/endpoint.cpp                     |  8 ++++++
+ src/error.cpp                        | 15 +++++++++++
+ src/gnutls_creds.cpp                 | 40 ++++++++++++++++++++++++++++
+ src/gnutls_session.cpp               |  1 +
+ src/internal.hpp                     | 11 ++++++++
+ src/iochannel.cpp                    |  1 +
+ src/messages.cpp                     |  1 +
+ src/network.cpp                      | 14 +++++-----
+ src/stream.cpp                       | 31 ++++++++++++++++++++++
+ src/utils.cpp                        |  1 +
+ tests/004-streams.cpp                | 38 +++++++++++++--------------
+ tests/utils.hpp                      | 14 +++++++---
+ 35 files changed, 321 insertions(+), 208 deletions(-)
+ create mode 100644 include/oxen/quic/formattable.hpp
+ create mode 100644 src/connection_ids.cpp
+ create mode 100644 src/error.cpp
+
+diff --git a/include/oxen/quic.hpp b/include/oxen/quic.hpp
+index f60a547..7ad2dd2 100644
+--- a/include/oxen/quic.hpp
++++ b/include/oxen/quic.hpp
+@@ -7,8 +7,10 @@
+ #include "quic/crypto.hpp"
+ #include "quic/datagram.hpp"
+ #include "quic/endpoint.hpp"
++// #include "quic/format.hpp"  // Not included by default as it depends on fmt
+ #include "quic/error.hpp"
+ #include "quic/format.hpp"
++#include "quic/formattable.hpp"
+ #include "quic/gnutls_crypto.hpp"
+ #include "quic/messages.hpp"
+ #include "quic/network.hpp"
+diff --git a/include/oxen/quic/address.hpp b/include/oxen/quic/address.hpp
+index ebf94ed..75bdb9b 100644
+--- a/include/oxen/quic/address.hpp
++++ b/include/oxen/quic/address.hpp
+@@ -1,6 +1,6 @@
+ #pragma once
+ 
+-#include "format.hpp"
++#include "formattable.hpp"
+ #include "utils.hpp"
+ 
+ namespace oxen::quic
+diff --git a/include/oxen/quic/btstream.hpp b/include/oxen/quic/btstream.hpp
+index 125cc8b..d1d39dc 100644
+--- a/include/oxen/quic/btstream.hpp
++++ b/include/oxen/quic/btstream.hpp
+@@ -6,8 +6,6 @@
+ 
+ namespace oxen::quic
+ {
+-    inline auto bp_cat = oxen::log::Cat("bparser");
+-
+     using time_point = std::chrono::steady_clock::time_point;
+ 
+     // timeout is used for sent requests awaiting responses
+@@ -218,8 +216,6 @@ namespace oxen::quic
+         template <typename... Opt>
+         void command(std::string ep, bstring_view body, Opt&&... opts)
+         {
+-            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+-
+             auto rid = next_rid++;
+             auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
+ 
+@@ -260,19 +256,11 @@ namespace oxen::quic
+ 
+       private:
+         // Optional constructor argument: stream close callback
+-        void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
+-        {
+-            log::debug(bp_cat, "Bparser set user-provided close callback!");
+-            close_callback = std::move(close_cb);
+-        }
++        void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb);
+ 
+         // Optional constructor argument: generic request handler.  Providing it in the constructor
+         // is equivalent to calling register_command_fallback() with the lambda.
+-        void handle_bp_opt(std::function<void(message m)> request_handler)
+-        {
+-            log::debug(bp_cat, "Bparser set generic request handler");
+-            generic_handler = std::move(request_handler);
+-        }
++        void handle_bp_opt(std::function<void(message m)> request_handler);
+ 
+         void handle_input(message msg);
+ 
+diff --git a/include/oxen/quic/connection.hpp b/include/oxen/quic/connection.hpp
+index e1df1bd..9acdebe 100644
+--- a/include/oxen/quic/connection.hpp
++++ b/include/oxen/quic/connection.hpp
+@@ -103,7 +103,8 @@ namespace oxen::quic
+             {
+                 if (auto st = std::dynamic_pointer_cast<StreamT>(std::move(s)))
+                     return st;
+-                throw std::invalid_argument{"Stream ID {} is not an instance of the requested Stream subclass"_format(id)};
++                throw std::invalid_argument{
++                        "Stream ID " + std::to_string(id) + " is not an instance of the requested Stream subclass"};
+             }
+             else
+                 return s;
+@@ -118,7 +119,7 @@ namespace oxen::quic
+         {
+             if (auto s = maybe_stream<StreamT>(id))
+                 return s;
+-            throw std::out_of_range{"Could not find a stream with ID {}"_format(id)};
++            throw std::out_of_range{"Could not find a stream with ID " + std::to_string(id)};
+         }
+ 
+         template <
+diff --git a/include/oxen/quic/connection_ids.hpp b/include/oxen/quic/connection_ids.hpp
+index ebad050..a2e47ed 100644
+--- a/include/oxen/quic/connection_ids.hpp
++++ b/include/oxen/quic/connection_ids.hpp
+@@ -7,6 +7,7 @@ extern "C"
+ #include <gnutls/crypto.h>
+ }
+ 
++#include "formattable.hpp"
+ #include "types.hpp"
+ #include "utils.hpp"
+ 
+@@ -36,7 +37,7 @@ namespace oxen::quic
+ 
+         explicit operator const uint64_t&() const { return id; }
+ 
+-        std::string to_string() const { return "< RID:{} >"_format(id); }
++        std::string to_string() const;
+     };
+     template <>
+     constexpr inline bool IsToStringFormattable<ConnectionID> = true;
+@@ -71,10 +72,7 @@ namespace oxen::quic
+             return cid;
+         }
+ 
+-        std::string to_string() const
+-        {
+-            return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
+-        }
++        std::string to_string() const;
+     };
+     template <>
+     constexpr inline bool IsToStringFormattable<quic_cid> = true;
+diff --git a/include/oxen/quic/context.hpp b/include/oxen/quic/context.hpp
+index b9f8bf7..0f32be9 100644
+--- a/include/oxen/quic/context.hpp
++++ b/include/oxen/quic/context.hpp
+@@ -49,20 +49,16 @@ namespace oxen::quic
+         template <typename... Opt>
+         IOContext(Direction d, Opt&&... opts) : dir{d}
+         {
+-            log::trace(log_cat, "Making IO session context");
+             // parse all options
+             ((void)handle_ioctx_opt(std::forward<Opt>(opts)), ...);
+-
+-            if (tls_creds == nullptr)
+-                throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
+-
+-            log::debug(
+-                    log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
++            _init();
+         }
+ 
+         ~IOContext() = default;
+ 
+       private:
++        void _init();
++
+         void handle_ioctx_opt(std::shared_ptr<TLSCreds> tls);
+         void handle_ioctx_opt(opt::max_streams ms);
+         void handle_ioctx_opt(opt::keep_alive ka);
+diff --git a/include/oxen/quic/datagram.hpp b/include/oxen/quic/datagram.hpp
+index 7b15c4d..46d70a6 100644
+--- a/include/oxen/quic/datagram.hpp
++++ b/include/oxen/quic/datagram.hpp
+@@ -149,17 +149,9 @@ namespace oxen::quic
+ 
+         int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
+ 
+-        int64_t stream_id() const override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            return std::numeric_limits<int64_t>::min();
+-        }
++        int64_t stream_id() const override;
+ 
+-        std::shared_ptr<Stream> get_stream() override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            return nullptr;
+-        }
++        std::shared_ptr<Stream> get_stream() override;
+ 
+       private:
+         const bool _packet_splitting{false};
+@@ -169,34 +161,13 @@ namespace oxen::quic
+ 
+         void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
+ 
+-        bool is_closing_impl() const override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            return false;
+-        }
+-        bool sent_fin() const override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            return false;
+-        }
+-        void set_fin(bool) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
+-        size_t unsent_impl() const override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            size_t sum{0};
+-            if (send_buffer.empty())
+-                return sum;
+-            for (const auto& entry : send_buffer.buf)
+-                sum += entry.size();
+-            return sum;
+-        }
+-        bool has_unsent_impl() const override { return not is_empty_impl(); }
+-        void wrote(size_t) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
+-        std::vector<ngtcp2_vec> pending() override
+-        {
+-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+-            return {};
+-        }
++        bool is_closing_impl() const override;
++        bool sent_fin() const override;
++        void set_fin(bool) override;
++        size_t unsent_impl() const override;
++        bool has_unsent_impl() const override;
++        void wrote(size_t) override;
++        std::vector<ngtcp2_vec> pending() override;
+     };
+ 
+ }  // namespace oxen::quic
+diff --git a/include/oxen/quic/endpoint.hpp b/include/oxen/quic/endpoint.hpp
+index 8a55be1..186a6cb 100644
+--- a/include/oxen/quic/endpoint.hpp
++++ b/include/oxen/quic/endpoint.hpp
+@@ -74,10 +74,8 @@ namespace oxen::quic
+ 
+                 // initialize client context and client tls context simultaneously
+                 inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
+-                _set_context_globals(inbound_ctx);
+-                _accepting_inbound = true;
+-
+-                log::debug(log_cat, "Inbound context ready for incoming connections");
++                // Call the private version for remaining (untemplated) setup:
++                _listen();
+             });
+         }
+ 
+@@ -227,6 +225,9 @@ namespace oxen::quic
+ 
+         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
+ 
++        // Does the non-templated bit of `listen()`
++        void _listen();
++
+         void handle_ep_opt(opt::enable_datagrams dc);
+         void handle_ep_opt(opt::outbound_alpns alpns);
+         void handle_ep_opt(opt::inbound_alpns alpns);
+diff --git a/include/oxen/quic/error.hpp b/include/oxen/quic/error.hpp
+index 93dec28..90134dd 100644
+--- a/include/oxen/quic/error.hpp
++++ b/include/oxen/quic/error.hpp
+@@ -33,7 +33,9 @@ namespace oxen::quic
+       public:
+         uint64_t code;
+ 
+-        explicit application_stream_error(uint64_t errcode) : code{errcode}, _what{"application error {}"_format(errcode)} {}
++        explicit application_stream_error(uint64_t errcode) :
++                code{errcode}, _what{"application error " + std::to_string(errcode)}
++        {}
+         const char* what() const noexcept override { return _what.c_str(); }
+ 
+       private:
+@@ -72,7 +74,7 @@ namespace oxen::quic
+             case CONN_IDLE_CLOSED:
+                 return "Connection closed by idle timeout"s;
+             default:
+-                return "Application error code {}"_format(e);
++                return "Application error code " + std::to_string(e);
+         }
+     }
+ 
+@@ -95,12 +97,7 @@ namespace oxen::quic
+ 
+         int ngtcp2_code() const { return static_cast<int>(_code); }
+ 
+-        uint64_t ngtcp2() const
+-        {
+-            if (not is_ngtcp2)
+-                log::warning(log_cat, "Error code {} is not an ngtcp2 error code", _code);
+-            return _code;
+-        }
++        uint64_t ngtcp2() const;
+ 
+         std::string strerror() const { return is_ngtcp2 ? ngtcp2_strerror(static_cast<int>(_code)) : quic_strerror(_code); }
+     };
+diff --git a/include/oxen/quic/format.hpp b/include/oxen/quic/format.hpp
+index a29e715..b72775e 100644
+--- a/include/oxen/quic/format.hpp
++++ b/include/oxen/quic/format.hpp
+@@ -1,17 +1,18 @@
+ #pragma once
+ 
+-#include <fmt/core.h>
++// Optional header for formattable quic types; this header is not included automatically by any
++// other quic header and must be included explicitly if wanted.  Using this header requires fmt be
++// available (which is true in libquic itself, but may not be when libquic is installed as a
++// library).
++
++#include <fmt/format.h>
+ 
+ #include <iostream>
+-#include <oxen/log.hpp>
+-#include <oxen/log/format.hpp>
++
++#include "formattable.hpp"
+ 
+ namespace oxen::quic
+ {
+-    // Types can opt-in to being formatting via .to_string() by specializing this to true
+-    template <typename T>
+-    constexpr bool IsToStringFormattable = false;
+-
+     struct buffer_printer
+     {
+         std::basic_string_view<std::byte> buf;
+diff --git a/include/oxen/quic/formattable.hpp b/include/oxen/quic/formattable.hpp
+new file mode 100644
+index 0000000..b158823
+--- /dev/null
++++ b/include/oxen/quic/formattable.hpp
+@@ -0,0 +1,11 @@
++#pragma once
++
++namespace oxen::quic
++{
++
++    // Types can opt-in to being fmt-formattable (by calling the .to_string() method when formatted)
++    // by specializing this to true and the oxen/quic/format.hpp header.
++    template <typename T>
++    constexpr bool IsToStringFormattable = false;
++
++}  // namespace oxen::quic
+diff --git a/include/oxen/quic/gnutls_crypto.hpp b/include/oxen/quic/gnutls_crypto.hpp
+index ae6f423..ea1bd4c 100644
+--- a/include/oxen/quic/gnutls_crypto.hpp
++++ b/include/oxen/quic/gnutls_crypto.hpp
+@@ -13,47 +13,17 @@ namespace oxen::quic
+ {
+     class Connection;
+ 
+-    inline const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
+-    {
+-        if (crt == GNUTLS_X509_FMT_DER)
+-            return "<< DER >>";
+-        if (crt == GNUTLS_X509_FMT_PEM)
+-            return "<< PEM >>";
+-
+-        return "<< UNKNOWN >>";
+-    }
++    const std::string translate_key_format(gnutls_x509_crt_fmt_t crt);
+ 
+-    inline const std::string translate_cert_type(gnutls_certificate_type_t type)
+-    {
+-        auto t = static_cast<int>(type);
+-
+-        switch (t)
+-        {
+-            case 1:
+-                return "<< X509 Cert >>";
+-            case 2:
+-                return "<< OpenPGP Cert >>";
+-            case 3:
+-                return "<< Raw PK Cert >>";
+-            case 0:
+-            default:
+-                return "<< Unknown Type >>";
+-        }
+-    }
++    const std::string translate_cert_type(gnutls_certificate_type_t type);
+ 
+-    inline const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
+-    {
+-        return translate_cert_type(gnutls_certificate_type_get2(session, type));
+-    }
++    const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type);
+ 
+     extern "C"
+     {
+         int cert_verify_callback_gnutls(gnutls_session_t g_session);
+ 
+-        inline void gnutls_log(int level, const char* str)
+-        {
+-            log::debug(log_cat, "GNUTLS Log (level {}): {}", level, str);
+-        }
++        void gnutls_log(int level, const char* str);
+ 
+         struct gnutls_log_setter
+         {
+diff --git a/include/oxen/quic/iochannel.hpp b/include/oxen/quic/iochannel.hpp
+index 87e12dc..7de5f50 100644
+--- a/include/oxen/quic/iochannel.hpp
++++ b/include/oxen/quic/iochannel.hpp
+@@ -16,7 +16,7 @@ namespace oxen::quic
+         IOChannel(Connection& c, Endpoint& e);
+ 
+       public:
+-        virtual ~IOChannel() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
++        virtual ~IOChannel() = default;
+ 
+         Endpoint& endpoint;
+         const ConnectionID reference_id;
+diff --git a/include/oxen/quic/network.hpp b/include/oxen/quic/network.hpp
+index 32fce8b..e456ca9 100644
+--- a/include/oxen/quic/network.hpp
++++ b/include/oxen/quic/network.hpp
+@@ -12,31 +12,13 @@
+ #include "crypto.hpp"
+ #include "utils.hpp"
+ 
+-using oxen::log::slns::source_location;
+-
+ namespace oxen::quic
+ {
+-    template <typename... T>
+-    void loop_trace_log(
+-            const log::logger_ptr& cat_logger,
+-            [[maybe_unused]] const source_location& location,
+-            [[maybe_unused]] fmt::format_string<T...> fmt,
+-            [[maybe_unused]] T&&... args)
+-    {
+-#if defined(NDEBUG) && !defined(OXEN_LOGGING_RELEASE_TRACE)
+-        // Using [[maybe_unused]] on the *first* ctor argument breaks gcc 8/9
+-        (void)cat_logger;
+-#else
+-        if (cat_logger)
+-            cat_logger->log(log::detail::spdlog_sloc(location), log::Level::trace, fmt, std::forward<T>(args)...);
+-#endif
+-    }
+-
+     class Endpoint;
+ 
+     class Network
+     {
+-        using Job = std::pair<std::function<void()>, source_location>;
++        using Job = std::function<void()>;
+ 
+       public:
+         Network(std::shared_ptr<::event_base> loop_ptr, std::thread::id loop_thread_id);
+@@ -96,22 +78,17 @@ namespace oxen::quic
+         bool in_event_loop() const;
+ 
+         /// Posts a function to the event loop, to be called when the event loop is next free.
+-        void call_soon(std::function<void()> f, source_location src = source_location::current());
++        void call_soon(std::function<void()> f);
+ 
+         /// Calls a function: if this is called from within the event loop thread, the function is
+         /// called immediately; otherwise it is forwarded to `call_soon`.
+         template <typename Callable>
+-        void call(Callable&& f, source_location src = source_location::current())
++        void call(Callable&& f)
+         {
+             if (in_event_loop())
+-            {
+-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+                 f();
+-            }
+             else
+-            {
+-                call_soon(std::forward<Callable>(f), std::move(src));
+-            }
++                call_soon(std::forward<Callable>(f));
+         }
+ 
+         /// Calls a function and synchronously obtains its return value.  If called from within the
+@@ -119,13 +96,10 @@ namespace oxen::quic
+         /// is used with `call_soon` to block until the event loop comes around and calls the
+         /// function.
+         template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
+-        Ret call_get(Callable&& f, source_location src = source_location::current())
++        Ret call_get(Callable&& f)
+         {
+             if (in_event_loop())
+-            {
+-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+                 return f();
+-            }
+ 
+             std::promise<Ret> prom;
+             auto fut = prom.get_future();
+diff --git a/include/oxen/quic/opt.hpp b/include/oxen/quic/opt.hpp
+index 904413e..95a30f8 100644
+--- a/include/oxen/quic/opt.hpp
++++ b/include/oxen/quic/opt.hpp
+@@ -118,7 +118,8 @@ namespace oxen::quic::opt
+         explicit static_secret(ustring s) : secret{std::move(s)}
+         {
+             if (secret.size() < SECRET_MIN_SIZE)
+-                throw std::invalid_argument{"opt::static_secret requires data of at least {} bytes"_format(SECRET_MIN_SIZE)};
++                throw std::invalid_argument{
++                        "opt::static_secret requires data of at least " + std::to_string(SECRET_MIN_SIZE) + "bytes"};
+         }
+     };
+ 
+diff --git a/include/oxen/quic/stream.hpp b/include/oxen/quic/stream.hpp
+index 81da847..51708e7 100644
+--- a/include/oxen/quic/stream.hpp
++++ b/include/oxen/quic/stream.hpp
+@@ -32,6 +32,9 @@ namespace oxen::quic
+     using stream_open_callback = std::function<uint64_t(Stream&)>;
+     using stream_unblocked_callback = std::function<bool(Stream&)>;
+ 
++    void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
++    void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
++
+     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
+     {
+         friend class TestHelper;
+@@ -100,11 +103,7 @@ namespace oxen::quic
+         bool has_unsent_impl() const override { return not is_empty_impl(); }
+         bool is_closing_impl() const override { return _is_closing; }
+         bool is_empty_impl() const override { return user_buffers.empty(); }
+-        size_t unsent_impl() const override
+-        {
+-            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+-            return size() - unacked();
+-        }
++        size_t unsent_impl() const override;
+ 
+       private:
+         std::vector<ngtcp2_vec> pending() override;
+@@ -215,7 +214,9 @@ namespace oxen::quic
+ 
+                 if (no_data)
+                 {
+-                    log::trace(log_cat, "send_chunks finished");
++#ifndef NDEBUG
++                    _chunk_sender_trace(__FILE__, __LINE__, "send_chunks finished");
++#endif
+                     // We're finishing
+                     next_chunk = nullptr;
+                     if (done)
+@@ -225,16 +226,14 @@ namespace oxen::quic
+ 
+                 auto next = std::make_shared<single_chunk>(*this, std::move(data));
+                 auto bsv = next->view();
+-                log::trace(log_cat, "got chunk to send of size {}", bsv.size());
++#ifndef NDEBUG
++                _chunk_sender_trace(__FILE__, __LINE__, "got chunk to send of size ", bsv.size());
++#endif
+                 str.send(bsv, std::move(next));
+             }
+         };
+ 
+-        prepared_datagram pending_datagram(bool) override
+-        {
+-            log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
+-            throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
+-        }
++        prepared_datagram pending_datagram(bool) override;
+ 
+       public:
+         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called
+@@ -270,11 +269,6 @@ namespace oxen::quic
+             chunk_sender<T>::make(simultaneous, *this, std::move(next_chunk), std::move(done));
+         }
+ 
+-        void set_ready()
+-        {
+-            log::trace(log_cat, "Setting stream ready");
+-            _ready = true;
+-            on_ready();
+-        }
++        void set_ready();
+     };
+ }  // namespace oxen::quic
+diff --git a/include/oxen/quic/utils.hpp b/include/oxen/quic/utils.hpp
+index a013870..73a33de 100644
+--- a/include/oxen/quic/utils.hpp
++++ b/include/oxen/quic/utils.hpp
+@@ -2,8 +2,6 @@
+ 
+ #include <type_traits>
+ 
+-#include "format.hpp"
+-
+ extern "C"
+ {
+ #ifdef _WIN32
+@@ -41,8 +39,6 @@ extern "C"
+ 
+ namespace oxen::quic
+ {
+-    inline auto log_cat = oxen::log::Cat("quic");
+-
+     class connection_interface;
+ 
+     // called when a connection's handshake completes
+@@ -54,13 +50,11 @@ namespace oxen::quic
+     using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
+ 
+     using namespace std::literals;
+-    using namespace oxen::log::literals;
+     using bstring = std::basic_string<std::byte>;
+     using ustring = std::basic_string<unsigned char>;
+     using bstring_view = std::basic_string_view<std::byte>;
+     using ustring_view = std::basic_string_view<unsigned char>;
+     using stream_buffer = std::deque<std::pair<bstring_view, std::shared_ptr<void>>>;
+-    namespace log = oxen::log;
+ 
+     constexpr bool IN_HELL =
+ #ifdef _WIN32
+@@ -187,8 +181,6 @@ namespace oxen::quic
+         return suffix.size() <= str.size() && str.substr(str.size() - suffix.size()) == suffix;
+     }
+ 
+-    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
+-
+     std::chrono::steady_clock::time_point get_time();
+     std::chrono::nanoseconds get_timestamp();
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 381745c..8ada32f 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -6,9 +6,11 @@ add_library(quic
+     address.cpp
+     btstream.cpp
+     connection.cpp
++    connection_ids.cpp
+     context.cpp
+     datagram.cpp
+     endpoint.cpp
++    error.cpp
+     format.cpp
+     gnutls_creds.cpp
+     gnutls_session.cpp
+diff --git a/src/address.cpp b/src/address.cpp
+index 7e82cd7..cb1b831 100644
+--- a/src/address.cpp
++++ b/src/address.cpp
+@@ -2,6 +2,8 @@
+ 
+ #include <oxenc/endian.h>
+ 
++#include "internal.hpp"
++
+ namespace oxen::quic
+ {
+     Address::Address(const std::string& addr, uint16_t port)
+diff --git a/src/btstream.cpp b/src/btstream.cpp
+index adbfdd8..065af7f 100644
+--- a/src/btstream.cpp
++++ b/src/btstream.cpp
+@@ -2,9 +2,13 @@
+ 
+ #include <stdexcept>
+ 
++#include "internal.hpp"
++
+ namespace oxen::quic
+ {
+ 
++    inline auto bp_cat = oxen::log::Cat("bparser");
++
+     static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr)
+     {
+         auto* bsubstr = reinterpret_cast<const std::byte*>(substr.data());
+@@ -42,6 +46,16 @@ namespace oxen::quic
+             log::warning(bp_cat, "BTRequestStream unable to send response: stream has gone away");
+     }
+ 
++    void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
++    {
++        log::debug(bp_cat, "Bparser set user-provided close callback!");
++        close_callback = std::move(close_cb);
++    }
++    void BTRequestStream::handle_bp_opt(std::function<void(message m)> request_handler)
++    {
++        log::debug(bp_cat, "Bparser set generic request handler");
++        generic_handler = std::move(request_handler);
++    }
+     void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
+     {
+         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
+diff --git a/src/connection_ids.cpp b/src/connection_ids.cpp
+new file mode 100644
+index 0000000..2050869
+--- /dev/null
++++ b/src/connection_ids.cpp
+@@ -0,0 +1,21 @@
++#include "connection_ids.hpp"
++
++#include <oxenc/hex.h>
++
++#include "format.hpp"
++#include "internal.hpp"
++
++namespace oxen::quic
++{
++
++    std::string ConnectionID::to_string() const
++    {
++        return "< RID:{} >"_format(id);
++    }
++
++    std::string quic_cid::to_string() const
++    {
++        return oxenc::to_hex(data, data + datalen);
++    }
++
++}  // namespace oxen::quic
+diff --git a/src/context.cpp b/src/context.cpp
+index e7a5f4a..0506e51 100644
+--- a/src/context.cpp
++++ b/src/context.cpp
+@@ -1,9 +1,18 @@
+ #include "context.hpp"
+ 
+ #include "connection.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
++    void IOContext::_init()
++    {
++        if (tls_creds == nullptr)
++            throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
++
++        log::debug(log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
++    }
++
+     void IOContext::handle_ioctx_opt(std::shared_ptr<TLSCreds> tls)
+     {
+         tls_creds = std::move(tls);
+diff --git a/src/datagram.cpp b/src/datagram.cpp
+index 96b86ac..ef68fc6 100644
+--- a/src/datagram.cpp
++++ b/src/datagram.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "connection.hpp"
+ #include "endpoint.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
+@@ -16,6 +17,56 @@ namespace oxen::quic
+         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+     }
+ 
++    int64_t DatagramIO::stream_id() const
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        return std::numeric_limits<int64_t>::min();
++    }
++
++    std::shared_ptr<Stream> DatagramIO::get_stream()
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        return nullptr;
++    }
++
++    bool DatagramIO::is_closing_impl() const
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        return false;
++    }
++    bool DatagramIO::sent_fin() const
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        return false;
++    }
++    void DatagramIO::set_fin(bool)
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++    };
++    size_t DatagramIO::unsent_impl() const
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        size_t sum{0};
++        if (send_buffer.empty())
++            return sum;
++        for (const auto& entry : send_buffer.buf)
++            sum += entry.size();
++        return sum;
++    }
++    bool DatagramIO::has_unsent_impl() const
++    {
++        return not is_empty_impl();
++    }
++    void DatagramIO::wrote(size_t)
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++    };
++    std::vector<ngtcp2_vec> DatagramIO::pending()
++    {
++        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
++        return {};
++    }
++
+     dgram_interface::dgram_interface(Connection& c) : ci{c}, reference_id{ci.reference_id()} {}
+ 
+     std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
+diff --git a/src/endpoint.cpp b/src/endpoint.cpp
+index eeb83f1..5c14a8f 100644
+--- a/src/endpoint.cpp
++++ b/src/endpoint.cpp
+@@ -109,6 +109,14 @@ namespace oxen::quic
+         event_add(expiry_timer.get(), &exp_interval);
+     }
+ 
++    void Endpoint::_listen()
++    {
++        _set_context_globals(inbound_ctx);
++        _accepting_inbound = true;
++
++        log::debug(log_cat, "Inbound context ready for incoming connections");
++    }
++
+     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
+     {
+         ctx->config.datagram_support = _datagrams;
+diff --git a/src/error.cpp b/src/error.cpp
+new file mode 100644
+index 0000000..d8649eb
+--- /dev/null
++++ b/src/error.cpp
+@@ -0,0 +1,15 @@
++#include "error.hpp"
++
++#include "internal.hpp"
++
++namespace oxen::quic
++{
++
++    uint64_t io_error::ngtcp2() const
++    {
++        if (not is_ngtcp2)
++            log::warning(log_cat, "Error code {} is not an ngtcp2 error code", _code);
++        return _code;
++    }
++
++}  // namespace oxen::quic
+diff --git a/src/gnutls_creds.cpp b/src/gnutls_creds.cpp
+index 8aeb94d..22854b8 100644
+--- a/src/gnutls_creds.cpp
++++ b/src/gnutls_creds.cpp
+@@ -1,10 +1,50 @@
+ #include "connection.hpp"
+ #include "gnutls_crypto.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
++
++    const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
++    {
++        if (crt == GNUTLS_X509_FMT_DER)
++            return "<< DER >>";
++        if (crt == GNUTLS_X509_FMT_PEM)
++            return "<< PEM >>";
++
++        return "<< UNKNOWN >>";
++    }
++
++    const std::string translate_cert_type(gnutls_certificate_type_t type)
++    {
++        auto t = static_cast<int>(type);
++
++        switch (t)
++        {
++            case 1:
++                return "<< X509 Cert >>";
++            case 2:
++                return "<< OpenPGP Cert >>";
++            case 3:
++                return "<< Raw PK Cert >>";
++            case 0:
++            default:
++                return "<< Unknown Type >>";
++        }
++    }
++
++    const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
++    {
++        return translate_cert_type(gnutls_certificate_type_get2(session, type));
++    }
++
+     extern "C"
+     {
++        void gnutls_log(int level, const char* str)
++        {
++            log::debug(log_cat, "GNUTLS Log (level {}): {}", level, str);
++        }
++
+         // Return value: 0 is pass, negative is fail
+         int cert_verify_callback_gnutls(gnutls_session_t session)
+         {
+diff --git a/src/gnutls_session.cpp b/src/gnutls_session.cpp
+index 583bea0..ae4b4c0 100644
+--- a/src/gnutls_session.cpp
++++ b/src/gnutls_session.cpp
+@@ -1,6 +1,7 @@
+ #include "connection.hpp"
+ #include "endpoint.hpp"
+ #include "gnutls_crypto.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
+diff --git a/src/internal.hpp b/src/internal.hpp
+index 7d64760..71b12a4 100644
+--- a/src/internal.hpp
++++ b/src/internal.hpp
+@@ -1,12 +1,23 @@
+ #pragma once
+ 
+ #include <cstddef>
++#include <oxen/log.hpp>
++#include <oxen/log/format.hpp>
+ 
++#include "format.hpp"
+ #include "utils.hpp"
+ 
+ namespace oxen::quic
+ {
+ 
++    inline auto log_cat = oxen::log::Cat("quic");
++
++    namespace log = oxen::log;
++
++    using namespace log::literals;
++
++    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
++
+     inline constexpr size_t MAX_BATCH =
+ #if defined(OXEN_LIBQUIC_UDP_SENDMMSG) || defined(OXEN_LIBQUIC_UDP_GSO)
+             DATAGRAM_BATCH_SIZE;
+diff --git a/src/iochannel.cpp b/src/iochannel.cpp
+index 0c55cbf..94ba96a 100644
+--- a/src/iochannel.cpp
++++ b/src/iochannel.cpp
+@@ -1,6 +1,7 @@
+ #include "iochannel.hpp"
+ 
+ #include "endpoint.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
+diff --git a/src/messages.cpp b/src/messages.cpp
+index 626e129..5a921fc 100644
+--- a/src/messages.cpp
++++ b/src/messages.cpp
+@@ -3,6 +3,7 @@
+ #include "connection.hpp"
+ #include "datagram.hpp"
+ #include "endpoint.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
+diff --git a/src/network.cpp b/src/network.cpp
+index 6485370..6dfd093 100644
+--- a/src/network.cpp
++++ b/src/network.cpp
+@@ -13,6 +13,7 @@
+ #include "connection.hpp"
+ #include "context.hpp"
+ #include "endpoint.hpp"
++#include "internal.hpp"
+ #include "utils.hpp"
+ 
+ namespace oxen::quic
+@@ -183,12 +184,12 @@ namespace oxen::quic
+         return std::this_thread::get_id() == loop_thread_id;
+     }
+ 
+-    void Network::call_soon(std::function<void(void)> f, source_location src)
++    void Network::call_soon(std::function<void(void)> f)
+     {
+-        loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
++        log::trace(log_cat, "Event loop queueing job");
+         {
+             std::lock_guard lock{job_queue_mutex};
+-            job_queue.emplace(std::move(f), std::move(src));
++            job_queue.emplace(std::move(f));
+             log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
+         }
+         event_active(job_waker.get(), 0, 0);
+@@ -208,11 +209,10 @@ namespace oxen::quic
+ 
+         while (not swapped_queue.empty())
+         {
+-            auto job = swapped_queue.front();
++            auto job = std::move(swapped_queue.front());
+             swapped_queue.pop();
+-            const auto& src = job.second;
+-            loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
+-            job.first();
++            log::trace(log_cat, "Event loop invoking queued job");
++            job();
+         }
+     }
+ 
+diff --git a/src/stream.cpp b/src/stream.cpp
+index ab15405..a9e16bd 100644
+--- a/src/stream.cpp
++++ b/src/stream.cpp
+@@ -12,6 +12,7 @@ extern "C"
+ #include "connection.hpp"
+ #include "context.hpp"
+ #include "endpoint.hpp"
++#include "internal.hpp"
+ #include "network.hpp"
+ #include "types.hpp"
+ 
+@@ -194,4 +195,34 @@ namespace oxen::quic
+             append_buffer(data, std::move(ka));
+         });
+     }
++
++    size_t Stream::unsent_impl() const
++    {
++        log::trace(log_cat, "size={}, unacked={}", size(), unacked());
++        return size() - unacked();
++    }
++
++    void Stream::set_ready()
++    {
++        log::trace(log_cat, "Setting stream ready");
++        _ready = true;
++        on_ready();
++    }
++
++    void _chunk_sender_trace(const char* file, int lineno, std::string_view message)
++    {
++        log::trace(log_cat, "{}:{} -- {}", file, lineno, message);
++    }
++
++    void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val)
++    {
++        log::trace(log_cat, "{}:{} -- {}{}", file, lineno, message, val);
++    }
++
++    prepared_datagram Stream::pending_datagram(bool)
++    {
++        log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
++        throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
++    }
++
+ }  // namespace oxen::quic
+diff --git a/src/utils.cpp b/src/utils.cpp
+index 52c74a4..c9f6ba0 100644
+--- a/src/utils.cpp
++++ b/src/utils.cpp
+@@ -8,6 +8,7 @@
+ #include <string>
+ 
+ #include "connection.hpp"
++#include "internal.hpp"
+ 
+ namespace oxen::quic
+ {
+diff --git a/tests/004-streams.cpp b/tests/004-streams.cpp
+index ea9e02b..8ce620a 100644
+--- a/tests/004-streams.cpp
++++ b/tests/004-streams.cpp
+@@ -407,13 +407,13 @@ namespace oxen::quic::test
+         SECTION("Stream logic using queue_incoming_stream in connection open callback")
+         {
+             auto server_open_all_cb = callback_waiter{[&](connection_interface& ci) {
+-                log::info(bp_cat, "Server queuing Custom Stream A!");
++                log::info(test_cat, "Server queuing Custom Stream A!");
+                 server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
+-                log::info(bp_cat, "Server queuing Custom Stream B!");
++                log::info(test_cat, "Server queuing Custom Stream B!");
+                 server_b = ci.queue_incoming_stream<CustomStreamB>(std::move(sp2));
+-                log::info(bp_cat, "Server queuing Custom Stream C!");
++                log::info(test_cat, "Server queuing Custom Stream C!");
+                 server_c = ci.queue_incoming_stream<CustomStreamC>(std::move(sp3));
+-                log::info(bp_cat, "Server queuing default stream D");
++                log::info(test_cat, "Server queuing default stream D");
+                 server_d = ci.queue_incoming_stream();
+             }};
+ 
+@@ -443,13 +443,13 @@ namespace oxen::quic::test
+                     switch (*id)
+                     {
+                         case 0:
+-                            log::info(bp_cat, "Server opening Custom Stream A!");
++                            log::info(test_cat, "Server opening Custom Stream A!");
+                             return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
+                         case 4:
+-                            log::info(bp_cat, "Server opening Custom Stream B!");
++                            log::info(test_cat, "Server opening Custom Stream B!");
+                             return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
+                         case 8:
+-                            log::info(bp_cat, "Server opening Custom Stream C!");
++                            log::info(test_cat, "Server opening Custom Stream C!");
+                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
+                     }
+                 }
+@@ -479,26 +479,26 @@ namespace oxen::quic::test
+                     [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
+                 server_stream_ctor_count++;
+ 
+-                log::trace(bp_cat, "Server stream constructor given ID:{}", id.value_or(11111));
++                log::trace(test_cat, "Server stream constructor given ID:{}", id.value_or(11111));
+ 
+                 if (id)
+                 {
+                     switch (*id)
+                     {
+                         case 4:
+-                            log::info(bp_cat, "Server opening Custom Stream B!");
++                            log::info(test_cat, "Server opening Custom Stream B!");
+                             return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
+                         case 8:
+-                            log::info(bp_cat, "Server opening Custom Stream C!");
++                            log::info(test_cat, "Server opening Custom Stream C!");
+                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
+                     }
+                 }
+-                log::info(bp_cat, "Server returning nullptr!");
++                log::info(test_cat, "Server returning nullptr!");
+                 return nullptr;
+             };
+ 
+             auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
+-                log::info(bp_cat, "Server queuing Custom Stream A!");
++                log::info(test_cat, "Server queuing Custom Stream A!");
+                 server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
+             }};
+ 
+@@ -514,19 +514,19 @@ namespace oxen::quic::test
+             REQUIRE(server_open_cb.wait());
+         }
+ 
+-        log::info(bp_cat, "Client opening Custom Stream A!");
++        log::info(test_cat, "Client opening Custom Stream A!");
+         client_a = client_ci->open_stream<CustomStreamA>(std::move(cp1));
+         REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
+         require_future(sf1);
+         CHECK(sf1.get() == "Stream A!");
+ 
+-        log::info(bp_cat, "Client opening Custom Stream B!");
++        log::info(test_cat, "Client opening Custom Stream B!");
+         client_b = client_ci->open_stream<CustomStreamB>(std::move(cp2));
+         REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
+         require_future(sf2);
+         CHECK(sf2.get() == "Stream B!");
+ 
+-        log::info(bp_cat, "Client opening Custom Stream C!");
++        log::info(test_cat, "Client opening Custom Stream C!");
+         client_c = client_ci->open_stream<CustomStreamC>(std::move(cp3));
+         REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
+         require_future(sf3);
+@@ -640,10 +640,10 @@ namespace oxen::quic::test
+             switch (count)
+             {
+                 case 1:
+-                    log::info(bp_cat, "Server opening Custom Stream A!");
++                    log::info(test_cat, "Server opening Custom Stream A!");
+                     return e.make_shared<CustomStreamA>(c, e, std::move(cp1));
+                 case 2:
+-                    log::info(bp_cat, "Server opening Custom Stream C!");
++                    log::info(test_cat, "Server opening Custom Stream C!");
+                     return e.make_shared<CustomStreamC>(c, e, std::move(cp3));
+             }
+             return nullptr;
+@@ -729,14 +729,14 @@ namespace oxen::quic::test
+             {
+                 if (*id == 0)
+                 {
+-                    log::trace(bp_cat, "Server constructing BTRequestStream!");
++                    log::trace(test_cat, "Server constructing BTRequestStream!");
+                     server_extracted = e.make_shared<BTRequestStream>(c, e);
+                     server_extracted->register_handler("test_endpoint"s, server_handler);
+                     return server_extracted;
+                 }
+                 else
+                 {
+-                    log::trace(bp_cat, "Server constructing default bullshit!");
++                    log::trace(test_cat, "Server constructing default bullshit!");
+                     return e.make_shared<Stream>(c, e);
+                 }
+             }
+diff --git a/tests/utils.hpp b/tests/utils.hpp
+index 67f8ab8..15df887 100644
+--- a/tests/utils.hpp
++++ b/tests/utils.hpp
+@@ -1,24 +1,32 @@
+ #pragma once
+ 
++#include <oxenc/base64.h>
++
+ #include <CLI/CLI.hpp>
+ #include <CLI/Error.hpp>
+ #include <charconv>
+ #include <future>
+ #include <optional>
+ #include <oxen/log.hpp>
++#include <oxen/log/format.hpp>
+ #include <oxen/quic/endpoint.hpp>
++#include <oxen/quic/format.hpp>
+ #include <oxen/quic/gnutls_crypto.hpp>
+ #include <oxen/quic/network.hpp>
+ #include <oxen/quic/utils.hpp>
+ #include <string>
+ 
+-#include "oxenc/base64.h"
+-
+ namespace oxen::quic
+ {
+     extern bool disable_ipv6, disable_rotating_buffer;
+ 
+-    inline auto test_cat = oxen::log::Cat("test");
++    namespace log = oxen::log;
++    using namespace log::literals;
++    inline auto test_cat = log::Cat("test");
++
++    // Borrowing these from src/internal.hpp:
++    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
++    inline auto log_cat = log::Cat("quic");
+ 
+     using namespace oxenc::literals;
+ 
