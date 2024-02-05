@@ -94,7 +94,7 @@ namespace oxen::quic::test
 
         auto client_stream = client_ci->open_stream();
 
-        REQUIRE_NOTHROW(client_stream->send(good_msg));
+        REQUIRE_NOTHROW(client_stream->send(good_msg, nullptr));
         require_future(d_future);
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();

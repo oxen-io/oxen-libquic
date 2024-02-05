@@ -45,12 +45,17 @@ namespace oxen::quic
         Address local() const;
         Address remote() const;
 
+        // Sends a string_view of character/byte data.  The keep_alive argument is used to manage
+        // ownership: it will be held until the data is completely sent and acked by the remote
+        // side.  It can be nullptr to disable, but only if the caller is certain that the provided
+        // data will stay alive for the duration of the Stream's lifetime.
         template <typename CharType, std::enable_if_t<sizeof(CharType) == 1, int> = 0>
-        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive)
         {
             send_impl(convert_sv<std::byte>(data), std::move(keep_alive));
         }
 
+        // Takes over ownership of a string of character/byte data and sends it into the stream.
         template <typename CharType>
         void send(std::basic_string<CharType>&& data)
         {
@@ -59,6 +64,7 @@ namespace oxen::quic
             send(view, std::move(keep_alive));
         }
 
+        // Takes over ownership of a vector of character/byte data and sends it into the stream.
         template <typename Char, std::enable_if_t<sizeof(Char) == 1, int> = 0>
         void send(std::vector<Char>&& buf)
         {

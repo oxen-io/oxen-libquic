@@ -53,11 +53,11 @@ namespace oxen::quic::test
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_io_data_cb);
 
         auto client_stream = conn_interface->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(stream_future);
 
-        server_stream->send(msg);
+        server_stream->send(msg, nullptr);
 
         require_future(client_future);
         require_future(server_future);
@@ -157,20 +157,20 @@ namespace oxen::quic::test
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_io_data_cb, client_io_open_cb);
 
         auto client_stream = client_ci->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(server_futures[0]);
         require_future(server_futures[1]);
 
-        server_extracted_stream->send(response);
+        server_extracted_stream->send(response, nullptr);
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         auto server_stream = server_ci->open_stream();
-        server_stream->send(msg);
+        server_stream->send(msg, nullptr);
 
         for (auto& c : client_futures)
             require_future(c);
 
-        client_extracted_stream->send(response);
+        client_extracted_stream->send(response, nullptr);
 
         require_future(server_futures[2]);
         REQUIRE(data_check == 4);
