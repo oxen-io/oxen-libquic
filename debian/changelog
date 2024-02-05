@@ -1,5 +1,11 @@
 oxen-libquic (1.0.0-6~deb13) trixie; urgency=medium
 
+  * Fix libevent linker issue
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 17:13:08 -0400
+
+oxen-libquic (1.0.0-6~deb13) trixie; urgency=medium
+
   * Remove fmt and oxen logging from headers
 
  -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 16:58:49 -0400
