@@ -1,3 +1,4 @@
 0001-old-cmake-install-compat.patch
 0002-Remove-fmt-and-oxen-logging-from-headers.patch
 0003-Fix-libevent-linker-issue.patch
+0004-Move-gnutls_rnd-call-out-of-header.patch
