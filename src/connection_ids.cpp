@@ -18,4 +18,12 @@ namespace oxen::quic
         return oxenc::to_hex(data, data + datalen);
     }
 
+    quic_cid quic_cid::random()
+    {
+        quic_cid cid;
+        cid.datalen = static_cast<size_t>(NGTCP2_MAX_CIDLEN);
+        gnutls_rnd(GNUTLS_RND_RANDOM, cid.data, cid.datalen);
+        return cid;
+    }
+
 }  // namespace oxen::quic

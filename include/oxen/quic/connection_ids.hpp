@@ -64,13 +64,7 @@ namespace oxen::quic
 
         inline bool operator!=(const quic_cid& other) const { return !(*this == other); }
 
-        static quic_cid random()
-        {
-            quic_cid cid;
-            cid.datalen = static_cast<size_t>(NGTCP2_MAX_CIDLEN);
-            gnutls_rnd(GNUTLS_RND_RANDOM, cid.data, cid.datalen);
-            return cid;
-        }
+        static quic_cid random();
 
         std::string to_string() const;
     };
