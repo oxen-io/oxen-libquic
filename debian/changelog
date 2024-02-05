@@ -1,5 +1,11 @@
 oxen-libquic (1.0.0-6~deb11) bullseye; urgency=medium
 
+  * Move gnutls_rnd call out of header
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 17:25:16 -0400
+
+oxen-libquic (1.0.0-6~deb11) bullseye; urgency=medium
+
   * Fix libevent linker issue
 
  -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 17:13:48 -0400
