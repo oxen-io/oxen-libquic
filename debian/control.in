@@ -20,7 +20,12 @@ Homepage: https://github.com/oxen-io/oxen-libquic
 Package: liboxen-quic-dev
 Section: libdevel
 Architecture: any
-Depends: liboxen-quic@LIB_VERSION@ (= ${binary:Version}), ${misc:Depends}, libgnutls28-dev (>= 3.7.2), libevent-dev, liboxenc-dev (>= 1.0.10)
+Depends: liboxen-quic@LIB_VERSION@ (= ${binary:Version}), ${misc:Depends},
+    libgnutls28-dev (>= 3.7.2),
+    libevent-dev,
+    liboxenc-dev (>= 1.0.10),
+    libngtcp2-dev (>= 1.1.0~),
+    libngtcp2-crypto-gnutls-dev (>= 1.1.0~)
 Description: C++ library for multi-stream QUIC implementations (headers)
  This C++17 library builds upon ngtcp2 to provide a C++ interface to making and
  accepting QUIC connections.
