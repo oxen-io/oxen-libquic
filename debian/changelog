@@ -1,3 +1,9 @@
+oxen-libquic (1.0.0-5~deb10) buster; urgency=medium
+
+  * add ngtcp2 dep to dev package
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 00:24:30 -0400
+
 oxen-libquic (1.0.0-4~deb10) buster; urgency=medium
 
   * Fix close hooks on pending streams not firing on connection fail
