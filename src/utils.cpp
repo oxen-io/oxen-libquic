@@ -8,6 +8,7 @@
 #include <string>
 
 #include "connection.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {

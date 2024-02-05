@@ -7,8 +7,10 @@
 #include "quic/crypto.hpp"
 #include "quic/datagram.hpp"
 #include "quic/endpoint.hpp"
+// #include "quic/format.hpp"  // Not included by default as it depends on fmt
 #include "quic/error.hpp"
 #include "quic/format.hpp"
+#include "quic/formattable.hpp"
 #include "quic/gnutls_crypto.hpp"
 #include "quic/messages.hpp"
 #include "quic/network.hpp"

@@ -49,20 +49,16 @@ namespace oxen::quic
         template <typename... Opt>
         IOContext(Direction d, Opt&&... opts) : dir{d}
         {
-            log::trace(log_cat, "Making IO session context");
             // parse all options
             ((void)handle_ioctx_opt(std::forward<Opt>(opts)), ...);
-
-            if (tls_creds == nullptr)
-                throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
-
-            log::debug(
-                    log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
+            _init();
         }
 
         ~IOContext() = default;
 
       private:
+        void _init();
+
         void handle_ioctx_opt(std::shared_ptr<TLSCreds> tls);
         void handle_ioctx_opt(opt::max_streams ms);
         void handle_ioctx_opt(opt::keep_alive ka);

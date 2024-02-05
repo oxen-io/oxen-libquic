@@ -12,6 +12,7 @@ extern "C"
 #include "connection.hpp"
 #include "context.hpp"
 #include "endpoint.hpp"
+#include "internal.hpp"
 #include "network.hpp"
 #include "types.hpp"
 
@@ -194,4 +195,34 @@ namespace oxen::quic
             append_buffer(data, std::move(ka));
         });
     }
+
+    size_t Stream::unsent_impl() const
+    {
+        log::trace(log_cat, "size={}, unacked={}", size(), unacked());
+        return size() - unacked();
+    }
+
+    void Stream::set_ready()
+    {
+        log::trace(log_cat, "Setting stream ready");
+        _ready = true;
+        on_ready();
+    }
+
+    void _chunk_sender_trace(const char* file, int lineno, std::string_view message)
+    {
+        log::trace(log_cat, "{}:{} -- {}", file, lineno, message);
+    }
+
+    void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val)
+    {
+        log::trace(log_cat, "{}:{} -- {}{}", file, lineno, message, val);
+    }
+
+    prepared_datagram Stream::pending_datagram(bool)
+    {
+        log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
+        throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
+    }
+
 }  // namespace oxen::quic
