@@ -1,3 +1,9 @@
+oxen-libquic (1.0.0-5~ubuntu2204) jammy; urgency=medium
+
+  * add ngtcp2 dep to dev package
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Mon, 05 Feb 2024 00:24:40 -0400
+
 oxen-libquic (1.0.0-4~ubuntu2204) jammy; urgency=medium
 
   * Fix close hooks on pending streams not firing on connection fail
