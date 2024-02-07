@@ -7,6 +7,7 @@ namespace oxen::quic
     struct ipv4
     {
         uint32_t addr;
+        ipv4() = default;
         constexpr ipv4(uint32_t a) : addr{a} {}
         constexpr ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) :
                 ipv4{uint32_t{a} << 24 | uint32_t{b} << 16 | uint32_t{c} << 8 | uint32_t{d}}
@@ -29,14 +30,6 @@ namespace oxen::quic
     {
         return ipv4_net{a.to_base(mask), mask};
     }
-
-    static_assert((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 0, 0, 0)));
-    static_assert((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 255, 255, 255)));
-    static_assert((ipv4(10, 123, 45, 67) / 8).contains(ipv4(10, 123, 123, 123)));
-    static_assert((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 0, 0, 0)));
-    static_assert((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 123, 123, 123)));
-    static_assert(not(ipv4(10, 0, 0, 0) / 8).contains(ipv4(11, 0, 0, 0)));
-    static_assert(not(ipv4(10, 0, 0, 0) / 8).contains(ipv4(9, 255, 255, 255)));
 
     struct ipv6
     {
@@ -88,11 +81,6 @@ namespace oxen::quic
     {
         return {a.to_base(mask), mask};
     }
-
-    static_assert((ipv6(0x2001, 0xdb8) / 32).contains(ipv6(0x2001, 0xdb8)));
-    static_assert((ipv6(0x2001, 0xdb8) / 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff)));
-    static_assert((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
-    static_assert((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
 
     inline constexpr ipv4_net ipv4_loopback = ipv4(127, 0, 0, 1) / 8;
     inline constexpr ipv6 ipv6_loopback(0, 0, 0, 0, 0, 0, 0, 1);

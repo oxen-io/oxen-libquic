@@ -93,6 +93,57 @@ namespace oxen::quic::test
             CHECK_FALSE(public_ipv6.is_loopback());
         };
 
+        SECTION("IP objects")
+        {
+            auto v6 = "2345::1"_us;
+
+            ipv4 v4_private(10, 0, 0, 0);
+            ipv6 v6_private(0x2001, 0xdb8);
+            ipv6 v6_public(v6.data());
+
+            Address private_v4{v4_private};
+            Address private_v6{v6_private};
+            Address public_v6{v6_public};
+
+            CHECK(private_v4.to_string() == "10.0.0.0:0"s);
+            CHECK(private_v4.is_any_port());
+            CHECK(private_v4.is_ipv4());
+            CHECK_FALSE(private_v4.is_ipv6());
+            CHECK_FALSE(private_v4.is_public_ip());
+
+            CHECK_FALSE(private_v4.is_ipv4_mapped_ipv6());
+            private_v4.map_ipv4_as_ipv6();
+            CHECK(private_v4.is_ipv4_mapped_ipv6());
+            CHECK(private_v4.to_string() == "[::ffff:10.0.0.0]:0"s);
+
+            CHECK(private_v6.is_any_port());
+            CHECK(private_v6.is_ipv6());
+            CHECK_FALSE(private_v6.is_ipv4());
+            CHECK_FALSE(private_v6.is_public_ip());
+            CHECK(private_v6.to_string().substr(0, 11) == "[2001:db8::"s);
+            CHECK_FALSE(private_v6.is_ipv4_mapped_ipv6());
+
+            CHECK(public_v6.is_any_port());
+            CHECK(public_v6.is_ipv6());
+            CHECK_FALSE(public_v6.is_ipv4());
+            CHECK(public_v6.is_public_ip());
+            CHECK(public_v6.to_string().substr(0, 21) == "[3233:3435:3a3a:3100:"s);
+            CHECK_FALSE(public_v6.is_ipv4_mapped_ipv6());
+
+            CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 255, 255, 255)));
+            CHECK((ipv4(10, 123, 45, 67) / 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(11, 0, 0, 0)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(9, 255, 255, 255)));
+
+            CHECK((ipv6(0x2001, 0xdb8) / 32).contains(ipv6(0x2001, 0xdb8)));
+            CHECK((ipv6(0x2001, 0xdb8) / 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
+        };
+
         SECTION("Endpoint object creation - Default addressing")
         {
             Network test_net{};

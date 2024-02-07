@@ -42,6 +42,10 @@ namespace oxen::quic
 
         explicit Address(const ngtcp2_addr& addr);
 
+        explicit Address(ipv4 v4, uint16_t port = 0);
+
+        explicit Address(ipv6 v6, uint16_t port = 0);
+
         // Assignment from a sockaddr pointer; we copy the sockaddr's contents
         template <
                 typename T,

@@ -43,6 +43,7 @@ namespace oxen::quic
             auto& nin6 = reinterpret_cast<const sockaddr_in6&>(addr);
             sin6.sin6_addr = nin6.sin6_addr;
             sin6.sin6_port = nin6.sin6_port;
+            update_socklen(sizeof(sockaddr_in6));
         }
         // else if (addr.addrlen == sizeof(sockaddr_in))
         else if (addr.addr->sa_family == AF_INET)
@@ -52,9 +53,36 @@ namespace oxen::quic
             auto& nin = reinterpret_cast<const sockaddr_in&>(addr);
             sin.sin_addr = nin.sin_addr;
             sin.sin_port = nin.sin_port;
+            update_socklen(sizeof(sockaddr_in));
         }
         else
             throw std::invalid_argument{"What on earth did you pass to this constructor?"};
+    }
+
+    Address::Address(ipv4 v4, uint16_t port)
+    {
+        _sock_addr.ss_family = AF_INET;
+
+        auto& sin = reinterpret_cast<sockaddr_in&>(_sock_addr);
+        sin.sin_port = oxenc::host_to_big(port);
+
+        auto bigly = oxenc::host_to_big<uint32_t>(v4.addr);
+        std::memcpy(&sin.sin_addr, &bigly, sizeof(struct in_addr));
+
+        update_socklen(sizeof(sockaddr_in));
+    }
+
+    Address::Address(ipv6 v6, uint16_t port)
+    {
+        _sock_addr.ss_family = AF_INET6;
+
+        auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
+        sin6.sin6_port = oxenc::host_to_big(port);
+
+        auto bigly = oxenc::host_to_big<uint64_t>(v6.hi);
+        std::memcpy(&sin6.sin6_addr.s6_addr, &bigly, sizeof(uint64_t));
+
+        update_socklen(sizeof(sockaddr_in6));
     }
 
     void Address::set_addr(const struct in_addr* addr)
