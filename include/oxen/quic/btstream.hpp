@@ -190,6 +190,7 @@ namespace oxen::quic
 
         friend struct sent_request;
         friend class Network;
+        friend class Loop;
 
       protected:
         template <typename... Opt>

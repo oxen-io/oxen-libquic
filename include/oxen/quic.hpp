@@ -15,6 +15,7 @@
 #include "quic/gnutls_crypto.hpp"
 #include "quic/iochannel.hpp"
 #include "quic/ip.hpp"
+#include "quic/loop.hpp"
 #include "quic/messages.hpp"
 #include "quic/network.hpp"
 #include "quic/opt.hpp"

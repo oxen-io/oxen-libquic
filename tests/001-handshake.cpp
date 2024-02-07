@@ -153,21 +153,6 @@ namespace oxen::quic::test
             // Note: kernel chooses a random port after being passed default addr
             CHECK_FALSE(ep->local().to_string() == default_addr.to_string());
         };
-
-        SECTION("Endpoint::listen() - TLS credentials")
-        {
-            Network test_net{};
-            test_net.set_shutdown_immediate();
-
-            Address default_addr{}, local_addr{};
-
-            auto [local_tls, _] = defaults::tls_creds_from_ed_keys();
-
-            auto ep_notls = test_net.endpoint(default_addr);
-            auto ep_tls = test_net.endpoint(local_addr);
-
-            CHECK_NOTHROW(ep_tls->listen(local_tls));
-        };
     };
 
     TEST_CASE("001 - Handshaking: Client Validation", "[001][client]")

@@ -40,6 +40,7 @@ namespace oxen::quic
         friend class TestHelper;
         friend class Connection;
         friend class Network;
+        friend class Loop;
 
       protected:
         Stream(Connection& conn,
