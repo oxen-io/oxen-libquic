@@ -113,7 +113,7 @@ namespace oxen::quic
 
             std::vector<std::string_view> ev_methods_avail;
             for (const char** methods = event_get_supported_methods(); *methods != nullptr; methods++)
-                ev_methods_avail.push_back(*methods);
+                ev_methods_avail.emplace_back(*methods);
             log::debug(
                     log_cat,
                     "Starting libevent {}; available backends: {}",

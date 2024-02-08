@@ -50,13 +50,13 @@ namespace oxen::quic
         template <typename Callable>
         void call(Callable&& f, source_location src = source_location::current())
         {
-            _loop->call(std::move(f), src);
+            _loop->call(std::forward<Callable>(f), src);
         }
 
         template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
         Ret call_get(Callable&& f, source_location src = source_location::current())
         {
-            return _loop->call_get(std::move(f), src);
+            return _loop->call_get(std::forward<Callable>(f), src);
         }
 
       private:
