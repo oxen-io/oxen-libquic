@@ -145,11 +145,16 @@ namespace oxen::quic
             return _addr.addrlen == sizeof(sockaddr_in) &&
                    reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_family == AF_INET;
         }
+
         inline bool is_ipv6() const
         {
             return _addr.addrlen == sizeof(sockaddr_in6) &&
                    reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_family == AF_INET6;
         }
+
+        ipv4 to_ipv4() const;
+
+        ipv6 to_ipv6() const;
 
         // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
         inline const sockaddr_in& in4() const

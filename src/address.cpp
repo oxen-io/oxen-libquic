@@ -192,6 +192,16 @@ namespace oxen::quic
         return false;
     }
 
+    ipv4 Address::to_ipv4() const
+    {
+        return {oxenc::big_to_host<uint32_t>(in4().sin_addr.s_addr)};
+    }
+
+    ipv6 Address::to_ipv6() const
+    {
+        return {in6().sin6_addr.s6_addr};
+    }
+
     std::string Address::host() const
     {
         char buf[INET6_ADDRSTRLEN] = {};
