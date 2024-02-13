@@ -101,9 +101,21 @@ namespace oxen::quic::test
             ipv6 v6_private(0x2001, 0xdb8);
             ipv6 v6_public(v6.data());
 
+            ipv4_net v4net_private = ipv4(10, 0, 0, 0) / 8;
+            ipv6_net v6net_private = ipv6(0x2001, 0xdb8) / 32;
+            ipv6_net v6net_public = ipv6(v6.data()) / 64;
+
             Address private_v4{v4_private};
             Address private_v6{v6_private};
             Address public_v6{v6_public};
+
+            CHECK(v4_private.to_string() == v4net_private.to_string());
+            CHECK_NOFAIL(v6_private.to_string() == v6net_private.to_string());
+            CHECK_NOFAIL(v6_public.to_string() == v6net_public.to_string());
+
+            CHECK(private_v4.to_string() == v4_private.to_string() + ":0");
+            CHECK_NOFAIL(private_v6.to_string() == v6_private.to_string() + ":0");
+            CHECK_NOFAIL(public_v6.to_string() == v6_public.to_string() + ":0");
 
             CHECK(private_v4.to_string() == "10.0.0.0:0"s);
             CHECK(private_v4.is_any_port());

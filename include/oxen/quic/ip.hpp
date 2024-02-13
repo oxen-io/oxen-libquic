@@ -13,7 +13,21 @@ namespace oxen::quic
                 ipv4{uint32_t{a} << 24 | uint32_t{b} << 16 | uint32_t{c} << 8 | uint32_t{d}}
         {}
 
+        const std::string to_string() const
+        {
+            char buf[INET_ADDRSTRLEN] = {};
+
+            auto bigly = oxenc::host_to_big<uint32_t>(addr);
+            inet_ntop(AF_INET, &bigly, buf, sizeof(buf));
+
+            return "{}"_format(buf);
+        }
+
         constexpr bool operator==(const ipv4& a) const { return addr == a.addr; }
+
+        constexpr bool operator!=(const ipv4& a) const { return not(*this == a); }
+
+        constexpr bool operator<(const ipv4& a) const { return addr < a.addr; }
 
         constexpr ipv4 to_base(uint8_t mask) const { return mask < 32 ? ipv4{(addr >> (32 - mask)) << (32 - mask)} : *this; }
     };
@@ -22,6 +36,14 @@ namespace oxen::quic
     {
         ipv4 base;
         uint8_t mask;
+
+        const std::string to_string() const { return base.to_base(mask).to_string(); }
+
+        constexpr bool operator==(const ipv4_net& a) const { return base == a.base && mask == a.mask; }
+
+        constexpr bool operator!=(const ipv4_net& a) const { return not(*this == a); }
+
+        constexpr bool operator<(const ipv4_net& a) const { return base.to_base(mask) < a.base.to_base(a.mask); }
 
         constexpr bool contains(const ipv4& addr) const { return addr.to_base(mask) == base; }
     };
@@ -51,12 +73,26 @@ namespace oxen::quic
                 lo{uint64_t{e} << 48 | uint64_t{f} << 32 | uint64_t{g} << 16 | uint64_t{h}}
         {}
 
+        const std::string to_string() const
+        {
+            char buf[INET6_ADDRSTRLEN] = {};
+
+            auto bigly = oxenc::host_to_big<uint64_t>(hi);
+            inet_ntop(AF_INET6, &bigly, buf, sizeof(buf));
+
+            return "[{}]"_format(buf);
+        }
+
         constexpr bool operator==(const ipv6& a) const { return hi == a.hi && lo == a.lo; }
+
+        constexpr bool operator!=(const ipv6& a) const { return not(*this == a); }
+
+        constexpr bool operator<(const ipv6& a) const { return std::tie(hi, lo) < std::tie(a.hi, a.lo); }
 
         constexpr ipv6 to_base(uint8_t mask) const
         {
             ipv6 b;
-            if (mask >= 64)
+            if (mask > 64)
             {
                 b.hi = hi;
                 b.lo = mask < 128 ? (lo >> (128 - mask)) << (128 - mask) : lo;
@@ -64,6 +100,7 @@ namespace oxen::quic
             else
             {
                 b.hi = (hi >> (64 - mask)) << (64 - mask);
+                b.lo = 0;
             }
             return b;
         }
@@ -73,6 +110,14 @@ namespace oxen::quic
     {
         ipv6 base;
         uint8_t mask;
+
+        const std::string to_string() const { return base.to_base(mask).to_string(); }
+
+        constexpr bool operator==(const ipv6_net& a) { return base == a.base && mask == a.mask; }
+
+        constexpr bool operator!=(const ipv6_net& a) { return not(*this == a); }
+
+        constexpr bool operator<(const ipv6_net& a) { return base.to_base(mask) < a.base.to_base(a.mask); }
 
         constexpr bool contains(const ipv6& addr) const { return addr.to_base(mask) == base; }
     };
@@ -85,7 +130,7 @@ namespace oxen::quic
     inline constexpr ipv4_net ipv4_loopback = ipv4(127, 0, 0, 1) / 8;
     inline constexpr ipv6 ipv6_loopback(0, 0, 0, 0, 0, 0, 0, 1);
 
-    inline const std::array ipv4_nonpublic = {
+    inline constexpr std::array ipv4_nonpublic = {
             ipv4(0, 0, 0, 0) / 8,        // Special purpose for current/local/this network
             ipv4(10, 0, 0, 0) / 8,       // Private range
             ipv4(100, 64, 0, 0) / 10,    // Carrier grade NAT private range
@@ -103,7 +148,7 @@ namespace oxen::quic
             ipv4(240, 0, 0, 0) / 4,      // Multicast
     };
 
-    inline const std::array ipv6_nonpublic = {
+    inline constexpr std::array ipv6_nonpublic = {
             ipv6() / 128,                      // unspecified addr
             ipv6_loopback / 128,               // loopback
             ipv6(0, 0, 0, 0, 0, 0xffff) / 96,  // IPv4-mapped address
@@ -120,4 +165,13 @@ namespace oxen::quic
             ipv6(0xfe80) / 10,                 // link-local unicast addressing
             ipv6(0xff00) / 8,                  // Multicast
     };
+
+    template <>
+    inline constexpr bool IsToStringFormattable<ipv4> = true;
+    template <>
+    inline constexpr bool IsToStringFormattable<ipv6> = true;
+    template <>
+    inline constexpr bool IsToStringFormattable<ipv4_net> = true;
+    template <>
+    inline constexpr bool IsToStringFormattable<ipv6_net> = true;
 }  //  namespace oxen::quic
