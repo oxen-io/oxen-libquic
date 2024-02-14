@@ -110,12 +110,22 @@ namespace oxen::quic::test
             Address public_v6{v6_public};
 
             CHECK(v4_private.to_string() == v4net_private.to_string());
-            CHECK_NOFAIL(v6_private.to_string() == v6net_private.to_string());
-            CHECK_NOFAIL(v6_public.to_string() == v6net_public.to_string());
-
             CHECK(private_v4.to_string() == v4_private.to_string() + ":0");
-            CHECK_NOFAIL(private_v6.to_string() == v6_private.to_string() + ":0");
-            CHECK_NOFAIL(public_v6.to_string() == v6_public.to_string() + ":0");
+
+            if (disable_ipv6)
+            {
+                CHECK_NOFAIL(v6_private.to_string() == v6net_private.to_string());
+                CHECK_NOFAIL(v6_public.to_string() == v6net_public.to_string());
+                CHECK_NOFAIL(private_v6.to_string() == v6_private.to_string() + ":0");
+                CHECK_NOFAIL(public_v6.to_string() == v6_public.to_string() + ":0");
+            }
+            else
+            {
+                CHECK(v6_private.to_string() == v6net_private.to_string());
+                CHECK(v6_public.to_string() == v6net_public.to_string());
+                CHECK(private_v6.to_string() == v6_private.to_string() + ":0");
+                CHECK(public_v6.to_string() == v6_public.to_string() + ":0");
+            }
 
             CHECK(private_v4.to_string() == "10.0.0.0:0"s);
             CHECK(private_v4.is_any_port());
