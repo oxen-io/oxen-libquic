@@ -1,3 +1,9 @@
+oxen-libquic (1.0.0-7~deb10) buster; urgency=medium
+
+  * Downgrade warning firing on connection timeouts
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Tue, 20 Feb 2024 11:00:45 -0400
+
 oxen-libquic (1.0.0-6~deb10) buster; urgency=medium
 
   * Move gnutls_rnd call out of header
