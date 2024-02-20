@@ -176,6 +176,13 @@ namespace oxen::quic
             return [this](T* ptr) { call([ptr] { delete ptr; }); };
         }
 
+        // Returns a pointer deleter that defers invocation of a custom deleter to the event loop
+        template <typename T, typename Callable>
+        auto wrapped_deleter(Callable&& f)
+        {
+            return [this, f = std::move(f)](T* ptr) { return call_get([f = std::move(f), ptr]() { return f(ptr); }); };
+        }
+
         // Similar in concept to std::make_shared<T>, but it creates the shared pointer with a
         // custom deleter that dispatches actual object destruction to the network's event loop for
         // thread safety.
@@ -184,6 +191,15 @@ namespace oxen::quic
         {
             auto* ptr = new T{std::forward<Args>(args)...};
             return std::shared_ptr<T>{ptr, loop_deleter<T>()};
+        }
+
+        // Similar to the above make_shared, but instead of forwarding arguments for the
+        // construction of the object, it creates the shared_ptr from the already created object ptr
+        // and wraps the object's deleter in a wrapped_deleter
+        template <typename T, typename Callable>
+        std::shared_ptr<T> shared_ptr(T* obj, Callable&& deleter)
+        {
+            return std::shared_ptr<T>(obj, wrapped_deleter<T>(std::move(deleter)));
         }
 
         template <typename Callable>
