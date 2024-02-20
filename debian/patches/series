@@ -1,3 +1,4 @@
 0001-Remove-fmt-and-oxen-logging-from-headers.patch
 0002-Fix-libevent-linker-issue.patch
 0003-Move-gnutls_rnd-call-out-of-header.patch
+0004-Downgrade-warning-firing-on-connection-timeouts.patch
