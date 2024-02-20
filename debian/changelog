@@ -1,3 +1,10 @@
+oxen-libquic (1.0.0-7~ubuntu1804) bionic; urgency=medium
+
+  * fix ci job name
+  * Downgrade warning firing on connection timeouts
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Tue, 20 Feb 2024 11:01:05 -0400
+
 oxen-libquic (1.0.0-6~ubuntu1804) bionic; urgency=medium
 
   * Move gnutls_rnd call out of header
