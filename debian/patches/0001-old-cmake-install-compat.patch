@@ -7,7 +7,7 @@ Subject: old-cmake-install-compat
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 5ae3c37..b4f1812 100644
+index 396911b..8881756 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -122,7 +122,7 @@ endif()
