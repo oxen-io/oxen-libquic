@@ -149,17 +149,9 @@ namespace oxen::quic
 
         int datagrams_stored() const { return recv_buffer.datagrams_stored(); };
 
-        int64_t stream_id() const override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return std::numeric_limits<int64_t>::min();
-        }
+        int64_t stream_id() const override;
 
-        std::shared_ptr<Stream> get_stream() override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return nullptr;
-        }
+        std::shared_ptr<Stream> get_stream() override;
 
       private:
         const bool _packet_splitting{false};
@@ -169,34 +161,13 @@ namespace oxen::quic
 
         void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
 
-        bool is_closing_impl() const override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return false;
-        }
-        bool sent_fin() const override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return false;
-        }
-        void set_fin(bool) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
-        size_t unsent_impl() const override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            size_t sum{0};
-            if (send_buffer.empty())
-                return sum;
-            for (const auto& entry : send_buffer.buf)
-                sum += entry.size();
-            return sum;
-        }
-        bool has_unsent_impl() const override { return not is_empty_impl(); }
-        void wrote(size_t) override { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
-        std::vector<ngtcp2_vec> pending() override
-        {
-            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return {};
-        }
+        bool is_closing_impl() const override;
+        bool sent_fin() const override;
+        void set_fin(bool) override;
+        size_t unsent_impl() const override;
+        bool has_unsent_impl() const override;
+        void wrote(size_t) override;
+        std::vector<ngtcp2_vec> pending() override;
     };
 
 }  // namespace oxen::quic
