@@ -109,6 +109,14 @@ namespace oxen::quic
         event_add(expiry_timer.get(), &exp_interval);
     }
 
+    void Endpoint::_listen()
+    {
+        _set_context_globals(inbound_ctx);
+        _accepting_inbound = true;
+
+        log::debug(log_cat, "Inbound context ready for incoming connections");
+    }
+
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
     {
         ctx->config.datagram_support = _datagrams;

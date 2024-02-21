@@ -407,13 +407,13 @@ namespace oxen::quic::test
         SECTION("Stream logic using queue_incoming_stream in connection open callback")
         {
             auto server_open_all_cb = callback_waiter{[&](connection_interface& ci) {
-                log::info(bp_cat, "Server queuing Custom Stream A!");
+                log::info(test_cat, "Server queuing Custom Stream A!");
                 server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
-                log::info(bp_cat, "Server queuing Custom Stream B!");
+                log::info(test_cat, "Server queuing Custom Stream B!");
                 server_b = ci.queue_incoming_stream<CustomStreamB>(std::move(sp2));
-                log::info(bp_cat, "Server queuing Custom Stream C!");
+                log::info(test_cat, "Server queuing Custom Stream C!");
                 server_c = ci.queue_incoming_stream<CustomStreamC>(std::move(sp3));
-                log::info(bp_cat, "Server queuing default stream D");
+                log::info(test_cat, "Server queuing default stream D");
                 server_d = ci.queue_incoming_stream();
             }};
 
@@ -443,13 +443,13 @@ namespace oxen::quic::test
                     switch (*id)
                     {
                         case 0:
-                            log::info(bp_cat, "Server opening Custom Stream A!");
+                            log::info(test_cat, "Server opening Custom Stream A!");
                             return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
                         case 4:
-                            log::info(bp_cat, "Server opening Custom Stream B!");
+                            log::info(test_cat, "Server opening Custom Stream B!");
                             return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
-                            log::info(bp_cat, "Server opening Custom Stream C!");
+                            log::info(test_cat, "Server opening Custom Stream C!");
                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
                     }
                 }
@@ -479,26 +479,26 @@ namespace oxen::quic::test
                     [&](Connection& c, Endpoint& e, std::optional<int64_t> id) -> std::shared_ptr<Stream> {
                 server_stream_ctor_count++;
 
-                log::trace(bp_cat, "Server stream constructor given ID:{}", id.value_or(11111));
+                log::trace(test_cat, "Server stream constructor given ID:{}", id.value_or(11111));
 
                 if (id)
                 {
                     switch (*id)
                     {
                         case 4:
-                            log::info(bp_cat, "Server opening Custom Stream B!");
+                            log::info(test_cat, "Server opening Custom Stream B!");
                             return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
-                            log::info(bp_cat, "Server opening Custom Stream C!");
+                            log::info(test_cat, "Server opening Custom Stream C!");
                             return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
                     }
                 }
-                log::info(bp_cat, "Server returning nullptr!");
+                log::info(test_cat, "Server returning nullptr!");
                 return nullptr;
             };
 
             auto server_open_cb = callback_waiter{[&](connection_interface& ci) {
-                log::info(bp_cat, "Server queuing Custom Stream A!");
+                log::info(test_cat, "Server queuing Custom Stream A!");
                 server_a = ci.queue_incoming_stream<CustomStreamA>(std::move(sp1));
             }};
 
@@ -514,19 +514,19 @@ namespace oxen::quic::test
             REQUIRE(server_open_cb.wait());
         }
 
-        log::info(bp_cat, "Client opening Custom Stream A!");
+        log::info(test_cat, "Client opening Custom Stream A!");
         client_a = client_ci->open_stream<CustomStreamA>(std::move(cp1));
         REQUIRE_NOTHROW(client_a->send("Stream A!"_bs));
         require_future(sf1);
         CHECK(sf1.get() == "Stream A!");
 
-        log::info(bp_cat, "Client opening Custom Stream B!");
+        log::info(test_cat, "Client opening Custom Stream B!");
         client_b = client_ci->open_stream<CustomStreamB>(std::move(cp2));
         REQUIRE_NOTHROW(client_b->send("Stream B!"_bs));
         require_future(sf2);
         CHECK(sf2.get() == "Stream B!");
 
-        log::info(bp_cat, "Client opening Custom Stream C!");
+        log::info(test_cat, "Client opening Custom Stream C!");
         client_c = client_ci->open_stream<CustomStreamC>(std::move(cp3));
         REQUIRE_NOTHROW(client_c->send("Stream C!"_bs));
         require_future(sf3);
@@ -640,10 +640,10 @@ namespace oxen::quic::test
             switch (count)
             {
                 case 1:
-                    log::info(bp_cat, "Server opening Custom Stream A!");
+                    log::info(test_cat, "Server opening Custom Stream A!");
                     return e.make_shared<CustomStreamA>(c, e, std::move(cp1));
                 case 2:
-                    log::info(bp_cat, "Server opening Custom Stream C!");
+                    log::info(test_cat, "Server opening Custom Stream C!");
                     return e.make_shared<CustomStreamC>(c, e, std::move(cp3));
             }
             return nullptr;
@@ -729,14 +729,14 @@ namespace oxen::quic::test
             {
                 if (*id == 0)
                 {
-                    log::trace(bp_cat, "Server constructing BTRequestStream!");
+                    log::trace(test_cat, "Server constructing BTRequestStream!");
                     server_extracted = e.make_shared<BTRequestStream>(c, e);
                     server_extracted->register_handler("test_endpoint"s, server_handler);
                     return server_extracted;
                 }
                 else
                 {
-                    log::trace(bp_cat, "Server constructing default bullshit!");
+                    log::trace(test_cat, "Server constructing default bullshit!");
                     return e.make_shared<Stream>(c, e);
                 }
             }
