@@ -1,9 +1,18 @@
 #include "context.hpp"
 
 #include "connection.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
+    void IOContext::_init()
+    {
+        if (tls_creds == nullptr)
+            throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
+
+        log::debug(log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
+    }
+
     void IOContext::handle_ioctx_opt(std::shared_ptr<TLSCreds> tls)
     {
         tls_creds = std::move(tls);

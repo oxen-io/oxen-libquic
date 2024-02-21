@@ -2,8 +2,12 @@
 
 #include <stdexcept>
 
+#include "internal.hpp"
+
 namespace oxen::quic
 {
+
+    inline auto bp_cat = oxen::log::Cat("bparser");
 
     static std::pair<std::ptrdiff_t, std::size_t> get_location(bstring& data, std::string_view substr)
     {
@@ -42,6 +46,16 @@ namespace oxen::quic
             log::warning(bp_cat, "BTRequestStream unable to send response: stream has gone away");
     }
 
+    void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
+    {
+        log::debug(bp_cat, "Bparser set user-provided close callback!");
+        close_callback = std::move(close_cb);
+    }
+    void BTRequestStream::handle_bp_opt(std::function<void(message m)> request_handler)
+    {
+        log::debug(bp_cat, "Bparser set generic request handler");
+        generic_handler = std::move(request_handler);
+    }
     void BTRequestStream::respond(int64_t rid, bstring_view body, bool error)
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);

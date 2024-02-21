@@ -3,6 +3,7 @@
 #include "connection.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
