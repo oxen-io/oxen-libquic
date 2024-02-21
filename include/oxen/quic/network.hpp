@@ -12,31 +12,13 @@
 #include "crypto.hpp"
 #include "utils.hpp"
 
-using oxen::log::slns::source_location;
-
 namespace oxen::quic
 {
-    template <typename... T>
-    void loop_trace_log(
-            const log::logger_ptr& cat_logger,
-            [[maybe_unused]] const source_location& location,
-            [[maybe_unused]] fmt::format_string<T...> fmt,
-            [[maybe_unused]] T&&... args)
-    {
-#if defined(NDEBUG) && !defined(OXEN_LOGGING_RELEASE_TRACE)
-        // Using [[maybe_unused]] on the *first* ctor argument breaks gcc 8/9
-        (void)cat_logger;
-#else
-        if (cat_logger)
-            cat_logger->log(log::detail::spdlog_sloc(location), log::Level::trace, fmt, std::forward<T>(args)...);
-#endif
-    }
-
     class Endpoint;
 
     class Network
     {
-        using Job = std::pair<std::function<void()>, source_location>;
+        using Job = std::function<void()>;
 
       public:
         Network(std::shared_ptr<::event_base> loop_ptr, std::thread::id loop_thread_id);
@@ -96,22 +78,17 @@ namespace oxen::quic
         bool in_event_loop() const;
 
         /// Posts a function to the event loop, to be called when the event loop is next free.
-        void call_soon(std::function<void()> f, source_location src = source_location::current());
+        void call_soon(std::function<void()> f);
 
         /// Calls a function: if this is called from within the event loop thread, the function is
         /// called immediately; otherwise it is forwarded to `call_soon`.
         template <typename Callable>
-        void call(Callable&& f, source_location src = source_location::current())
+        void call(Callable&& f)
         {
             if (in_event_loop())
-            {
-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
                 f();
-            }
             else
-            {
-                call_soon(std::forward<Callable>(f), std::move(src));
-            }
+                call_soon(std::forward<Callable>(f));
         }
 
         /// Calls a function and synchronously obtains its return value.  If called from within the
@@ -119,13 +96,10 @@ namespace oxen::quic
         /// is used with `call_soon` to block until the event loop comes around and calls the
         /// function.
         template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
-        Ret call_get(Callable&& f, source_location src = source_location::current())
+        Ret call_get(Callable&& f)
         {
             if (in_event_loop())
-            {
-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
                 return f();
-            }
 
             std::promise<Ret> prom;
             auto fut = prom.get_future();
