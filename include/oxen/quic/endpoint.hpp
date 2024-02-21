@@ -74,10 +74,8 @@ namespace oxen::quic
 
                 // initialize client context and client tls context simultaneously
                 inbound_ctx = std::make_shared<IOContext>(Direction::INBOUND, std::forward<Opt>(opts)...);
-                _set_context_globals(inbound_ctx);
-                _accepting_inbound = true;
-
-                log::debug(log_cat, "Inbound context ready for incoming connections");
+                // Call the private version for remaining (untemplated) setup:
+                _listen();
             });
         }
 
@@ -226,6 +224,9 @@ namespace oxen::quic
         const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
+
+        // Does the non-templated bit of `listen()`
+        void _listen();
 
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
