@@ -1,10 +1,50 @@
 #include "connection.hpp"
 #include "gnutls_crypto.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
+
+    const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
+    {
+        if (crt == GNUTLS_X509_FMT_DER)
+            return "<< DER >>";
+        if (crt == GNUTLS_X509_FMT_PEM)
+            return "<< PEM >>";
+
+        return "<< UNKNOWN >>";
+    }
+
+    const std::string translate_cert_type(gnutls_certificate_type_t type)
+    {
+        auto t = static_cast<int>(type);
+
+        switch (t)
+        {
+            case 1:
+                return "<< X509 Cert >>";
+            case 2:
+                return "<< OpenPGP Cert >>";
+            case 3:
+                return "<< Raw PK Cert >>";
+            case 0:
+            default:
+                return "<< Unknown Type >>";
+        }
+    }
+
+    const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
+    {
+        return translate_cert_type(gnutls_certificate_type_get2(session, type));
+    }
+
     extern "C"
     {
+        void gnutls_log(int level, const char* str)
+        {
+            log::debug(log_cat, "GNUTLS Log (level {}): {}", level, str);
+        }
+
         // Return value: 0 is pass, negative is fail
         int cert_verify_callback_gnutls(gnutls_session_t session)
         {

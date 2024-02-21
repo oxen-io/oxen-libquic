@@ -1,6 +1,7 @@
 #include "connection.hpp"
 #include "endpoint.hpp"
 #include "gnutls_crypto.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {

@@ -8,6 +8,7 @@
 #include <string>
 
 #include "connection.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
@@ -36,4 +37,11 @@ namespace oxen::quic
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
         return s;
     }
+
+    void event_deleter::operator()(::event* e) const
+    {
+        if (e)
+            ::event_free(e);
+    }
+
 }  // namespace oxen::quic
