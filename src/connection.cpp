@@ -1662,8 +1662,7 @@ namespace oxen::quic
                     auto& self = *static_cast<Connection*>(self_);
                     if (auto rv = ngtcp2_conn_handle_expiry(self, get_timestamp().count()); rv != 0)
                     {
-                        log::warning(
-                                log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
+                        log::debug(log_cat, "Error: expiry handler invocation returned error code: {}", ngtcp2_strerror(rv));
                         self.endpoint().close_connection(self, io_error{rv});
                         return;
                     }
