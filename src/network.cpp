@@ -13,6 +13,7 @@
 #include "connection.hpp"
 #include "context.hpp"
 #include "endpoint.hpp"
+#include "internal.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
@@ -183,12 +184,12 @@ namespace oxen::quic
         return std::this_thread::get_id() == loop_thread_id;
     }
 
-    void Network::call_soon(std::function<void(void)> f, source_location src)
+    void Network::call_soon(std::function<void(void)> f)
     {
-        loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
+        log::trace(log_cat, "Event loop queueing job");
         {
             std::lock_guard lock{job_queue_mutex};
-            job_queue.emplace(std::move(f), std::move(src));
+            job_queue.emplace(std::move(f));
             log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
         }
         event_active(job_waker.get(), 0, 0);
@@ -208,11 +209,10 @@ namespace oxen::quic
 
         while (not swapped_queue.empty())
         {
-            auto job = swapped_queue.front();
+            auto job = std::move(swapped_queue.front());
             swapped_queue.pop();
-            const auto& src = job.second;
-            loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
-            job.first();
+            log::trace(log_cat, "Event loop invoking queued job");
+            job();
         }
     }
 

@@ -2,6 +2,7 @@
 
 #include "connection.hpp"
 #include "endpoint.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
@@ -14,6 +15,56 @@ namespace oxen::quic
             _packet_splitting(_conn->packet_splitting_enabled())
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+    }
+
+    int64_t DatagramIO::stream_id() const
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return std::numeric_limits<int64_t>::min();
+    }
+
+    std::shared_ptr<Stream> DatagramIO::get_stream()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return nullptr;
+    }
+
+    bool DatagramIO::is_closing_impl() const
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return false;
+    }
+    bool DatagramIO::sent_fin() const
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return false;
+    }
+    void DatagramIO::set_fin(bool)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+    };
+    size_t DatagramIO::unsent_impl() const
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        size_t sum{0};
+        if (send_buffer.empty())
+            return sum;
+        for (const auto& entry : send_buffer.buf)
+            sum += entry.size();
+        return sum;
+    }
+    bool DatagramIO::has_unsent_impl() const
+    {
+        return not is_empty_impl();
+    }
+    void DatagramIO::wrote(size_t)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+    };
+    std::vector<ngtcp2_vec> DatagramIO::pending()
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        return {};
     }
 
     dgram_interface::dgram_interface(Connection& c) : ci{c}, reference_id{ci.reference_id()} {}
