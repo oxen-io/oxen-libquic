@@ -245,8 +245,9 @@ namespace oxen::quic
     {
         if (!msg)
             msg = ec.strerror();
-        call_soon([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
-            _close_connection(conn, std::move(ec), std::move(msg));
+        call_soon([this, connid = conn.reference_id(), ec = std::move(ec), msg = std::move(*msg)]() mutable {
+            if (auto it = conns.find(connid); it != conns.end() && it->second)
+                _close_connection(*it->second, std::move(ec), std::move(msg));
         });
     }
 
