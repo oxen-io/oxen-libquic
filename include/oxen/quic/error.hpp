@@ -33,7 +33,9 @@ namespace oxen::quic
       public:
         uint64_t code;
 
-        explicit application_stream_error(uint64_t errcode) : code{errcode}, _what{"application error {}"_format(errcode)} {}
+        explicit application_stream_error(uint64_t errcode) :
+                code{errcode}, _what{"application error " + std::to_string(errcode)}
+        {}
         const char* what() const noexcept override { return _what.c_str(); }
 
       private:
@@ -72,7 +74,7 @@ namespace oxen::quic
             case CONN_IDLE_CLOSED:
                 return "Connection closed by idle timeout"s;
             default:
-                return "Application error code {}"_format(e);
+                return "Application error code " + std::to_string(e);
         }
     }
 
@@ -95,12 +97,7 @@ namespace oxen::quic
 
         int ngtcp2_code() const { return static_cast<int>(_code); }
 
-        uint64_t ngtcp2() const
-        {
-            if (not is_ngtcp2)
-                log::warning(log_cat, "Error code {} is not an ngtcp2 error code", _code);
-            return _code;
-        }
+        uint64_t ngtcp2() const;
 
         std::string strerror() const { return is_ngtcp2 ? ngtcp2_strerror(static_cast<int>(_code)) : quic_strerror(_code); }
     };

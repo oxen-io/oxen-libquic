@@ -13,47 +13,17 @@ namespace oxen::quic
 {
     class Connection;
 
-    inline const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
-    {
-        if (crt == GNUTLS_X509_FMT_DER)
-            return "<< DER >>";
-        if (crt == GNUTLS_X509_FMT_PEM)
-            return "<< PEM >>";
+    const std::string translate_key_format(gnutls_x509_crt_fmt_t crt);
 
-        return "<< UNKNOWN >>";
-    }
+    const std::string translate_cert_type(gnutls_certificate_type_t type);
 
-    inline const std::string translate_cert_type(gnutls_certificate_type_t type)
-    {
-        auto t = static_cast<int>(type);
-
-        switch (t)
-        {
-            case 1:
-                return "<< X509 Cert >>";
-            case 2:
-                return "<< OpenPGP Cert >>";
-            case 3:
-                return "<< Raw PK Cert >>";
-            case 0:
-            default:
-                return "<< Unknown Type >>";
-        }
-    }
-
-    inline const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type)
-    {
-        return translate_cert_type(gnutls_certificate_type_get2(session, type));
-    }
+    const std::string get_cert_type(gnutls_session_t session, gnutls_ctype_target_t type);
 
     extern "C"
     {
         int cert_verify_callback_gnutls(gnutls_session_t g_session);
 
-        inline void gnutls_log(int level, const char* str)
-        {
-            log::debug(log_cat, "GNUTLS Log (level {}): {}", level, str);
-        }
+        void gnutls_log(int level, const char* str);
 
         struct gnutls_log_setter
         {

@@ -109,6 +109,14 @@ namespace oxen::quic
         event_add(expiry_timer.get(), &exp_interval);
     }
 
+    void Endpoint::_listen()
+    {
+        _set_context_globals(inbound_ctx);
+        _accepting_inbound = true;
+
+        log::debug(log_cat, "Inbound context ready for incoming connections");
+    }
+
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
     {
         ctx->config.datagram_support = _datagrams;
@@ -245,8 +253,9 @@ namespace oxen::quic
     {
         if (!msg)
             msg = ec.strerror();
-        call_soon([this, &conn, ec = std::move(ec), msg = std::move(*msg)]() mutable {
-            _close_connection(conn, std::move(ec), std::move(msg));
+        call_soon([this, connid = conn.reference_id(), ec = std::move(ec), msg = std::move(*msg)]() mutable {
+            if (auto it = conns.find(connid); it != conns.end() && it->second)
+                _close_connection(*it->second, std::move(ec), std::move(msg));
         });
     }
 
