@@ -7,6 +7,7 @@ extern "C"
 #include <gnutls/crypto.h>
 }
 
+#include "formattable.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -36,7 +37,7 @@ namespace oxen::quic
 
         explicit operator const uint64_t&() const { return id; }
 
-        std::string to_string() const { return "< RID:{} >"_format(id); }
+        std::string to_string() const;
     };
     template <>
     constexpr inline bool IsToStringFormattable<ConnectionID> = true;
@@ -63,18 +64,9 @@ namespace oxen::quic
 
         inline bool operator!=(const quic_cid& other) const { return !(*this == other); }
 
-        static quic_cid random()
-        {
-            quic_cid cid;
-            cid.datalen = static_cast<size_t>(NGTCP2_MAX_CIDLEN);
-            gnutls_rnd(GNUTLS_RND_RANDOM, cid.data, cid.datalen);
-            return cid;
-        }
+        static quic_cid random();
 
-        std::string to_string() const
-        {
-            return "{:02x}"_format(fmt::join(std::begin(data), std::begin(data) + datalen, ""));
-        }
+        std::string to_string() const;
     };
     template <>
     constexpr inline bool IsToStringFormattable<quic_cid> = true;

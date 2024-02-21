@@ -1,17 +1,18 @@
 #pragma once
 
-#include <fmt/core.h>
+// Optional header for formattable quic types; this header is not included automatically by any
+// other quic header and must be included explicitly if wanted.  Using this header requires fmt be
+// available (which is true in libquic itself, but may not be when libquic is installed as a
+// library).
+
+#include <fmt/format.h>
 
 #include <iostream>
-#include <oxen/log.hpp>
-#include <oxen/log/format.hpp>
+
+#include "formattable.hpp"
 
 namespace oxen::quic
 {
-    // Types can opt-in to being formatting via .to_string() by specializing this to true
-    template <typename T>
-    constexpr bool IsToStringFormattable = false;
-
     struct buffer_printer
     {
         std::basic_string_view<std::byte> buf;

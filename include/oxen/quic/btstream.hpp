@@ -6,8 +6,6 @@
 
 namespace oxen::quic
 {
-    inline auto bp_cat = oxen::log::Cat("bparser");
-
     using time_point = std::chrono::steady_clock::time_point;
 
     // timeout is used for sent requests awaiting responses
@@ -218,8 +216,6 @@ namespace oxen::quic
         template <typename... Opt>
         void command(std::string ep, bstring_view body, Opt&&... opts)
         {
-            log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
-
             auto rid = next_rid++;
             auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
 
@@ -260,19 +256,11 @@ namespace oxen::quic
 
       private:
         // Optional constructor argument: stream close callback
-        void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
-        {
-            log::debug(bp_cat, "Bparser set user-provided close callback!");
-            close_callback = std::move(close_cb);
-        }
+        void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb);
 
         // Optional constructor argument: generic request handler.  Providing it in the constructor
         // is equivalent to calling register_command_fallback() with the lambda.
-        void handle_bp_opt(std::function<void(message m)> request_handler)
-        {
-            log::debug(bp_cat, "Bparser set generic request handler");
-            generic_handler = std::move(request_handler);
-        }
+        void handle_bp_opt(std::function<void(message m)> request_handler);
 
         void handle_input(message msg);
 

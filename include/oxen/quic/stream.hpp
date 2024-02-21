@@ -32,6 +32,9 @@ namespace oxen::quic
     using stream_open_callback = std::function<uint64_t(Stream&)>;
     using stream_unblocked_callback = std::function<bool(Stream&)>;
 
+    void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
+    void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
+
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class TestHelper;
@@ -100,11 +103,7 @@ namespace oxen::quic
         bool has_unsent_impl() const override { return not is_empty_impl(); }
         bool is_closing_impl() const override { return _is_closing; }
         bool is_empty_impl() const override { return user_buffers.empty(); }
-        size_t unsent_impl() const override
-        {
-            log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-            return size() - unacked();
-        }
+        size_t unsent_impl() const override;
 
       private:
         std::vector<ngtcp2_vec> pending() override;
@@ -215,7 +214,9 @@ namespace oxen::quic
 
                 if (no_data)
                 {
-                    log::trace(log_cat, "send_chunks finished");
+#ifndef NDEBUG
+                    _chunk_sender_trace(__FILE__, __LINE__, "send_chunks finished");
+#endif
                     // We're finishing
                     next_chunk = nullptr;
                     if (done)
@@ -225,16 +226,14 @@ namespace oxen::quic
 
                 auto next = std::make_shared<single_chunk>(*this, std::move(data));
                 auto bsv = next->view();
-                log::trace(log_cat, "got chunk to send of size {}", bsv.size());
+#ifndef NDEBUG
+                _chunk_sender_trace(__FILE__, __LINE__, "got chunk to send of size ", bsv.size());
+#endif
                 str.send(bsv, std::move(next));
             }
         };
 
-        prepared_datagram pending_datagram(bool) override
-        {
-            log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
-            throw std::runtime_error{"Stream objects should not be queried for pending datagrams!"};
-        }
+        prepared_datagram pending_datagram(bool) override;
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called
@@ -270,11 +269,6 @@ namespace oxen::quic
             chunk_sender<T>::make(simultaneous, *this, std::move(next_chunk), std::move(done));
         }
 
-        void set_ready()
-        {
-            log::trace(log_cat, "Setting stream ready");
-            _ready = true;
-            on_ready();
-        }
+        void set_ready();
     };
 }  // namespace oxen::quic
