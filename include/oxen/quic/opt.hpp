@@ -118,7 +118,8 @@ namespace oxen::quic::opt
         explicit static_secret(ustring s) : secret{std::move(s)}
         {
             if (secret.size() < SECRET_MIN_SIZE)
-                throw std::invalid_argument{"opt::static_secret requires data of at least {} bytes"_format(SECRET_MIN_SIZE)};
+                throw std::invalid_argument{
+                        "opt::static_secret requires data of at least " + std::to_string(SECRET_MIN_SIZE) + "bytes"};
         }
     };
 

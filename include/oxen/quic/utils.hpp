@@ -2,8 +2,6 @@
 
 #include <type_traits>
 
-#include "format.hpp"
-
 extern "C"
 {
 #ifdef _WIN32
@@ -41,8 +39,6 @@ extern "C"
 
 namespace oxen::quic
 {
-    inline auto log_cat = oxen::log::Cat("quic");
-
     class connection_interface;
 
     // called when a connection's handshake completes
@@ -54,13 +50,11 @@ namespace oxen::quic
     using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
 
     using namespace std::literals;
-    using namespace oxen::log::literals;
     using bstring = std::basic_string<std::byte>;
     using ustring = std::basic_string<unsigned char>;
     using bstring_view = std::basic_string_view<std::byte>;
     using ustring_view = std::basic_string_view<unsigned char>;
     using stream_buffer = std::deque<std::pair<bstring_view, std::shared_ptr<void>>>;
-    namespace log = oxen::log;
 
     constexpr bool IN_HELL =
 #ifdef _WIN32
@@ -187,8 +181,6 @@ namespace oxen::quic
         return suffix.size() <= str.size() && str.substr(str.size() - suffix.size()) == suffix;
     }
 
-    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
-
     std::chrono::steady_clock::time_point get_time();
     std::chrono::nanoseconds get_timestamp();
 
@@ -208,11 +200,7 @@ namespace oxen::quic
 
     struct event_deleter final
     {
-        void operator()(::event* e) const
-        {
-            if (e)
-                ::event_free(e);
-        }
+        void operator()(::event* e) const;
     };
     using event_ptr = std::unique_ptr<::event, event_deleter>;
 
