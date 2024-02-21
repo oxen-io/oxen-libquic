@@ -1,3 +1,18 @@
+oxen-libquic (1.0.1-1~ubuntu2404) noble; urgency=medium
+
+  * Race hack
+  * Version bump `dev` away from `stable`
+  * Fix close hooks on pending streams not firing on connection fail
+  * Remove fmt and oxen logging from headers
+  * Fix libevent linker issue
+  * Move gnutls_rnd call out of header
+  * Downgrade warning firing on connection timeouts
+  * Fix potential crash in close_connection
+  * Formatting
+  * Rediff patches
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Tue, 20 Feb 2024 20:51:45 -0400
+
 oxen-libquic (1.0.0-7~ubuntu2404) noble; urgency=medium
 
   * Fix CI job name
