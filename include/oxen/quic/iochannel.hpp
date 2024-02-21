@@ -16,7 +16,7 @@ namespace oxen::quic
         IOChannel(Connection& c, Endpoint& e);
 
       public:
-        virtual ~IOChannel() { log::trace(log_cat, "{} called", __PRETTY_FUNCTION__); };
+        virtual ~IOChannel() = default;
 
         Endpoint& endpoint;
         const ConnectionID reference_id;

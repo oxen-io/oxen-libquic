@@ -1,24 +1,32 @@
 #pragma once
 
+#include <oxenc/base64.h>
+
 #include <CLI/CLI.hpp>
 #include <CLI/Error.hpp>
 #include <charconv>
 #include <future>
 #include <optional>
 #include <oxen/log.hpp>
+#include <oxen/log/format.hpp>
 #include <oxen/quic/endpoint.hpp>
+#include <oxen/quic/format.hpp>
 #include <oxen/quic/gnutls_crypto.hpp>
 #include <oxen/quic/network.hpp>
 #include <oxen/quic/utils.hpp>
 #include <string>
 
-#include "oxenc/base64.h"
-
 namespace oxen::quic
 {
     extern bool disable_ipv6, disable_rotating_buffer;
 
-    inline auto test_cat = oxen::log::Cat("test");
+    namespace log = oxen::log;
+    using namespace log::literals;
+    inline auto test_cat = log::Cat("test");
+
+    // Borrowing these from src/internal.hpp:
+    void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
+    inline auto log_cat = log::Cat("quic");
 
     using namespace oxenc::literals;
 

@@ -103,7 +103,8 @@ namespace oxen::quic
             {
                 if (auto st = std::dynamic_pointer_cast<StreamT>(std::move(s)))
                     return st;
-                throw std::invalid_argument{"Stream ID {} is not an instance of the requested Stream subclass"_format(id)};
+                throw std::invalid_argument{
+                        "Stream ID " + std::to_string(id) + " is not an instance of the requested Stream subclass"};
             }
             else
                 return s;
@@ -118,7 +119,7 @@ namespace oxen::quic
         {
             if (auto s = maybe_stream<StreamT>(id))
                 return s;
-            throw std::out_of_range{"Could not find a stream with ID {}"_format(id)};
+            throw std::out_of_range{"Could not find a stream with ID " + std::to_string(id)};
         }
 
         template <

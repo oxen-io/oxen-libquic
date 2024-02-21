@@ -2,6 +2,8 @@
 
 #include <oxenc/endian.h>
 
+#include "internal.hpp"
+
 namespace oxen::quic
 {
     Address::Address(const std::string& addr, uint16_t port)

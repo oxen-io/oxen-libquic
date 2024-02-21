@@ -6,9 +6,11 @@ add_library(quic
     address.cpp
     btstream.cpp
     connection.cpp
+    connection_ids.cpp
     context.cpp
     datagram.cpp
     endpoint.cpp
+    error.cpp
     format.cpp
     gnutls_creds.cpp
     gnutls_session.cpp
