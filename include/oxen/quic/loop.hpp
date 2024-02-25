@@ -1,7 +1,10 @@
 #pragma once
 
+extern "C"
+{
 #include <event2/event.h>
 #include <event2/thread.h>
+}
 
 #include <atomic>
 #include <cstdint>
@@ -13,51 +16,9 @@
 #include "crypto.hpp"
 #include "utils.hpp"
 
-using oxen::log::slns::source_location;
-
 namespace oxen::quic
 {
-    static auto ev_cat = log::Cat("libevent");
-
-    using Job = std::pair<std::function<void()>, source_location>;
-
-    template <typename... T>
-    void loop_trace_log(
-            const log::logger_ptr& cat_logger,
-            [[maybe_unused]] const source_location& location,
-            [[maybe_unused]] fmt::format_string<T...> fmt,
-            [[maybe_unused]] T&&... args)
-    {
-#if defined(NDEBUG) && !defined(OXEN_LOGGING_RELEASE_TRACE)
-        // Using [[maybe_unused]] on the *first* ctor argument breaks gcc 8/9
-        (void)cat_logger;
-#else
-        if (cat_logger)
-            cat_logger->log(log::detail::spdlog_sloc(location), log::Level::trace, fmt, std::forward<T>(args)...);
-#endif
-    }
-
-    static void setup_libevent_logging()
-    {
-        event_set_log_callback([](int severity, const char* msg) {
-            switch (severity)
-            {
-                case _EVENT_LOG_ERR:
-                    log::error(ev_cat, "{}", msg);
-                    break;
-                case _EVENT_LOG_WARN:
-                    log::warning(ev_cat, "{}", msg);
-                    break;
-                case _EVENT_LOG_MSG:
-                    log::info(ev_cat, "{}", msg);
-                    break;
-                case _EVENT_LOG_DEBUG:
-                    log::debug(ev_cat, "{}", msg);
-                    break;
-            }
-            std::abort();
-        });
-    }
+    using Job = std::function<void()>;
 
     class Loop
     {
@@ -203,11 +164,10 @@ namespace oxen::quic
         }
 
         template <typename Callable>
-        void call(Callable&& f, source_location src = source_location::current())
+        void call(Callable&& f)
         {
             if (in_event_loop())
             {
-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
                 f();
             }
             else
@@ -217,11 +177,10 @@ namespace oxen::quic
         }
 
         template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
-        Ret call_get(Callable&& f, source_location src = source_location::current())
+        Ret call_get(Callable&& f)
         {
             if (in_event_loop())
             {
-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
                 return f();
             }
 
@@ -248,12 +207,11 @@ namespace oxen::quic
             return fut.get();
         }
 
-        void call_soon(std::function<void(void)> f, source_location src = source_location::current())
+        void call_soon(std::function<void(void)> f)
         {
-            loop_trace_log(log_cat, src, "Event loop queueing `{}`", src.function_name());
             {
                 std::lock_guard lock{job_queue_mutex};
-                job_queue.emplace(std::move(f), std::move(src));
+                job_queue.emplace(std::move(f));
                 log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
             }
 
@@ -309,9 +267,7 @@ namespace oxen::quic
             {
                 auto job = swapped_queue.front();
                 swapped_queue.pop();
-                const auto& src = job.second;
-                loop_trace_log(log_cat, src, "Event loop calling `{}`", src.function_name());
-                job.first();
+                job;
             }
         }
     };

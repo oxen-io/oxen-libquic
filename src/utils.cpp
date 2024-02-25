@@ -44,4 +44,27 @@ namespace oxen::quic
             ::event_free(e);
     }
 
+    static auto ev_cat = log::Cat("ev-loop");
+
+    static void setup_libevent_logging()
+    {
+        event_set_log_callback([](int severity, const char* msg) {
+            switch (severity)
+            {
+                case _EVENT_LOG_ERR:
+                    log::error(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_WARN:
+                    log::warning(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_MSG:
+                    log::info(ev_cat, "{}", msg);
+                    break;
+                case _EVENT_LOG_DEBUG:
+                    log::debug(ev_cat, "{}", msg);
+                    break;
+            }
+            std::abort();
+        });
+    }
 }  // namespace oxen::quic

@@ -9,7 +9,6 @@
 
 namespace oxen::quic
 {
-
     inline auto log_cat = oxen::log::Cat("quic");
 
     namespace log = oxen::log;

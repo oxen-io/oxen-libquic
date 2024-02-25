@@ -90,7 +90,7 @@ namespace oxen::quic
             if (auto rv = gnutls_session_ticket_key_generate(&session_ticket_key); rv != 0)
             {
                 auto err = "Server failed to generate session ticket key: {}"_format(gnutls_strerror(rv));
-                log::error(log_cat, err);
+                log::error(log_cat, "{}", err);
                 throw std::runtime_error{err};
             }
         }
@@ -147,7 +147,7 @@ namespace oxen::quic
             if (auto rv = gnutls_session_ticket_enable_server(session, &session_ticket_key); rv != 0)
             {
                 auto err = "gnutls_session_ticket_enable_server failed: {}"_format(gnutls_strerror(rv));
-                log::error(log_cat, err);
+                log::error(log_cat, "{}", err);
                 throw std::runtime_error{err};
             }
 
@@ -229,7 +229,7 @@ namespace oxen::quic
 
         if (rv != 0)
         {
-            log::error(log_cat, "gnutls_session_ticket_send failed: {}"_format(gnutls_strerror(rv)));
+            log::error(log_cat, "gnutls_session_ticket_send failed: {}", gnutls_strerror(rv));
             return -1;
         }
 

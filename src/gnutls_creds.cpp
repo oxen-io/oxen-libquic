@@ -65,9 +65,9 @@ namespace oxen::quic
                     local_name, success ? "" : "un", success ? "accepting" : "rejecting");
 
             if (success)
-                log::debug(log_cat, err);
+                log::debug(log_cat, "{}", err);
             else
-                log::error(log_cat, err);
+                log::error(log_cat, "{}", err);
 
             return !success;
         }

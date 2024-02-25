@@ -46,7 +46,7 @@ endif()
 option(LIBQUIC_INSTALL "Add quic libraries/headers/programs to cmake install target; defaults to ON if BUILD_SHARED_LIBS is enabled or we are the top-level project" ${libquic_INSTALL_DEFAULT})
 
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 

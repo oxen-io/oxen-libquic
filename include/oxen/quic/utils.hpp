@@ -216,4 +216,7 @@ namespace oxen::quic
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
     }
+
+    static void setup_libevent_logging();
+
 }  // namespace oxen::quic

@@ -25,10 +25,7 @@ namespace oxen::quic
 
         bool in_event_loop() const { return _loop->in_event_loop(); }
 
-        void call_soon(std::function<void(void)> f, source_location src = source_location::current())
-        {
-            _loop->call_soon(std::move(f), src);
-        }
+        void call_soon(std::function<void(void)> f) { _loop->call_soon(std::move(f)); }
 
         template <typename... Opt>
         std::shared_ptr<Endpoint> endpoint(const Address& local_addr, Opt&&... opts)
@@ -48,15 +45,15 @@ namespace oxen::quic
         void set_shutdown_immediate(bool b = true) { shutdown_immediate = b; }
 
         template <typename Callable>
-        void call(Callable&& f, source_location src = source_location::current())
+        void call(Callable&& f)
         {
-            _loop->call(std::forward<Callable>(f), src);
+            _loop->call(std::forward<Callable>(f));
         }
 
         template <typename Callable, typename Ret = decltype(std::declval<Callable>()())>
-        Ret call_get(Callable&& f, source_location src = source_location::current())
+        Ret call_get(Callable&& f)
         {
-            return _loop->call_get(std::forward<Callable>(f), src);
+            return _loop->call_get(std::forward<Callable>(f));
         }
 
       private:

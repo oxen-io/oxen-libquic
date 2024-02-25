@@ -95,36 +95,59 @@ namespace oxen::quic::test
 
         SECTION("IP objects")
         {
-            auto v6 = "2345::1"_us;
+            auto v4_s = "192.168.1.1"s;
+
+            auto v6_s = "2345::1"s;
+            auto v6_us = "2345::1"_us;
 
             ipv4 v4_private(10, 0, 0, 0);
+            ipv4 v4_from_s(v4_s);
+
             ipv6 v6_private(0x2001, 0xdb8);
-            ipv6 v6_public(v6.data());
+            ipv6 v6_public_from_us(v6_us.data());
+            ipv6 v6_public_from_string(v6_s);
 
             ipv4_net v4net_private = ipv4(10, 0, 0, 0) / 8;
             ipv6_net v6net_private = ipv6(0x2001, 0xdb8) / 32;
-            ipv6_net v6net_public = ipv6(v6.data()) / 64;
+            ipv6_net v6net_public = ipv6(v6_us.data()) / 64;
 
             Address private_v4{v4_private};
+            Address v4_from_ipv4{v4_from_s};
+            Address v4_from_str{v4_s, 0};
+
             Address private_v6{v6_private};
-            Address public_v6{v6_public};
+            Address public_v6{v6_public_from_us};
+            Address public_v6_from_str{v6_public_from_string};
 
             CHECK(v4_private.to_string() == v4net_private.to_string());
             CHECK(private_v4.to_string() == v4_private.to_string() + ":0");
+            CHECK(private_v4.to_ipv4() == v4_private);
+            CHECK(v4_from_ipv4 == v4_from_str);
+            CHECK(v4_from_ipv4.to_string() == v4_from_str.to_string());
 
             if (disable_ipv6)
             {
                 CHECK_NOFAIL(v6_private.to_string() == v6net_private.to_string());
-                CHECK_NOFAIL(v6_public.to_string() == v6net_public.to_string());
+                CHECK_NOFAIL(v6_public_from_us.to_string() == v6net_public.to_string());
                 CHECK_NOFAIL(private_v6.to_string() == v6_private.to_string() + ":0");
-                CHECK_NOFAIL(public_v6.to_string() == v6_public.to_string() + ":0");
+                CHECK_NOFAIL(public_v6.to_string() == v6_public_from_us.to_string() + ":0");
+                CHECK_NOFAIL(private_v6.to_ipv6() == v6_private);
+                CHECK_NOFAIL(v6_public_from_us == v6_public_from_string);
+                CHECK_NOFAIL(v6_public_from_us.to_string() == v6_public_from_string.to_string());
+                CHECK_NOFAIL(public_v6_from_str == public_v6);
+                CHECK_NOFAIL(public_v6_from_str.to_string() == public_v6.to_string());
             }
             else
             {
                 CHECK(v6_private.to_string() == v6net_private.to_string());
-                CHECK(v6_public.to_string() == v6net_public.to_string());
+                CHECK(v6_public_from_us.to_string() == v6net_public.to_string());
                 CHECK(private_v6.to_string() == v6_private.to_string() + ":0");
-                CHECK(public_v6.to_string() == v6_public.to_string() + ":0");
+                CHECK(public_v6.to_string() == v6_public_from_us.to_string() + ":0");
+                CHECK(private_v6.to_ipv6() == v6_private);
+                CHECK(v6_public_from_us == v6_public_from_string);
+                CHECK(v6_public_from_us.to_string() == v6_public_from_string.to_string());
+                CHECK(public_v6_from_str == public_v6);
+                CHECK(public_v6_from_str.to_string() == public_v6.to_string());
             }
 
             CHECK(private_v4.to_string() == "10.0.0.0:0"s);
@@ -142,15 +165,18 @@ namespace oxen::quic::test
             CHECK(private_v6.is_ipv6());
             CHECK_FALSE(private_v6.is_ipv4());
             CHECK_FALSE(private_v6.is_public_ip());
-            CHECK(private_v6.to_string().substr(0, 11) == "[2001:db8::"s);
             CHECK_FALSE(private_v6.is_ipv4_mapped_ipv6());
 
             CHECK(public_v6.is_any_port());
             CHECK(public_v6.is_ipv6());
             CHECK_FALSE(public_v6.is_ipv4());
             CHECK(public_v6.is_public_ip());
-            CHECK(public_v6.to_string().substr(0, 21) == "[3233:3435:3a3a:3100:"s);
             CHECK_FALSE(public_v6.is_ipv4_mapped_ipv6());
+
+            // Instead of making these ipv6 evaluate as `CHECK_NOFAIL` like the others,
+            // we can deterministically check the first portion of the ipv6 address
+            CHECK(public_v6.to_string().substr(0, 21) == "[3233:3435:3a3a:3100:"s);
+            CHECK(private_v6.to_string().substr(0, 11) == "[2001:db8::"s);
 
             CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 0, 0, 0)));
             CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 255, 255, 255)));

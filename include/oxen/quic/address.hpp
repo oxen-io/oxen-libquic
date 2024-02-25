@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ip.hpp"
 #include "formattable.hpp"
+#include "ip.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic

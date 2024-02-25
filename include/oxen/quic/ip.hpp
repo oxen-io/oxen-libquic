@@ -1,27 +1,29 @@
 #pragma once
 
+#include "formattable.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
 {
     struct ipv4
     {
+        // Held in host order
         uint32_t addr;
+
         ipv4() = default;
+        // Constructor using host order IP address string
+        ipv4(const std::string& ip);
+
         constexpr ipv4(uint32_t a) : addr{a} {}
         constexpr ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) :
                 ipv4{uint32_t{a} << 24 | uint32_t{b} << 16 | uint32_t{c} << 8 | uint32_t{d}}
         {}
 
-        const std::string to_string() const
-        {
-            char buf[INET_ADDRSTRLEN] = {};
+        const std::string to_string() const;
 
-            auto bigly = oxenc::host_to_big<uint32_t>(addr);
-            inet_ntop(AF_INET, &bigly, buf, sizeof(buf));
+        const in_addr& to_inaddr() const { return reinterpret_cast<const in_addr&>(addr); }
 
-            return "{}"_format(buf);
-        }
+        explicit operator const uint32_t&() const { return reinterpret_cast<const uint32_t&>(addr); }
 
         constexpr bool operator==(const ipv4& a) const { return addr == a.addr; }
 
@@ -55,7 +57,12 @@ namespace oxen::quic
 
     struct ipv6
     {
+        // Held in host order
         uint64_t hi, lo;
+
+        // Network order string constructor
+        ipv6(const std::string& ip) : ipv6{reinterpret_cast<const unsigned char*>(ip.data())} {}
+        // Network order constructor
         ipv6(const unsigned char* addr) :
                 hi{oxenc::load_big_to_host<uint64_t>(addr)}, lo{oxenc::load_big_to_host<uint64_t>(addr + 8)}
         {}

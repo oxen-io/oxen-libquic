@@ -8,6 +8,7 @@
 
 #include "connection.hpp"
 #include "endpoint.hpp"
+#include "internal.hpp"
 
 namespace oxen::quic
 {
@@ -40,7 +41,7 @@ namespace oxen::quic
         std::promise<void> pr;
         auto ft = pr.get_future();
 
-        call([&]() mutable {
+        _loop->call([&]() mutable {
             for (const auto& ep : endpoint_map)
                 ep->_close_conns(std::nullopt);
 
