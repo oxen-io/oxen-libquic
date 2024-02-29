@@ -7,7 +7,7 @@ namespace oxen::quic
 {
     struct ipv4
     {
-        // Held in host order
+        // Stored in network order
         uint32_t addr;
 
         ipv4() = default;
@@ -21,11 +21,13 @@ namespace oxen::quic
 
         const std::string to_string() const;
 
-        const in_addr& to_inaddr() const { return reinterpret_cast<const in_addr&>(addr); }
+        explicit operator const in_addr&() const { return reinterpret_cast<const in_addr&>(addr); }
 
         explicit operator const uint32_t&() const { return reinterpret_cast<const uint32_t&>(addr); }
 
         constexpr bool operator==(const ipv4& a) const { return addr == a.addr; }
+
+        constexpr bool operator==(const in_addr& a) const { return addr == a.s_addr; }
 
         constexpr bool operator!=(const ipv4& a) const { return not(*this == a); }
 
@@ -57,15 +59,22 @@ namespace oxen::quic
 
     struct ipv6
     {
-        // Held in host order
-        uint64_t hi, lo;
-
-        // Network order string constructor
-        ipv6(const std::string& ip) : ipv6{reinterpret_cast<const unsigned char*>(ip.data())} {}
-        // Network order constructor
-        ipv6(const unsigned char* addr) :
+      private:
+        // Network order constructor using no length checking of any kind; as a result, it is a foot shotgun,
+        // but a useful one for internal usage
+        ipv6(const uint8_t* addr) :
                 hi{oxenc::load_big_to_host<uint64_t>(addr)}, lo{oxenc::load_big_to_host<uint64_t>(addr + 8)}
         {}
+
+      public:
+        // Network order
+        uint64_t hi, lo;
+
+        // Host order string constructor
+        ipv6(const std::string& ip);
+
+        // Network order in6_addr constructor
+        ipv6(const struct in6_addr* addr) : ipv6{addr->s6_addr} {}
 
         constexpr ipv6(
                 uint16_t a = 0x0000,
@@ -80,15 +89,7 @@ namespace oxen::quic
                 lo{uint64_t{e} << 48 | uint64_t{f} << 32 | uint64_t{g} << 16 | uint64_t{h}}
         {}
 
-        const std::string to_string() const
-        {
-            char buf[INET6_ADDRSTRLEN] = {};
-
-            auto bigly = oxenc::host_to_big<uint64_t>(hi);
-            inet_ntop(AF_INET6, &bigly, buf, sizeof(buf));
-
-            return "[{}]"_format(buf);
-        }
+        const std::string to_string() const;
 
         constexpr bool operator==(const ipv6& a) const { return hi == a.hi && lo == a.lo; }
 

@@ -21,6 +21,7 @@ extern "C"
 
 #include <algorithm>
 #include <cassert>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -139,9 +140,7 @@ namespace oxen::quic
     template <template <typename...> class Class, typename... Us>
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
 
-    // Backport of c++20 std::remove_cvref_t
-    template <typename T>
-    using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+    std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
     // strang literals
     inline ustring operator""_us(const char* str, size_t len) noexcept
@@ -172,6 +171,8 @@ namespace oxen::quic
     }
 
     // Quasi-backport of C++20 str.starts_with/ends_with
+    template <typename T>
+    using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
     inline constexpr bool starts_with(std::string_view str, std::string_view prefix)
     {
         return prefix.size() <= str.size() && str.substr(0, prefix.size()) == prefix;
@@ -185,6 +186,21 @@ namespace oxen::quic
     std::chrono::nanoseconds get_timestamp();
 
     std::string str_tolower(std::string s);
+
+    /// Parses an integer of some sort from a string, requiring that the entire string be consumed
+    /// during parsing.  Return false if parsing failed, sets `value` and returns true if the entire
+    /// string was consumed.
+    template <typename T>
+    bool parse_int(const std::string_view str, T& value, int base = 10)
+    {
+        T tmp;
+        auto* strend = str.data() + str.size();
+        auto [p, ec] = std::from_chars(str.data(), strend, tmp, base);
+        if (ec != std::errc() || p != strend)
+            return false;
+        value = tmp;
+        return true;
+    }
 
     // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
     // pointer, because we need it all over the place in the ngtcp2 API
@@ -216,7 +232,5 @@ namespace oxen::quic
     {
         return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
     }
-
-    static void setup_libevent_logging();
 
 }  // namespace oxen::quic

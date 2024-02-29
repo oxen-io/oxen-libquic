@@ -93,91 +93,8 @@ namespace oxen::quic::test
             CHECK_FALSE(public_ipv6.is_loopback());
         };
 
-        SECTION("IP objects")
+        SECTION("IP Address Ranges", "[range][operators][ipaddr]")
         {
-            auto v4_s = "192.168.1.1"s;
-
-            auto v6_s = "2345::1"s;
-            auto v6_us = "2345::1"_us;
-
-            ipv4 v4_private(10, 0, 0, 0);
-            ipv4 v4_from_s(v4_s);
-
-            ipv6 v6_private(0x2001, 0xdb8);
-            ipv6 v6_public_from_us(v6_us.data());
-            ipv6 v6_public_from_string(v6_s);
-
-            ipv4_net v4net_private = ipv4(10, 0, 0, 0) / 8;
-            ipv6_net v6net_private = ipv6(0x2001, 0xdb8) / 32;
-            ipv6_net v6net_public = ipv6(v6_us.data()) / 64;
-
-            Address private_v4{v4_private};
-            Address v4_from_ipv4{v4_from_s};
-            Address v4_from_str{v4_s, 0};
-
-            Address private_v6{v6_private};
-            Address public_v6{v6_public_from_us};
-            Address public_v6_from_str{v6_public_from_string};
-
-            CHECK(v4_private.to_string() == v4net_private.to_string());
-            CHECK(private_v4.to_string() == v4_private.to_string() + ":0");
-            CHECK(private_v4.to_ipv4() == v4_private);
-            CHECK(v4_from_ipv4 == v4_from_str);
-            CHECK(v4_from_ipv4.to_string() == v4_from_str.to_string());
-
-            if (disable_ipv6)
-            {
-                CHECK_NOFAIL(v6_private.to_string() == v6net_private.to_string());
-                CHECK_NOFAIL(v6_public_from_us.to_string() == v6net_public.to_string());
-                CHECK_NOFAIL(private_v6.to_string() == v6_private.to_string() + ":0");
-                CHECK_NOFAIL(public_v6.to_string() == v6_public_from_us.to_string() + ":0");
-                CHECK_NOFAIL(private_v6.to_ipv6() == v6_private);
-                CHECK_NOFAIL(v6_public_from_us == v6_public_from_string);
-                CHECK_NOFAIL(v6_public_from_us.to_string() == v6_public_from_string.to_string());
-                CHECK_NOFAIL(public_v6_from_str == public_v6);
-                CHECK_NOFAIL(public_v6_from_str.to_string() == public_v6.to_string());
-            }
-            else
-            {
-                CHECK(v6_private.to_string() == v6net_private.to_string());
-                CHECK(v6_public_from_us.to_string() == v6net_public.to_string());
-                CHECK(private_v6.to_string() == v6_private.to_string() + ":0");
-                CHECK(public_v6.to_string() == v6_public_from_us.to_string() + ":0");
-                CHECK(private_v6.to_ipv6() == v6_private);
-                CHECK(v6_public_from_us == v6_public_from_string);
-                CHECK(v6_public_from_us.to_string() == v6_public_from_string.to_string());
-                CHECK(public_v6_from_str == public_v6);
-                CHECK(public_v6_from_str.to_string() == public_v6.to_string());
-            }
-
-            CHECK(private_v4.to_string() == "10.0.0.0:0"s);
-            CHECK(private_v4.is_any_port());
-            CHECK(private_v4.is_ipv4());
-            CHECK_FALSE(private_v4.is_ipv6());
-            CHECK_FALSE(private_v4.is_public_ip());
-
-            CHECK_FALSE(private_v4.is_ipv4_mapped_ipv6());
-            private_v4.map_ipv4_as_ipv6();
-            CHECK(private_v4.is_ipv4_mapped_ipv6());
-            CHECK(private_v4.to_string() == "[::ffff:10.0.0.0]:0"s);
-
-            CHECK(private_v6.is_any_port());
-            CHECK(private_v6.is_ipv6());
-            CHECK_FALSE(private_v6.is_ipv4());
-            CHECK_FALSE(private_v6.is_public_ip());
-            CHECK_FALSE(private_v6.is_ipv4_mapped_ipv6());
-
-            CHECK(public_v6.is_any_port());
-            CHECK(public_v6.is_ipv6());
-            CHECK_FALSE(public_v6.is_ipv4());
-            CHECK(public_v6.is_public_ip());
-            CHECK_FALSE(public_v6.is_ipv4_mapped_ipv6());
-
-            // Instead of making these ipv6 evaluate as `CHECK_NOFAIL` like the others,
-            // we can deterministically check the first portion of the ipv6 address
-            CHECK(public_v6.to_string().substr(0, 21) == "[3233:3435:3a3a:3100:"s);
-            CHECK(private_v6.to_string().substr(0, 11) == "[2001:db8::"s);
-
             CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 0, 0, 0)));
             CHECK((ipv4(10, 0, 0, 0) / 8).contains(ipv4(10, 255, 255, 255)));
             CHECK((ipv4(10, 123, 45, 67) / 8).contains(ipv4(10, 123, 123, 123)));
@@ -190,7 +107,79 @@ namespace oxen::quic::test
             CHECK((ipv6(0x2001, 0xdb8) / 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff) / 32).contains(ipv6(0x2001, 0xdb8)));
+        }
+
+#ifndef _WIN32
+        SECTION("IPv4 Addresses", "[ipv4][constructors][ipaddr]")
+        {
+            uint32_t v4_n;                    // network order ipv4 addr
+            auto v4_h = "192.168.1.1"s;       // host order ipv4 string
+            auto v4_full = "192.168.1.1:0"s;  // full ipv4 addr/port string
+
+            REQUIRE(inet_pton(AF_INET, v4_h.c_str(), &v4_n));
+
+            in_addr v4_inaddr{v4_n};
+
+            ipv4 v4_net_order{v4_n};
+            ipv4 v4_private{v4_h};
+
+            Address v4_from_ipv4{v4_private};
+            Address v4_from_ipv4_n{v4_net_order};
+            Address v4_from_inaddr{};
+            v4_from_inaddr.set_addr(&v4_inaddr);
+
+            CHECK(v4_from_ipv4 == v4_from_ipv4_n);
+            CHECK(v4_from_ipv4_n == v4_from_inaddr);
+
+            CHECK(v4_net_order == v4_inaddr);
+            CHECK(v4_private == v4_net_order);
+
+            CHECK(v4_private.to_string() == v4_h);
+            CHECK(v4_net_order.to_string() == v4_h);
+
+            auto ipv4_from_addr = v4_from_ipv4.to_ipv4();
+            auto ipv4_from_addr_n = v4_from_ipv4_n.to_ipv4();
+
+            REQUIRE(ipv4_from_addr == ipv4_from_addr_n);
+
+            CHECK(ipv4_from_addr == v4_private);
+            CHECK(ipv4_from_addr == v4_net_order);
+
+            CHECK(v4_from_ipv4.to_string() == v4_full);
+            CHECK(v4_from_ipv4_n.to_string() == v4_full);
         };
+#endif
+        SECTION("IPv6 Addresses", "[ipv6][constructors][ipaddr]")
+        {
+            auto weird = "::ffff:192.0.2.1"s;
+            Address localnet_ipv6{"fdab:1234:5::1", 123};
+
+            in6_addr localnet_in6addr = localnet_ipv6.in6().sin6_addr;
+
+            ipv6 addr_localnet{0xfdab, 0x1234, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001};
+            ipv6 addr_from_in6addr{&localnet_in6addr};
+
+            ipv6 weird_addr{weird};
+
+            Address address_from_v6{addr_localnet, 123};
+            Address address_from_v6_in6{addr_from_in6addr, 123};
+
+            CHECK(addr_localnet == addr_from_in6addr);
+            CHECK(addr_localnet.to_string() == addr_from_in6addr.to_string());
+
+            CHECK(localnet_ipv6.to_string() == address_from_v6.to_string());
+            CHECK(address_from_v6.to_string() == address_from_v6_in6.to_string());
+
+            CHECK(weird_addr.to_string() == weird);
+
+            Address weird_v4{weird, 80};
+            Address localnet_v4{"192.0.2.1", 80};
+
+            localnet_v4.map_ipv4_as_ipv6();
+            REQUIRE(localnet_v4.is_ipv4_mapped_ipv6());
+
+            CHECK(weird_v4.to_string() == localnet_v4.to_string());
+        }
 
         SECTION("Endpoint object creation - Default addressing")
         {

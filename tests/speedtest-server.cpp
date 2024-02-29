@@ -67,19 +67,34 @@ int main(int argc, char* argv[])
     struct stream_info
     {
         explicit stream_info(uint64_t expected) : expected{expected} { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
+        // stream_info(const stream_info& other) : stream_info{other.expected} {}
+
+        ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
+
+        // stream_info& operator=(const stream_info& other)
+        // {
+        //     if (this == &other)
+        //         return *this;
+
+        //     this->expected = other.expected;
+        //     this->received = other.received;
+        //     this->checksum = other.checksum;
+        //     this->hasher = other.hasher;
+
+        //     return *this;
+        // }
 
         uint64_t expected;
         uint64_t received = 0;
         unsigned char checksum = 0;
         gnutls_hash_hd_t hasher;
-
-        ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
     };
 
     std::map<ConnectionID, std::map<int64_t, stream_info>> csd;
 
     stream_data_callback stream_data = [&](Stream& s, bstring_view data) {
         auto& sd = csd[s.reference_id];
+
         auto it = sd.find(s.stream_id());
         if (it == sd.end())
         {
@@ -88,8 +103,10 @@ int main(int argc, char* argv[])
                 log::critical(test_cat, "Well this was unexpected: I got {} < 8 bytes", data.size());
                 return;
             }
+
             auto size = oxenc::load_little_to_host<uint64_t>(data.data());
             data.remove_prefix(sizeof(uint64_t));
+
             it = sd.emplace(s.stream_id(), size).first;
             log::warning(test_cat, "First data from new stream {}, expecting {}B!", s.stream_id(), size);
         }
@@ -100,7 +117,7 @@ int main(int argc, char* argv[])
         info.received += data.size();
         if (info.received > info.expected)
         {
-            log::critical(test_cat, "Received too much data ({}B > {}B)!");
+            log::critical(test_cat, "Received too much data ({}B > {}B)!", info.received, info.expected);
             if (!need_more)
                 return;
             data.remove_suffix(info.received - info.expected);

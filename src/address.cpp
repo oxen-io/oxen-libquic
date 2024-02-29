@@ -65,9 +65,7 @@ namespace oxen::quic
 
         auto& sin = reinterpret_cast<sockaddr_in&>(_sock_addr);
         sin.sin_port = oxenc::host_to_big(port);
-
-        auto bigly = oxenc::host_to_big<uint32_t>(v4.addr);
-        std::memcpy(&sin.sin_addr, &bigly, sizeof(struct in_addr));
+        std::memcpy(&sin.sin_addr, &v4, sizeof(ipv4));
 
         update_socklen(sizeof(sockaddr_in));
     }
@@ -79,8 +77,9 @@ namespace oxen::quic
         auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
         sin6.sin6_port = oxenc::host_to_big(port);
 
-        auto bigly = oxenc::host_to_big<uint64_t>(v6.hi);
-        std::memcpy(&sin6.sin6_addr.s6_addr, &bigly, sizeof(uint64_t));
+        // std::array<uint64_t, 2> arr{v6.hi, v6.lo};
+        std::array<uint64_t, 2> arr{oxenc::big_to_host<uint64_t>(v6.hi), oxenc::big_to_host<uint64_t>(v6.lo)};
+        std::memcpy(&sin6.sin6_addr.s6_addr, &arr, sizeof(arr));
 
         update_socklen(sizeof(sockaddr_in6));
     }
@@ -166,7 +165,7 @@ namespace oxen::quic
         }
         else if (is_ipv6())
         {
-            ipv6 addr{in6().sin6_addr.s6_addr};
+            ipv6 addr{&in6().sin6_addr};
             for (const auto& range : ipv6_nonpublic)
                 if (range.contains(addr))
                     return false;
@@ -188,18 +187,18 @@ namespace oxen::quic
         if (is_ipv4_mapped_ipv6())
             return unmapped_ipv4_from_ipv6().is_public();
         if (is_ipv6())
-            return ipv6{in6().sin6_addr.s6_addr} == ipv6_loopback;
+            return ipv6{&in6().sin6_addr} == ipv6_loopback;
         return false;
     }
 
     ipv4 Address::to_ipv4() const
     {
-        return {oxenc::big_to_host<uint32_t>(in4().sin_addr.s_addr)};
+        return {in4().sin_addr.s_addr};
     }
 
     ipv6 Address::to_ipv6() const
     {
-        return {in6().sin6_addr.s6_addr};
+        return {&in6().sin6_addr};
     }
 
     std::string Address::host() const
@@ -208,7 +207,7 @@ namespace oxen::quic
         if (is_ipv6())
         {
             inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_addr, buf, sizeof(buf));
-            return "[{}]:{}"_format(buf, port());
+            return "[{}]"_format(buf);
         }
         inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_addr, buf, sizeof(buf));
         return "{}"_format(buf);
@@ -216,14 +215,7 @@ namespace oxen::quic
 
     std::string Address::to_string() const
     {
-        char buf[INET6_ADDRSTRLEN] = {};
-        if (is_ipv6())
-        {
-            inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_addr, buf, sizeof(buf));
-            return "[{}]:{}"_format(buf, port());
-        }
-        inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_addr, buf, sizeof(buf));
-        return "{}:{}"_format(buf, port());
+        return "{}:{}"_format(host(), port());
     }
 
     void Path::set_new_remote(const ngtcp2_addr& new_remote)

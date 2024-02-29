@@ -337,7 +337,6 @@ namespace oxen::quic
         if (bad)
         {
             close(BPARSER_ERROR_EXCEPTION);
-            log::critical(bp_cat, "Oh shit you fucked up son! \nCurrent Buffer:{}", buffer_printer{req});
             throw std::invalid_argument{bad};
         }
 
