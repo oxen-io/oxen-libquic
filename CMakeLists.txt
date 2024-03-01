@@ -106,7 +106,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     list(APPEND warning_flags -Wno-unknown-warning-option)
 endif()
 if (WARNINGS_AS_ERRORS)
-    list(APPEND warning_flags -Werror)
+    list(APPEND warning_flags -Werror -Wno-error=array-bounds) # CI fix for experimental/sid builds
 endif()
 add_library(libquic_internal-warnings INTERFACE)
 target_compile_options(libquic_internal-warnings INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")

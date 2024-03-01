@@ -57,7 +57,7 @@ namespace oxen::quic
     using ustring_view = std::basic_string_view<unsigned char>;
     using stream_buffer = std::deque<std::pair<bstring_view, std::shared_ptr<void>>>;
 
-    constexpr bool IN_HELL =
+    inline constexpr bool IN_HELL =
 #ifdef _WIN32
             true;
 #else
