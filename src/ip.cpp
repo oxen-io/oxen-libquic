@@ -44,6 +44,16 @@ namespace oxen::quic
             throw std::invalid_argument{"IPv4 constructor failed to parse input: {}"_format(ip)};
     }
 
+    in6_addr ipv6::to_in6() const
+    {
+        in6_addr ret;
+
+        oxenc::write_host_as_big(hi, &ret.s6_addr[0]);
+        oxenc::write_host_as_big(lo, &ret.s6_addr[8]);
+
+        return ret;
+    }
+
     const std::string ipv6::to_string() const
     {
         char buf[INET6_ADDRSTRLEN] = {};

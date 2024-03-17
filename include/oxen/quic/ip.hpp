@@ -89,6 +89,8 @@ namespace oxen::quic
                 lo{uint64_t{e} << 48 | uint64_t{f} << 32 | uint64_t{g} << 16 | uint64_t{h}}
         {}
 
+        in6_addr to_in6() const;
+
         const std::string to_string() const;
 
         constexpr bool operator==(const ipv6& a) const { return hi == a.hi && lo == a.lo; }

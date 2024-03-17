@@ -112,9 +112,9 @@ namespace oxen::quic::test
 #ifndef _WIN32
         SECTION("IPv4 Addresses", "[ipv4][constructors][ipaddr]")
         {
-            uint32_t v4_n;                    // network order ipv4 addr
-            auto v4_h = "192.168.1.1"s;       // host order ipv4 string
-            auto v4_full = "192.168.1.1:0"s;  // full ipv4 addr/port string
+            uint32_t v4_n;                      // network order ipv4 addr
+            auto v4_h = "192.168.1.1"s;         // host order ipv4 string
+            auto v4_full = "192.168.1.1:123"s;  // full ipv4 addr/port string
 
             REQUIRE(inet_pton(AF_INET, v4_h.c_str(), &v4_n));
 
@@ -123,10 +123,11 @@ namespace oxen::quic::test
             ipv4 v4_net_order{v4_n};
             ipv4 v4_private{v4_h};
 
-            Address v4_from_ipv4{v4_private};
-            Address v4_from_ipv4_n{v4_net_order};
+            Address v4_from_ipv4{v4_private, 123};
+            Address v4_from_ipv4_n{v4_net_order, 123};
             Address v4_from_inaddr{};
             v4_from_inaddr.set_addr(&v4_inaddr);
+            v4_from_inaddr.set_port(123);
 
             CHECK(v4_from_ipv4 == v4_from_ipv4_n);
             CHECK(v4_from_ipv4_n == v4_from_inaddr);
@@ -158,6 +159,7 @@ namespace oxen::quic::test
 
             ipv6 addr_localnet{0xfdab, 0x1234, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001};
             ipv6 addr_from_in6addr{&localnet_in6addr};
+            in6_addr localnet_from_ipv6 = addr_from_in6addr.to_in6();
 
             ipv6 weird_addr{weird};
 
@@ -165,6 +167,7 @@ namespace oxen::quic::test
             Address address_from_v6_in6{addr_from_in6addr, 123};
 
             CHECK(addr_localnet == addr_from_in6addr);
+            CHECK(!std::memcmp(localnet_from_ipv6.s6_addr, localnet_in6addr.s6_addr, sizeof(in6_addr)));
             CHECK(addr_localnet.to_string() == addr_from_in6addr.to_string());
 
             CHECK(localnet_ipv6.to_string() == address_from_v6.to_string());
