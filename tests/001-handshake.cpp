@@ -159,6 +159,17 @@ namespace oxen::quic::test
                 CHECK(client_error == 1000);
             };
 
+            SECTION("Incorrect pubkey length")
+            {
+                auto client_endpoint = test_net.endpoint(client_local);
+
+                auto short_key = defaults::SERVER_PUBKEY.substr(0, 31);
+
+                RemoteAddress bad_client_remote{short_key, "127.0.0.1"s, server_endpoint->local().port()};
+
+                REQUIRE_THROWS(client_endpoint->connect(bad_client_remote, client_tls));
+            }
+
             SECTION("No pubkey in remote")
             {
                 // If uncommented, this line will not compile! Remote addresses must pass a remote pubkey to be
