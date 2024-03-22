@@ -76,7 +76,7 @@ namespace oxen::quic
                         nullptr);
                 if (buf[0])
                     return buf.data();
-                return "Unknown error {}"_format(error_code);
+                return "Unknown error "s.append(std::to_string(error_code));
             }
 #endif
             if (is_ngtcp2)

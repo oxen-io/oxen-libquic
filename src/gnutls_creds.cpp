@@ -4,7 +4,6 @@
 
 namespace oxen::quic
 {
-
     const std::string translate_key_format(gnutls_x509_crt_fmt_t crt)
     {
         if (crt == GNUTLS_X509_FMT_DER)

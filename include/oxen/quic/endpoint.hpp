@@ -97,19 +97,22 @@ namespace oxen::quic
             Path _path = Path{_local, remote};
 
             net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote).get_remote_key()]() mutable {
+                quic_cid qcid;
+                auto next_rid = next_reference_id();
+
                 try
                 {
                     // initialize client context and client tls context simultaneously
                     outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
                     _set_context_globals(outbound_ctx);
 
-                    auto next_rid = next_reference_id();
-
                     for (;;)
                     {
                         // emplace random CID into lookup keyed to unique reference ID
                         if (auto [it_a, res_a] = conn_lookup.emplace(quic_cid::random(), next_rid); res_a)
                         {
+                            qcid = it_a->first;
+
                             if (auto [it_b, res_b] = conns.emplace(next_rid, nullptr); res_b)
                             {
                                 it_b->second = Connection::make_conn(
@@ -131,6 +134,8 @@ namespace oxen::quic
                 }
                 catch (...)
                 {
+                    conn_lookup.erase(qcid);
+                    conns.erase(next_rid);
                     p.set_exception(std::current_exception());
                 }
             });
