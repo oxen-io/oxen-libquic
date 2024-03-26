@@ -59,7 +59,6 @@ namespace oxen::quic
     {
         log::trace(bp_cat, "{} called", __PRETTY_FUNCTION__);
 
-        // send(sent_request{*this, encode_response(rid, bstring{body}, error), rid}.payload());
         send(sent_request{*this, encode_response(rid, body, error), rid}.payload());
     }
 

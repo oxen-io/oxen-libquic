@@ -42,14 +42,12 @@ namespace oxen::quic
 
         std::string to_string() const;
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<buffer_printer> = true;
 }  // namespace oxen::quic
 
 namespace fmt
 {
-    template <typename T>
-    struct formatter<T, char, std::enable_if_t<oxen::quic::IsToStringFormattable<T>>> : formatter<std::string_view>
+    template <oxen::quic::ToStringFormattable T>
+    struct formatter<T, char> : formatter<std::string_view>
     {
         template <typename FormatContext>
         auto format(const T& val, FormatContext& ctx) const
@@ -57,5 +55,4 @@ namespace fmt
             return formatter<std::string_view>::format(val.to_string(), ctx);
         }
     };
-
 }  // namespace fmt

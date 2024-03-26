@@ -175,13 +175,4 @@ namespace oxen::quic
             ipv6(0xfe80) / 10,                 // link-local unicast addressing
             ipv6(0xff00) / 8,                  // Multicast
     };
-
-    template <>
-    inline constexpr bool IsToStringFormattable<ipv4> = true;
-    template <>
-    inline constexpr bool IsToStringFormattable<ipv6> = true;
-    template <>
-    inline constexpr bool IsToStringFormattable<ipv4_net> = true;
-    template <>
-    inline constexpr bool IsToStringFormattable<ipv6_net> = true;
 }  //  namespace oxen::quic

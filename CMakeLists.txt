@@ -21,7 +21,6 @@ project(libquic
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
-
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(libquic_IS_TOPLEVEL_PROJECT TRUE)
 else()
@@ -44,7 +43,6 @@ else()
     set(libquic_INSTALL_DEFAULT ON)
 endif()
 option(LIBQUIC_INSTALL "Add quic libraries/headers/programs to cmake install target; defaults to ON if BUILD_SHARED_LIBS is enabled or we are the top-level project" ${libquic_INSTALL_DEFAULT})
-
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -109,6 +107,11 @@ if (WARNINGS_AS_ERRORS)
     list(APPEND warning_flags -Werror -Wno-error=array-bounds) # CI fix for experimental/sid builds
 endif()
 add_library(libquic_internal-warnings INTERFACE)
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.0.0)
+    target_compile_options(libquic_internal-warnings INTERFACE -fconcepts)
+endif()
+
 target_compile_options(libquic_internal-warnings INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")
 target_link_libraries(libquic_internal INTERFACE libquic_internal-warnings)
 

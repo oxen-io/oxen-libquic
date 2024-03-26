@@ -281,8 +281,6 @@ namespace oxen::quic
         // Address to fmt to format it.
         std::string to_string() const;
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<Address> = true;
 
     struct RemoteAddress : public Address
     {
@@ -314,8 +312,6 @@ namespace oxen::quic
             return *this;
         }
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<RemoteAddress> = true;
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
     // to ngtcp2_path*
@@ -361,9 +357,6 @@ namespace oxen::quic
 
         std::string to_string() const;
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<Path> = true;
-
 }  // namespace oxen::quic
 
 namespace std

@@ -67,22 +67,8 @@ int main(int argc, char* argv[])
     struct stream_info
     {
         explicit stream_info(uint64_t expected) : expected{expected} { gnutls_hash_init(&hasher, GNUTLS_DIG_SHA3_256); }
-        // stream_info(const stream_info& other) : stream_info{other.expected} {}
 
         ~stream_info() { gnutls_hash_deinit(hasher, nullptr); }
-
-        // stream_info& operator=(const stream_info& other)
-        // {
-        //     if (this == &other)
-        //         return *this;
-
-        //     this->expected = other.expected;
-        //     this->received = other.received;
-        //     this->checksum = other.checksum;
-        //     this->hasher = other.hasher;
-
-        //     return *this;
-        // }
 
         uint64_t expected;
         uint64_t received = 0;
