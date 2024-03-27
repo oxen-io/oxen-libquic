@@ -73,48 +73,6 @@ namespace oxen::quic
         }
     }
 
-    GNUTLSCreds::GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg)
-    {
-        if (local_key.empty() || local_cert.empty())
-            throw std::runtime_error{
-                    "Must initialize GNUTLS credentials using local private key and certificate at minimum"};
-
-        x509_loader lkey{local_key}, lcert{local_cert}, rcert, ca;
-
-        if (not remote_cert.empty())
-            rcert = {remote_cert};
-
-        if (not ca_arg.empty())
-            ca = {ca};
-
-        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
-        {
-            log::warning(log_cat, "gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
-            throw std::runtime_error("gnutls credential allocation failed");
-        }
-
-        if (ca)
-        {
-            if (auto rv = (ca.from_mem()) ? gnutls_certificate_set_x509_trust_mem(cred, ca, ca.format)
-                                          : gnutls_certificate_set_x509_trust_file(cred, ca, ca.format);
-                rv < 0)
-            {
-                log::warning(log_cat, "Set x509 trust failed with code {}", gnutls_strerror(rv));
-                throw std::invalid_argument("gnutls didn't like a specified trust file/memblock");
-            }
-        }
-
-        if (auto rv = (lcert.from_mem()) ? gnutls_certificate_set_x509_key_mem(cred, lcert, lkey, lkey.format)
-                                         : gnutls_certificate_set_x509_key_file(cred, lcert, lkey, lkey.format);
-            rv < 0)
-        {
-            log::warning(log_cat, "Set x509 key failed with code {}", gnutls_strerror(rv));
-            throw std::invalid_argument("gnutls didn't like a specified key file/memblock");
-        }
-
-        log::debug(log_cat, "Completed credential initialization");
-    }
-
     void GNUTLSCreds::load_keys(x509_loader& s, x509_loader& pk)
     {
         log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -187,14 +145,6 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         gnutls_certificate_free_credentials(cred);
-    }
-
-    std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make(
-            std::string remote_key, std::string remote_cert, std::string local_cert, std::string ca)
-    {
-        // would use make_shared, but I want GNUTLSCreds' constructor to be private
-        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(remote_key, remote_cert, local_cert, ca)};
-        return p;
     }
 
     std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_keys(std::string seed, std::string pubkey)
