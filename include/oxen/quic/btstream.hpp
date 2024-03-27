@@ -136,13 +136,17 @@ namespace oxen::quic
 
         template <typename... Opt>
         sent_request(BTRequestStream& bp, std::string_view d, int64_t rid, Opt&&... opts) :
-                req_id{rid}, return_sender{bp}, total_len{d.size()}, req_time{get_time()}, expiry{req_time}
+                req_id{rid},
+                data{oxenc::bt_serialize(d)},
+                return_sender{bp},
+                total_len{data.size()},
+                req_time{get_time()},
+                expiry{req_time}
         {
             if (total_len > MAX_REQ_LEN)
                 throw std::invalid_argument{"Request body too long!"};
 
             ((void)handle_req_opts(std::forward<Opt>(opts)), ...);
-            data = oxenc::bt_serialize(d);
             expiry += timeout.value_or(DEFAULT_TIMEOUT);
         }
 
@@ -186,6 +190,7 @@ namespace oxen::quic
 
         friend struct sent_request;
         friend class Network;
+        friend class Loop;
 
       protected:
         template <typename... Opt>

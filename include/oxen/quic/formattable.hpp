@@ -2,10 +2,14 @@
 
 namespace oxen::quic
 {
-
-    // Types can opt-in to being fmt-formattable (by calling the .to_string() method when formatted)
-    // by specializing this to true and the oxen/quic/format.hpp header.
+    // Types can opt-in to being fmt-formattable by ensuring they have a ::to_string() method defined
     template <typename T>
-    constexpr bool IsToStringFormattable = false;
-
+    concept
+#if (!(defined(__clang__)) && defined(__GNUC__) && __GNUC__ < 10)
+            bool
+#endif
+                    ToStringFormattable = requires(T a)
+    {
+        a.to_string();
+    };
 }  // namespace oxen::quic

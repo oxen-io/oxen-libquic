@@ -18,8 +18,6 @@ namespace oxen::quic
         int8_t type{0};
         // is the datagram_storage container empty after sending this payload?
         bool is_empty{false};
-
-        outbound_dgram() = default;
     };
 
     struct prepared_datagram

@@ -15,6 +15,8 @@ add_library(quic
     gnutls_creds.cpp
     gnutls_session.cpp
     iochannel.cpp
+    ip.cpp
+    loop.cpp
     messages.cpp
     network.cpp
     stream.cpp

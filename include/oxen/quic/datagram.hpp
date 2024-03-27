@@ -62,6 +62,7 @@ namespace oxen::quic
       protected:
         // Construct via net.make_shared<DatagramIO>(...)
         friend class Network;
+        friend class Loop;
         DatagramIO(Connection& c, Endpoint& e, dgram_data_callback data_cb = nullptr);
 
       public:

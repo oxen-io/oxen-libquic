@@ -4,7 +4,6 @@
 
 #include <CLI/CLI.hpp>
 #include <CLI/Error.hpp>
-#include <charconv>
 #include <future>
 #include <optional>
 #include <oxen/log.hpp>
@@ -117,23 +116,6 @@ namespace oxen::quic
                 log_level_override{std::min(l, log::get_level(category)), category}
         {}
     };
-
-    /// Parses an integer of some sort from a string, requiring that the entire string be consumed
-    /// during parsing.  Return false if parsing failed, sets `value` and returns true if the entire
-    /// string was consumed.
-    template <typename T>
-    bool parse_int(const std::string_view str, T& value, int base = 10)
-    {
-        T tmp;
-        auto* strend = str.data() + str.size();
-        auto [p, ec] = std::from_chars(str.data(), strend, tmp, base);
-        if (ec != std::errc() || p != strend)
-            return false;
-        value = tmp;
-        return true;
-    }
-
-    std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
 #define _require_future2(f, timeout) REQUIRE(f.wait_for(timeout) == std::future_status::ready)
 #define _require_future1(f) _require_future2(f, 1s)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "formattable.hpp"
+#include "ip.hpp"
 #include "utils.hpp"
 
 namespace oxen::quic
@@ -40,6 +41,10 @@ namespace oxen::quic
         Address(const std::string& addr, uint16_t port);
 
         explicit Address(const ngtcp2_addr& addr);
+
+        explicit Address(ipv4 v4, uint16_t port = 0);
+
+        explicit Address(ipv6 v6, uint16_t port = 0);
 
         // Assignment from a sockaddr pointer; we copy the sockaddr's contents
         template <
@@ -140,11 +145,16 @@ namespace oxen::quic
             return _addr.addrlen == sizeof(sockaddr_in) &&
                    reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_family == AF_INET;
         }
+
         inline bool is_ipv6() const
         {
             return _addr.addrlen == sizeof(sockaddr_in6) &&
                    reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_family == AF_INET6;
         }
+
+        ipv4 to_ipv4() const;
+
+        ipv6 to_ipv6() const;
 
         // Accesses the sockaddr_in for this address.  Precondition: `is_ipv4()`
         inline const sockaddr_in& in4() const
@@ -271,8 +281,6 @@ namespace oxen::quic
         // Address to fmt to format it.
         std::string to_string() const;
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<Address> = true;
 
     struct RemoteAddress : public Address
     {
@@ -304,8 +312,6 @@ namespace oxen::quic
             return *this;
         }
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<RemoteAddress> = true;
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
     // to ngtcp2_path*
@@ -351,9 +357,6 @@ namespace oxen::quic
 
         std::string to_string() const;
     };
-    template <>
-    inline constexpr bool IsToStringFormattable<Path> = true;
-
 }  // namespace oxen::quic
 
 namespace std

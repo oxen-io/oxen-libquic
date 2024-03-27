@@ -197,6 +197,7 @@ namespace oxen::quic
 
       private:
         friend class Network;
+        friend class Loop;
         friend class Connection;
         friend struct Callbacks;
         friend class TestHelper;
