@@ -50,8 +50,5 @@ Unit tests use [Catch2](https://github.com/catchorg/Catch2) as a formal unit-tes
 tests are built by default as part of the standard CMake build logic (unless being built as a
 subdirectory of another CMake project) and can be invoked through the `build/tests/alltests` binary.
 
-Tests require tls certificates to run; suitable certificates can be created by running the
-`../utils/gen-certs.sh` script from the `build` directory.
-
 Building the tests also build `./tests/speedtest-client` and `./tests/speedtest-server` which can be
 used to test network performance of libquic streams.

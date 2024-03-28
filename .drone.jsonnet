@@ -77,7 +77,6 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         ]
         + (if tests then [
              'cd build',
-             '../utils/gen-certs.sh',
              (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success --log-level debug --no-ipv6 --colour-mode ansi',
              'cd ..',
            ] else []);
@@ -283,6 +282,7 @@ local mac_builder(name,
       ],
     }],
   },
+
   // Various debian builds
   debian_pipeline('Debian sid (amd64)', docker_base + 'debian-sid'),
   debian_pipeline('Debian sid/Debug (amd64)', docker_base + 'debian-sid', build_type='Debug'),
@@ -297,17 +297,11 @@ local mac_builder(name,
   debian_pipeline('Debian testing (i386)', docker_base + 'debian-testing/i386'),
   debian_pipeline('Debian 12 static', docker_base + 'debian-bookworm', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=['g++']),
   debian_pipeline('Debian 12 bookworm (i386)', docker_base + 'debian-bookworm/i386'),
-  debian_pipeline('Debian 11 bullseye (amd64)', docker_base + 'debian-bullseye', deps=default_deps_old, extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake'])),
-  debian_pipeline('Debian 10 buster (amd64)', docker_base + 'debian-buster', deps=default_deps_old, extra_setup=kitware_repo('bionic') + local_gnutls()),
-  debian_pipeline('Debian 10 static Debug', docker_base + 'debian-buster', build_type='Debug', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=['g++'], extra_setup=kitware_repo('bionic')),
+  debian_pipeline('Debian 11 bullseye (amd64)', docker_base + 'debian-bullseye', deps=['g++'], extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake'])),
+  debian_pipeline('Debian 11 static Debug', docker_base + 'debian-bullseye', build_type='Debug', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=default_deps_old, extra_setup=debian_backports('bullseye', ['cmake'])),
   debian_pipeline('Ubuntu latest (amd64)', docker_base + 'ubuntu-rolling'),
   debian_pipeline('Ubuntu 22.04 jammy (amd64)', docker_base + 'ubuntu-jammy'),
-  debian_pipeline('Ubuntu 20.04 focal (amd64)', docker_base + 'ubuntu-focal', deps=default_deps_old, extra_setup=kitware_repo('focal') + local_gnutls()),
-  debian_pipeline('Ubuntu 18.04 bionic (amd64)',
-                  docker_base + 'ubuntu-bionic',
-                  deps=['g++-8'] + default_deps_old_base,
-                  extra_setup=kitware_repo('bionic') + local_gnutls(),
-                  cmake_extra='-DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8'),
+  debian_pipeline('Ubuntu 20.04 focal (amd64)', docker_base + 'ubuntu-focal', deps=['g++-10'] + default_deps_old, extra_setup=kitware_repo('focal') + local_gnutls(), cmake_extra='-DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10'),
 
   // ARM builds (ARM64 and armhf)
   debian_pipeline('Debian sid (ARM64)', docker_base + 'debian-sid', arch='arm64', jobs=4),

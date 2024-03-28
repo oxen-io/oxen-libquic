@@ -260,8 +260,6 @@ namespace oxen::quic
         friend class GNUTLSSession;
 
       private:
-        GNUTLSCreds(std::string local_key, std::string local_cert, std::string remote_cert, std::string ca_arg);
-
         // Construct from raw Ed25519 keys
         GNUTLSCreds(std::string ed_seed, std::string ed_pubkey);
 
@@ -282,9 +280,6 @@ namespace oxen::quic
         void load_keys(x509_loader& seed, x509_loader& pk);
 
         void set_key_verify_callback(key_verify_callback cb) { key_verify = std::move(cb); }
-
-        static std::shared_ptr<GNUTLSCreds> make(
-                std::string remote_key, std::string remote_cert, std::string local_cert = "", std::string ca_arg = "");
 
         static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string seed, std::string pubkey);
 
