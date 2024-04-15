@@ -41,7 +41,7 @@ namespace oxen::quic::test
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->open_stream();
 
-        REQUIRE_NOTHROW(client_stream->send(good_msg));
+        REQUIRE_NOTHROW(client_stream->send(good_msg, nullptr));
 
         require_future(d_future);
     };
@@ -83,7 +83,7 @@ namespace oxen::quic::test
         auto server_ci = server_endpoint_b->connect(server_remote, server_tls);
         auto server_stream = server_ci->open_stream();
 
-        server_stream->send(good_msg);
+        server_stream->send(good_msg, nullptr);
 
         require_future(d_futures[0]);
 
@@ -93,7 +93,7 @@ namespace oxen::quic::test
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->open_stream();
 
-        REQUIRE_NOTHROW(client_stream->send(good_msg));
+        REQUIRE_NOTHROW(client_stream->send(good_msg, nullptr));
 
         require_future(d_futures[1]);
     };
@@ -134,7 +134,7 @@ namespace oxen::quic::test
         auto server_a_ci = server_endpoint_b->connect(server_remote_a, server_tls);
         auto server_a_stream = server_a_ci->open_stream();
 
-        server_a_stream->send(good_msg);
+        server_a_stream->send(good_msg, nullptr);
 
         require_future(d_futures[0]);
 
@@ -142,7 +142,7 @@ namespace oxen::quic::test
 
         auto server_b_stream = server_b_ci->open_stream();
 
-        server_b_stream->send(good_msg);
+        server_b_stream->send(good_msg, nullptr);
 
         require_future(d_futures[1]);
     };
@@ -198,7 +198,7 @@ namespace oxen::quic::test
             {
                 // There is no ownership issue here: we're just viewing into our `good_msg` which we
                 // are keeping alive already for the duration of this test.
-                stream_to_a->send(bstring_view{good_msg});
+                stream_to_a->send(bstring_view{good_msg}, nullptr);
             }
         }
         SECTION("Sending bstring buffer with transferred ownership")

@@ -82,8 +82,8 @@ namespace oxen::quic::test
             auto stream_b = c_interface_b->open_stream();
 
             // send
-            stream_a->send(msg);
-            stream_b->send(msg);
+            stream_a->send(msg, nullptr);
+            stream_b->send(msg, nullptr);
         }};
 
         std::thread async_thread_b{[&]() {
@@ -102,8 +102,8 @@ namespace oxen::quic::test
             auto stream_d = c_interface_d->open_stream();
 
             // send
-            stream_c->send(msg);
-            stream_d->send(msg);
+            stream_c->send(msg, nullptr);
+            stream_d->send(msg, nullptr);
         }};
 
         for (auto& f : stream_futures)

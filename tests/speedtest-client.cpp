@@ -298,7 +298,7 @@ int main(int argc, char* argv[])
         {
             s.remaining = 0;
             s.done_sending = true;
-            s.stream->send(bstring_view{s.bufs[0].data(), s.bufs[0].size()});
+            s.stream->send(bstring_view{s.bufs[0].data(), s.bufs[0].size()}, nullptr);
         }
         else
         {

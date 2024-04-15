@@ -64,7 +64,7 @@ namespace oxen::quic::test
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, max_streams);
 
         auto client_stream = conn_interface->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(data_future);
         REQUIRE(conn_interface->get_streams_available() == max_streams.stream_count - 1);
@@ -114,7 +114,7 @@ namespace oxen::quic::test
         REQUIRE(server_ci->get_max_streams() == server_config.stream_count);
 
         auto client_stream = client_ci->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(data_future);
 
@@ -180,7 +180,7 @@ namespace oxen::quic::test
         for (size_t i = 0; i < n_streams; ++i)
         {
             streams[i] = conn_interface->open_stream();
-            streams[i]->send(msg);
+            streams[i]->send(msg, nullptr);
             send_promises[i].set_value();
         }
 
@@ -200,7 +200,7 @@ namespace oxen::quic::test
         for (int i = 0; i < 2; ++i)
         {
             streams[i] = conn_interface->open_stream();
-            streams[i]->send(msg);
+            streams[i]->send(msg, nullptr);
             // set send promise
             send_promises[i + n_streams].set_value();
         }
@@ -268,14 +268,14 @@ namespace oxen::quic::test
             log::debug(log_cat, "Calling standard stream data callback... data received...");
             REQUIRE(msg == dat);
             ss_p.set_value();
-            s.send(msg);
+            s.send(msg, nullptr);
         };
 
         stream_data_callback standard_client_cb = [&](Stream& s, bstring_view dat) {
             log::debug(log_cat, "Calling standard stream data callback... data received...");
             REQUIRE(msg == dat);
             cs_p.set_value();
-            s.send(msg);
+            s.send(msg, nullptr);
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -293,7 +293,7 @@ namespace oxen::quic::test
 
         auto client_stream = conn_interface->open_stream<ClientStream>(std::move(cc_p));
 
-        REQUIRE_NOTHROW(client_stream->send(msg));
+        REQUIRE_NOTHROW(client_stream->send(msg, nullptr));
 
         require_future(ss_f);
         require_future(cc_f);
@@ -301,7 +301,7 @@ namespace oxen::quic::test
         auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         auto server_stream = server_ci->open_stream<ServerStream>(std::move(sc_p));
 
-        REQUIRE_NOTHROW(server_stream->send(msg));
+        REQUIRE_NOTHROW(server_stream->send(msg, nullptr));
 
         require_future(cs_f);
         require_future(sc_f);
@@ -338,7 +338,7 @@ namespace oxen::quic::test
 
         auto client_stream = conn_interface->open_stream();
 
-        REQUIRE_NOTHROW(client_stream->send(msg));
+        REQUIRE_NOTHROW(client_stream->send(msg, nullptr));
 
         require_future(server_future);
     };
@@ -973,7 +973,7 @@ namespace oxen::quic::test
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         auto server_endpoint = test_net.endpoint(server_local);
-        server_endpoint->listen(server_tls, [&](Stream& s, bstring_view data) { s.send(data); });
+        server_endpoint->listen(server_tls, [&](Stream& s, bstring_view data) { s.send(bstring{data}); });
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
         auto client_endpoint = test_net.endpoint(client_local);
