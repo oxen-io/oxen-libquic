@@ -48,14 +48,20 @@ if(LIBQUIC_BUILD_TESTS)
 endif()
 
 if(LIBQUIC_BUILD_SPEEDTEST)
+    add_library(speedtest_common STATIC speedtest-server.cpp)
+    target_link_libraries(speedtest_common PUBLIC tests_common)
+
     set(LIBQUIC_SPEEDTEST_PREFIX "" CACHE STRING "Binary prefix for speedtest binaries")
-    set(speedtests speedtest-client speedtest-server dgram-speed-client dgram-speed-server)
+    set(speedtests speedtest speedtest-client dgram-speed-client)
     foreach(x ${speedtests})
         add_executable(${x} ${x}.cpp)
-        target_link_libraries(${x} PRIVATE tests_common)
+        target_link_libraries(${x} PRIVATE speedtest_common)
         set_target_properties(${x} PROPERTIES OUTPUT_NAME ${LIBQUIC_SPEEDTEST_PREFIX}${x})
         extra_linking(${x})
     endforeach()
+
+    # FIXME: temporarily add `-server` suffix until speedtest.cpp becomes a dual server/client
+    set_target_properties(speedtest PROPERTIES OUTPUT_NAME ${LIBQUIC_SPEEDTEST_PREFIX}speedtest-server)
 
     if(LIBQUIC_INSTALL)
         install(

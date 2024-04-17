@@ -10,7 +10,6 @@
 #include <oxen/quic.hpp>
 #include <oxen/quic/gnutls_crypto.hpp>
 #include <random>
-#include <thread>
 
 #include "utils.hpp"
 
@@ -63,19 +62,6 @@ int main(int argc, char* argv[])
     bool pregenerate = false;
     cli.add_flag("-g,--pregenerate", pregenerate, "Pregenerate all stream data to send into RAM before starting");
 
-    bool no_hash = false;
-    cli.add_flag(
-            "-H,--no-hash",
-            no_hash,
-            "Disable data hashing (just use a simple xor byte checksum instead).  Can make a difference on extremely low "
-            "latency (e.g. localhost) connections.  Should be specified on the server as well.");
-    bool no_checksum = false;
-    cli.add_flag(
-            "-X,--no-checksum",
-            no_checksum,
-            "Disable even the simple xor byte checksum (typically used together with -H).  Should be specified on the "
-            "server as well.");
-
     size_t chunk_size = 64_ki, chunk_num = 2;
     cli.add_option("--stream-chunk-size", chunk_size, "How much data to queue at once, per chunk");
     cli.add_option("--stream-chunks", chunk_num, "How much chunks to queue at once per stream")->check(CLI::Range(1, 100));
@@ -110,24 +96,12 @@ int main(int argc, char* argv[])
         std::atomic<bool> failed = false;
         size_t next_buf = 0;
 
-        std::basic_string<std::byte> hash;
-        uint8_t checksum = 0;
-        gnutls_hash_hd_t sent_hasher, recv_hasher;
-
         stream_data() {}
         stream_data(size_t total_size, uint64_t seed, size_t chunk_size, size_t chunk_num) : remaining{total_size}, rng{seed}
         {
             bufs.resize(chunk_num);
             for (auto& buf : bufs)
                 buf.resize(chunk_size);
-            gnutls_hash_init(&sent_hasher, GNUTLS_DIG_SHA3_256);
-            gnutls_hash_init(&recv_hasher, GNUTLS_DIG_SHA3_256);
-        }
-
-        ~stream_data()
-        {
-            gnutls_hash_deinit(sent_hasher, nullptr);
-            gnutls_hash_deinit(recv_hasher, nullptr);
         }
     };
 
@@ -158,7 +132,9 @@ int main(int argc, char* argv[])
         if (sd.done)
         {
             log::error(
-                    test_cat, "Already got a hash from the other side of stream {}, what is this nonsense‽", s.stream_id());
+                    test_cat,
+                    "Already got a DONE! reply from the other side of stream {}, what is this nonsense‽",
+                    s.stream_id());
             return;
         }
 
@@ -171,33 +147,10 @@ int main(int argc, char* argv[])
                     data.size());
             sd.failed = true;
         }
-        else if (data.size() != 33)
+        else if (data != "DONE!"_bsv)
         {
-            log::error(test_cat, "Got unexpected data from the other side: {}B != 32B", data.size());
+            log::error(test_cat, "Got unexpected data from the other side: (hex) {}", oxenc::to_hex(data));
             sd.failed = true;
-        }
-        else if (data.substr(0, 32) != sd.hash)
-        {
-            log::critical(
-                    test_cat,
-                    "Hash mismatch: other size said {}, we say {}",
-                    oxenc::to_hex(data.begin(), data.end()),
-                    oxenc::to_hex(sd.hash.begin(), sd.hash.end()));
-            sd.failed = true;
-        }
-        else if (static_cast<uint8_t>(data[32]) != sd.checksum)
-        {
-            log::critical(test_cat, "Checksum mismatch: other size said {}, we say {}", data[32], sd.checksum);
-            sd.failed = true;
-        }
-        else
-        {
-            sd.failed = false;
-            log::critical(
-                    test_cat,
-                    "Hashes matched ({}, {}), hurray!\n",
-                    oxenc::to_hex(sd.hash.begin(), sd.hash.end()),
-                    sd.checksum);
         }
 
         sd.done = true;
@@ -221,45 +174,26 @@ int main(int argc, char* argv[])
 
     auto per_stream = size / parallel;
 
-    auto gen_data =
-            [no_hash, no_checksum](
-                    RNG& rng, size_t size, std::vector<std::byte>& data, gnutls_hash_hd_t& hasher, uint8_t& checksum) {
-                assert(size > 0);
+    auto gen_data = [](RNG& rng, size_t size, std::vector<std::byte>& data) {
+        assert(size > 0);
 
-                using rng_value = RNG::result_type;
+        using rng_value = RNG::result_type;
 
-                static_assert(
-                        RNG::min() == 0 && std::is_unsigned_v<rng_value> &&
-                        RNG::max() == std::numeric_limits<rng_value>::max());
+        static_assert(
+                RNG::min() == 0 && std::is_unsigned_v<rng_value> && RNG::max() == std::numeric_limits<rng_value>::max());
 
-                constexpr size_t rng_size = sizeof(rng_value);
-                const size_t rng_chunks = (size + rng_size - 1) / rng_size;
-                const size_t size_data = rng_chunks * rng_size;
+        constexpr size_t rng_size = sizeof(rng_value);
+        const size_t rng_chunks = (size + rng_size - 1) / rng_size;
+        const size_t size_data = rng_chunks * rng_size;
 
-                // Generate some deterministic data from our rng; we're cheating a little here with the RNG
-                // output value (which means this test won't be the same on different endian machines).
-                data.resize(size_data);
-                auto* rng_data = reinterpret_cast<rng_value*>(data.data());
-                for (size_t i = 0; i < rng_chunks; i++)
-                    rng_data[i] = static_cast<rng_value>(rng());
-                data.resize(size);
-
-                // Hash/checksum it (so that we can verify the hash response at the end)
-                if (!no_checksum)
-                {
-                    uint64_t csum = 0;
-                    const uint64_t* stuff = reinterpret_cast<const uint64_t*>(data.data());
-                    for (size_t i = 0; i < data.size() / 8; i++)
-                        csum ^= stuff[i];
-                    for (int i = 0; i < 8; i++)
-                        checksum ^= reinterpret_cast<const uint8_t*>(&csum)[i];
-                    for (size_t i = data.size() & ~0b111; i < data.size(); i++)
-                        checksum ^= static_cast<uint8_t>(data[i]);
-                }
-
-                if (!no_hash)
-                    gnutls_hash(hasher, reinterpret_cast<unsigned char*>(data.data()), data.size());
-            };
+        // Generate some deterministic data from our rng; we're cheating a little here with the RNG
+        // output value (which means this test won't be the same on different endian machines).
+        data.resize(size_data);
+        auto* rng_data = reinterpret_cast<rng_value*>(data.data());
+        for (size_t i = 0; i < rng_chunks; i++)
+            rng_data[i] = static_cast<rng_value>(rng());
+        data.resize(size);
+    };
 
     if (pregenerate)
     {
@@ -273,11 +207,7 @@ int main(int argc, char* argv[])
                 my_data, rng_seed + i, pregenerate ? my_data : chunk_size, pregenerate ? 1 : chunk_num));
 
         if (pregenerate)
-        {
-            gen_data(s.rng, my_data, s.bufs[0], s.sent_hasher, s.checksum);
-            s.hash.resize(32);
-            gnutls_hash_output(s.sent_hasher, reinterpret_cast<unsigned char*>(s.hash.data()));
-        }
+            gen_data(s.rng, my_data, s.bufs[0]);
     }
     if (pregenerate)
     {
@@ -312,16 +242,12 @@ int main(int argc, char* argv[])
                         if (size == 0)
                             return nullptr;
 
-                        gen_data(sd.rng, size, data, sd.sent_hasher, sd.checksum);
+                        gen_data(sd.rng, size, data);
 
                         sd.remaining -= size;
 
                         if (sd.remaining == 0)
-                        {
-                            sd.hash.resize(32);
-                            gnutls_hash_output(sd.sent_hasher, reinterpret_cast<unsigned char*>(sd.hash.data()));
                             sd.done_sending = true;
-                        }
 
                         return &data;
                     },

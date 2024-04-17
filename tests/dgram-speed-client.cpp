@@ -109,23 +109,24 @@ int main(int argc, char* argv[])
             log::error(test_cat, "Got a datagram response ({}B) before we were done sending data!", data.size());
             d_ptr->failed = true;
         }
-        else if (data.size() != 5)
+        else if (uint64_t server_got;
+                 data.starts_with("DONE-"_bsv) && parse_int(to_sv(bstring_view{data}).substr(5), server_got))
         {
-            log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
-            d_ptr->failed = true;
-        }
-        else if (data != "DONE!"_bsv)
-        {
-            log::error(
+            log::critical(
                     test_cat,
-                    "Got unexpected data: expected 'DONE!', got (hex): '{}'",
-                    oxenc::to_hex(data.begin(), data.end()));
-            d_ptr->failed = true;
+                    "All done, hurray!  Server fidelity: {}\% ({} received of {} sent)",
+                    server_got / (float)d_ptr->n_iter * 100,
+                    server_got,
+                    d_ptr->n_iter);
+            d_ptr->failed = false;
         }
         else
         {
-            d_ptr->failed = false;
-            log::critical(test_cat, "All done, hurray!\n");
+            log::error(
+                    test_cat,
+                    "Got unexpected data from the other side: expected 'DONE-(count)', got (hex): '{}'",
+                    oxenc::to_hex(data.begin(), data.end()));
+            d_ptr->failed = true;
         }
 
         d_ptr->is_done = true;

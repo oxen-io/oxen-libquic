@@ -171,8 +171,8 @@ namespace oxen::quic::test
 
             auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-            auto server_endpoint = test_net.endpoint(server_local, default_gram, recv_dgram_cb);
-            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, default_gram);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls, recv_dgram_cb));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 
@@ -222,8 +222,8 @@ namespace oxen::quic::test
 
             auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-            auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
-            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+            auto server_endpoint = test_net.endpoint(server_local, split_dgram);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls, recv_dgram_cb));
 
             RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
 

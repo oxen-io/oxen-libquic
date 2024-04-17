@@ -66,6 +66,12 @@ namespace oxen::quic
         stream_construct_cb = std::move(func);
     }
 
+    void IOContext::handle_ioctx_opt(dgram_data_callback func)
+    {
+        log::trace(log_cat, "IO context stored datagram data callback");
+        dgram_data_cb = std::move(func);
+    }
+
     void IOContext::handle_ioctx_opt(connection_established_callback func)
     {
         log::trace(log_cat, "IO context stored connection established callback");

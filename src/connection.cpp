@@ -1543,7 +1543,8 @@ namespace oxen::quic
                                ? is_outbound() ? std::move(context->conn_closed_cb) : context->conn_closed_cb
                                : nullptr;
 
-        datagrams = _endpoint.make_shared<DatagramIO>(*this, _endpoint, ep.dgram_recv_cb);
+        datagrams = _endpoint.make_shared<DatagramIO>(
+                *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
         pseudo_stream = _endpoint.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 

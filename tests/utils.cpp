@@ -120,18 +120,35 @@ namespace oxen::quic
         return std::make_pair(std::move(client), std::move(server));
     }
 
-    std::pair<std::string, std::string> generate_ed25519()
+    std::string make_keypair(std::string& seed)
     {
-        std::pair<std::string, std::string> result;
-        auto& [seed, pubkey] = result;
-        seed.resize(32);
-        pubkey.resize(32);
+        std::string pubkey;
+        if (seed.empty())
+        {
+            seed.resize(32);
+            gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, seed.data(), sizeof(seed.size()));
+        }
+        else if (auto decoded = decode_bytes(seed, 32))
+        {
+            seed = std::move(*decoded);
+        }
+        else
+        {
+            log::critical(test_cat, "Invalid --seed value: expected 64 hex characters");
+            throw std::logic_error{"Invalid --seed value"};
+        }
 
-        gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, seed.data(), sizeof(seed.size()));
+        pubkey.resize(32);
         ed25519_sha512_public_key(
                 reinterpret_cast<unsigned char*>(pubkey.data()), reinterpret_cast<const unsigned char*>(seed.data()));
+        return pubkey;
+    }
 
-        return result;
+    std::pair<std::string, std::string> generate_ed25519()
+    {
+        std::pair<std::string, std::string> ret;
+        ret.second = make_keypair(ret.first);
+        return ret;
     }
 
     void add_log_opts(CLI::App& cli, std::string& file, std::string& level)
@@ -147,6 +164,15 @@ namespace oxen::quic
                 ->type_name("LEVEL")
                 ->capture_default_str()
                 ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error", "critical", "off"}));
+    }
+
+    void add_seed_opt(CLI::App& cli, std::string& seed)
+    {
+        cli.add_option(
+                   "--seed",
+                   seed,
+                   "Provide a server Ed25519 seed value, in hex (64 characters) instead of generating a random one.")
+                ->type_name("HEX");
     }
 
     void setup_logging(std::string out, const std::string& level)

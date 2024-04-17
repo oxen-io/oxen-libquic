@@ -93,9 +93,6 @@ namespace oxen::quic
         /// constructor. Buffer size is subdivided amongst 4 equally sized buffer rows, so the bufsize
         /// must be perfectly divisible by 4
         ///
-        /// In some use cases, the user may want the receive data as a string view or a string literal.
-        /// The default is string literal; setting
-        ///
         /// The max size of a transmittable datagram can be queried directly from connection_interface::
         /// get_max_datagram_size(). At connection initialization, ngtcp2 will default this value to 1200.
         /// The actual value is negotiated upwards via path discovery, reaching a theoretical maximum of

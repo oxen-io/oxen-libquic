@@ -67,6 +67,11 @@ namespace oxen::quic
         std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> tls_creds_from_ed_keys();
     }  // namespace test::defaults
 
+    // Generates an Ed25519 keypair if seed is empty, otherwise expects a 32-byte seed encoding as
+    // either hex or base64.  When this returns, seed will be set to the 32-byte seed (i.e.  decoded
+    // from the input) and the associated 32-byte pubkey will be returned.
+    std::string make_keypair(std::string& seed);
+
     // Generates a random Ed25519 keypair for testing purposes.  Returned values are the 32-byte
     // seed and 32-byte pubkey.
     std::pair<std::string, std::string> generate_ed25519();
@@ -78,7 +83,7 @@ namespace oxen::quic
     {
         if (encoded.size() == size * 2 && oxenc::is_hex(encoded))
             return oxenc::from_hex<Char>(encoded);
-        if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(32, true) &&
+        if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(size, true) &&
             oxenc::is_base64(encoded))
             return oxenc::from_base64<Char>(encoded);
         return std::nullopt;
@@ -87,6 +92,8 @@ namespace oxen::quic
     void add_log_opts(CLI::App& cli, std::string& file, std::string& level);
 
     void setup_logging(std::string out, const std::string& level);
+
+    void add_seed_opt(CLI::App& cli, std::string& seed);
 
     /// RAII class that resets the log level for the given category while the object is alive, then
     /// resets it to what it was at construction when the object is destroyed.
