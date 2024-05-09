@@ -70,6 +70,22 @@ namespace oxen::quic
         // complete.
         void close_soon(std::shared_ptr<Endpoint>&& endpoint);
 
+        // Initiates shutdown of the entire Network instance by closing all of the connections on
+        // this object, synchronously.  This is normally called during destruction, but can also be
+        // called manually to control the sequence of shutdown (for instance, if connections or
+        // streams have callbacks that will be fired during destruction that need a Network instance
+        // to remain alive externally).
+        //
+        // The caller should consider the Network dead and *must not* perform any network operations
+        // (such as creating a new connection) after calling this.
+        //
+        // Calling this implicitly calls `set_shutdown_immediate()` so that, after this call,
+        // destruction will happen assuming all connections/streams have been properly terminated.
+        void close();
+
+        // Initiates shutdown (as close() does), but does not wait for closing to complete.
+        void close_soon();
+
         template <typename T, typename... Args>
         std::shared_ptr<T> make_shared(Args&&... args)
         {
@@ -127,8 +143,6 @@ namespace oxen::quic
         friend class Endpoint;
         friend class Connection;
         friend class Stream;
-
-        void close_gracefully();
 
         const caller_id_t net_id;
 

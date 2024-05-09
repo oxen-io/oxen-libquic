@@ -20,10 +20,8 @@ namespace oxen::quic
 
     Network::~Network()
     {
-        log::debug(log_cat, "Shutting down network...");
-
         if (not shutdown_immediate)
-            close_gracefully();
+            close();
 
         // If the loop is internally managed by the Network ("standard ownership"), then this ensures that the last Network
         // to turn the lights off has time to allow for any final objects to be destructed off of the event loop
@@ -68,17 +66,38 @@ namespace oxen::quic
         });
     }
 
-    Network Network::create_linked_network()
+    void Network::close()
     {
-        return Network{_loop};
-    }
-
-    void Network::close_gracefully()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::debug(log_cat, "Shutting down network...");
         _loop->call_get([this] {
             for (const auto& ep : endpoints)
                 ep->_close_conns(std::nullopt);
         });
+
+        endpoints.clear();
+
+        set_shutdown_immediate();
+
+        log::info(log_cat, "Network shutdown complete");
+    }
+
+    void Network::close_soon()
+    {
+        log::debug(log_cat, "Shutting down network...");
+        _loop->call([this] {
+            for (const auto& ep : endpoints)
+                ep->_close_conns(std::nullopt);
+
+            endpoints.clear();
+
+            set_shutdown_immediate();
+
+            log::info(log_cat, "Network shutdown complete");
+        });
+    }
+
+    Network Network::create_linked_network()
+    {
+        return Network{_loop};
     }
 }  // namespace oxen::quic
