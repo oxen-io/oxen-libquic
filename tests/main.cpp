@@ -2,7 +2,7 @@
 
 #include "utils.hpp"
 
-bool oxen::quic::disable_ipv6, oxen::quic::disable_rotating_buffer;
+bool oxen::quic::disable_ipv6, oxen::quic::disable_rotating_buffer, oxen::quic::enable_tunnel_tests;
 
 int main(int argc, char* argv[])
 {
@@ -13,6 +13,7 @@ int main(int argc, char* argv[])
     bool test_case_tracing = false;
     oxen::quic::disable_ipv6 = false;
     oxen::quic::disable_rotating_buffer = false;
+    oxen::quic::enable_tunnel_tests = false;
 
     auto cli = session.cli() | Opt(log_level, "level")["--log-level"]("oxen-logging log level to apply to the test run") |
                Opt(log_file, "file")["--log-file"](

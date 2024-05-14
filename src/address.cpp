@@ -210,13 +210,13 @@ namespace oxen::quic
         return {&in6().sin6_addr};
     }
 
-    std::string Address::host() const
+    std::string Address::host(bool no_format) const
     {
         char buf[INET6_ADDRSTRLEN] = {};
         if (is_ipv6())
         {
             inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6&>(_sock_addr).sin6_addr, buf, sizeof(buf));
-            return "[{}]"_format(buf);
+            return no_format ? "{}"_format(buf) : "[{}]"_format(buf);
         }
         inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in&>(_sock_addr).sin_addr, buf, sizeof(buf));
         return "{}"_format(buf);
@@ -225,6 +225,90 @@ namespace oxen::quic
     std::string Address::to_string() const
     {
         return "{}:{}"_format(host(), port());
+    }
+
+    std::string Address::bt_encode() const
+    {
+        oxenc::bt_dict_producer btdp;
+        bt_encode(btdp);
+
+        return std::move(btdp).str();
+    }
+
+    void Address::bt_encode(oxenc::bt_dict_producer& btdp) const
+    {
+        btdp.append("h", host(true));
+        btdp.append("p", port());
+    }
+
+    std::optional<Address> Address::bt_decode(oxenc::bt_dict_consumer& btdc)
+    {
+        std::optional<Address> a = std::nullopt;
+        std::string host;
+        uint16_t port;
+
+        try
+        {
+            host = btdc.require<std::string>("h");
+            port = btdc.require<uint16_t>("p");
+
+            a = Address{std::move(host), port};
+        }
+        catch (const std::exception& e)
+        {
+            log::critical(log_cat, "Exception parsing Address: {}", e.what());
+            throw;
+        }
+
+        return a;
+    }
+
+    std::string Path::bt_encode() const
+    {
+        oxenc::bt_dict_producer btdp;
+        bt_encode(btdp);
+
+        return std::move(btdp).str();
+    }
+
+    void Path::bt_encode(oxenc::bt_dict_producer& btdp) const
+    {
+        {
+            auto subdict = btdp.append_dict("l");
+            local.bt_encode(subdict);
+        }
+
+        {
+            auto subdict = btdp.append_dict("r");
+            remote.bt_encode(subdict);
+        }
+    }
+
+    std::optional<Path> Path::bt_decode(oxenc::bt_dict_consumer& btdc)
+    {
+        std::optional<Path> p = std::nullopt;
+
+        try
+        {
+            {
+                auto [_, subdict] = btdc.next_dict_consumer();
+                // this constructor will throw for failures
+                p->local = *Address::bt_decode(subdict);
+            }
+
+            {
+                auto [_, subdict] = btdc.next_dict_consumer();
+                // this constructor will throw for failures
+                p->remote = *Address::bt_decode(subdict);
+            }
+        }
+        catch (const std::exception& e)
+        {
+            log::critical(log_cat, "Exception parsing Path: {}", e.what());
+            throw;
+        }
+
+        return p;
     }
 
     void Path::set_new_remote(const ngtcp2_addr& new_remote)

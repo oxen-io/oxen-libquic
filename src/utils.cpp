@@ -27,6 +27,26 @@ namespace oxen::quic
         }
     }
 
+    int check_rv(int rv, std::string_view action)
+    {
+        std::optional<std::error_code> ec;
+#ifdef _WIN32
+        if (rv == SOCKET_ERROR)
+            ec.emplace(WSAGetLastError(), std::system_category());
+#else
+        if (rv == -1)
+            ec.emplace(errno, std::system_category());
+
+#endif
+        if (ec)
+        {
+            log::error(log_cat, "Got error {} ({}) during {}", ec->value(), ec->message(), action);
+            throw std::system_error{*ec};
+        }
+
+        return rv;
+    }
+
     std::chrono::steady_clock::time_point get_time()
     {
         return std::chrono::steady_clock::now();

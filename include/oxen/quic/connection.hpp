@@ -129,9 +129,9 @@ namespace oxen::quic
         template <oxenc::basic_char Char>
         void send_datagram(std::vector<Char>&& buf)
         {
-            send_datagram(
-                    std::basic_string_view<Char>{buf.data(), buf.size()},
-                    std::make_shared<std::vector<Char>>(std::move(buf)));
+            auto keep_alive = std::make_shared<std::vector<Char>>(std::move(buf));
+            std::basic_string_view<Char> view{keep_alive->data(), keep_alive->size()};
+            send_datagram(view, std::move(keep_alive));
         }
 
         template <oxenc::basic_char CharType>
@@ -490,6 +490,8 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_execute_close(Stream& s, uint64_t app_code);
+        void stream_stop_sending(int64_t id, uint64_t app_code);
+        void stream_reset(int64_t id, uint64_t app_code);
         void stream_closed(int64_t id, uint64_t app_code);
         void close_all_streams();
         void check_pending_streams(uint64_t available);

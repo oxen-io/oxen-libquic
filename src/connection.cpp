@@ -115,6 +115,18 @@ namespace oxen::quic
             return 0;
         }
 
+        static int on_stream_stop_sending(
+                ngtcp2_conn* /* conn */,
+                int64_t stream_id,
+                uint64_t app_error_code,
+                void* user_data,
+                void* /* stream_user_data */)
+        {
+            log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+            static_cast<Connection*>(user_data)->stream_stop_sending(stream_id, app_error_code);
+            return 0;
+        }
+
         static int on_stream_reset(
                 ngtcp2_conn* /*conn*/,
                 int64_t stream_id,
@@ -124,7 +136,7 @@ namespace oxen::quic
                 void* /*stream_user_data*/)
         {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+            static_cast<Connection*>(user_data)->stream_reset(stream_id, app_error_code);
             return 0;
         }
 
@@ -934,7 +946,7 @@ namespace oxen::quic
                     }
                     else if (bufs.empty())
                     {
-                        log::debug(log_cat, "pending() returned empty buffer for stream ID {}, moving on", stream_id);
+                        log::trace(log_cat, "pending() returned empty buffer for stream ID {}, moving on", stream_id);
                         continue;
                     }
                 }
@@ -971,7 +983,7 @@ namespace oxen::quic
                         dgram.size(),
                         ts);
 
-                log::debug(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
+                log::trace(log_cat, "ngtcp2_conn_writev_datagram returned a value of {}", nwrite);
 
                 if (datagram_accepted != 0)
                 {
@@ -1082,7 +1094,7 @@ namespace oxen::quic
             log::trace(log_cat, "Sending final packet batch of {} packets", n_packets);
             send(&pkt_updater);
         }
-        log::debug(log_cat, "Exiting flush_streams()");
+        log::trace(log_cat, "Exiting flush_streams()");
     }
 
     void Connection::schedule_packet_retransmit(std::chrono::steady_clock::time_point ts)
@@ -1160,6 +1172,7 @@ namespace oxen::quic
     {
         const bool was_closing = stream._is_closing;
         stream._is_closing = stream._is_shutdown = true;
+        stream._is_reading = stream._is_writing = false;
 
         if (stream._is_watermarked)
             stream.clear_watermarks();
@@ -1168,6 +1181,54 @@ namespace oxen::quic
         {
             log::trace(log_cat, "Invoking stream close callback");
             stream.closed(app_code);
+        }
+    }
+
+    void Connection::stream_stop_sending(int64_t id, uint64_t app_code)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        assert(ngtcp2_is_bidi_stream(id));
+        auto it = _streams.find(id);
+
+        if (it == _streams.end())
+            return;
+
+        auto& stream = it->second;
+
+        if (stream->_remote_reset.has_stop_sending_hook())
+        {
+            log::info(log_cat, "Invoking on_remote_stop_sending hook...");
+            stream->_in_reset = true;
+            stream->_remote_reset.on_remote_stop_sending(*stream.get(), app_code);
+            stream->_in_reset = false;
+        }
+        else
+        {
+            log::info(log_cat, "No user-provided on_remote_stop_sending hook", app_code);
+        }
+    }
+
+    void Connection::stream_reset(int64_t id, uint64_t app_code)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        assert(ngtcp2_is_bidi_stream(id));
+        auto it = _streams.find(id);
+
+        if (it == _streams.end())
+            return;
+
+        auto& stream = it->second;
+
+        if (stream->_remote_reset.has_stream_reset_hook())
+        {
+            log::info(log_cat, "Invoking on_remote_stream_reset hook...");
+            stream->_in_reset = true;
+            stream->_remote_reset.on_remote_stream_reset(*stream.get(), app_code);
+            stream->_in_reset = false;
+        }
+        else
+        {
+            log::info(log_cat, "No user-provided on_remote_stream_reset hook", app_code);
         }
     }
 
@@ -1305,11 +1366,15 @@ namespace oxen::quic
         }
         else
         {
+            size_t sz = 0;
+
             if (str->_paused)
                 str->_paused_offset += data.size();
             else
-                ngtcp2_conn_extend_max_stream_offset(conn.get(), id, data.size());
+                sz = data.size();
+
             ngtcp2_conn_extend_max_offset(conn.get(), data.size());
+            ngtcp2_conn_extend_max_stream_offset(conn.get(), id, sz);
         }
 
         return 0;
@@ -1474,6 +1539,7 @@ namespace oxen::quic
         callbacks.dcid_status = Callbacks::on_connection_id_status;
         callbacks.update_key = ngtcp2_crypto_update_key_cb;
         callbacks.stream_reset = Callbacks::on_stream_reset;
+        callbacks.stream_stop_sending = Callbacks::on_stream_stop_sending;
         callbacks.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
         callbacks.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
         callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;

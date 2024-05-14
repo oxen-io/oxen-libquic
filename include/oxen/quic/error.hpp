@@ -20,6 +20,12 @@ namespace oxen::quic
     // Application error code we close with if the stream data handle throws
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = ERROR_BASE + 100;
 
+    // Application error code for signalling a remote shut down stream reading
+    inline constexpr uint64_t STREAM_REMOTE_READ_SHUTDOWN = ERROR_BASE + 101;
+
+    // Application error code for signalling a remote shut down stream writing
+    inline constexpr uint64_t STREAM_REMOTE_WRITE_SHUTDOWN = ERROR_BASE + 102;
+
     // Application error if a bt request stream handle throws an exception
     inline constexpr uint64_t BPARSER_ERROR_EXCEPTION = ERROR_BASE + 105;
 

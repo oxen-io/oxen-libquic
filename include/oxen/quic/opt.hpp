@@ -3,8 +3,7 @@
 #include <stdexcept>
 
 #include "address.hpp"
-#include "crypto.hpp"
-#include "types.hpp"
+#include "connection_ids.hpp"
 
 namespace oxen::quic
 {
@@ -202,5 +201,42 @@ namespace oxen::quic
                     _hook = nullptr;
             }
         };
+
+        // Used to provide callbacks for remote stream reset. Application can pass one or both callbacks to indicate what
+        // logic should be executed when the remote shuts down stream reading or writing. The signature of `on_reset_hook_t`
+        // matches that of other hooks, so we wrap it in an opt struct to differentiate and to structure access.
+        struct remote_stream_reset
+        {
+            using on_reset_hook_t = std::function<void(Stream&, uint64_t)>;
+
+          private:
+            on_reset_hook_t _on_stop_sending = nullptr;
+            on_reset_hook_t _on_stream_reset = nullptr;
+
+          public:
+            remote_stream_reset() = default;
+
+            explicit remote_stream_reset(on_reset_hook_t _stop_sending, on_reset_hook_t _stream_reset = nullptr) :
+                    _on_stop_sending{std::move(_stop_sending)}, _on_stream_reset{std::move(_stream_reset)}
+            {
+                if (not _on_stop_sending and not _on_stream_reset)
+                    throw std::invalid_argument{"Must set at least one of `on_stop_sending` and `on_stream_reset`!"};
+            }
+
+            explicit operator bool() const { return has_stop_sending_hook() and has_stream_reset_hook(); }
+
+            void clear()
+            {
+                _on_stop_sending = nullptr;
+                _on_stream_reset = nullptr;
+            }
+
+            bool has_stop_sending_hook() const { return _on_stop_sending != nullptr; }
+            bool has_stream_reset_hook() const { return _on_stream_reset != nullptr; }
+
+            void on_remote_stop_sending(Stream& s, uint64_t ec) { return _on_stop_sending(s, ec); }
+            void on_remote_stream_reset(Stream& s, uint64_t ec) { return _on_stream_reset(s, ec); }
+        };
+
     }  //  namespace opt
 }  // namespace oxen::quic

@@ -38,7 +38,7 @@ if(LIBQUIC_BUILD_TESTS)
         009-alpns.cpp
         010-migration.cpp
         011-manual_transmission.cpp
-        012-watermarks.cpp
+        012-stream_signalling.cpp
 
         main.cpp
         case_logger.cpp
@@ -50,7 +50,7 @@ endif()
 
 if(LIBQUIC_BUILD_SPEEDTEST)
     set(LIBQUIC_SPEEDTEST_PREFIX "" CACHE STRING "Binary prefix for speedtest binaries")
-    set(speedtests speedtest-client speedtest-server dgram-speed-client dgram-speed-server)
+    set(speedtests speedtest-client speedtest-server dgram-speed-client dgram-speed-server tunnel-client tunnel-server)
     foreach(x ${speedtests})
         add_executable(${x} ${x}.cpp)
         target_link_libraries(${x} PRIVATE tests_common)

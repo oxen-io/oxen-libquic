@@ -217,6 +217,9 @@ namespace oxen::quic
         return true;
     }
 
+    /// Checks rv for being -1 and, if so, raises a system_error from errno.  Otherwise returns it.
+    int check_rv(int rv, std::string_view action);
+
     // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
     // pointer, because we need it all over the place in the ngtcp2 API
     template <typename Container>

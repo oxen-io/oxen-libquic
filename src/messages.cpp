@@ -47,7 +47,7 @@ namespace oxen::quic
             }
             else
             {
-                log::debug(log_cat, "enable_datagram_drop_test is false, skipping optional logic");
+                log::trace(log_cat, "enable_datagram_drop_test is false, skipping optional logic");
             }
 
             log::trace(

@@ -195,6 +195,7 @@ namespace oxen::quic
         // Returns a random value suitable for use as the Endpoint static secret value.
         static ustring make_static_secret();
 
+        // Receive a packet constructed in the function call or moved into it
         void manually_receive_packet(Packet&& pkt);
 
       private:
@@ -231,7 +232,7 @@ namespace oxen::quic
         std::map<ustring, ustring> encoded_transport_params;
         std::map<ustring, ustring> path_validation_tokens;
 
-        const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
+        const std::shared_ptr<event_base>& get_loop() { return net.ev_loop(); }
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 

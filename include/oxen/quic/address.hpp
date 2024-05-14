@@ -1,5 +1,6 @@
 #pragma once
 
+#include <oxenc/bt.h>
 #include <oxenc/endian.h>
 
 #include <compare>
@@ -272,11 +273,17 @@ namespace oxen::quic
         // sockaddr pointer).
         void update_socklen(socklen_t len) { _addr.addrlen = len; }
 
-        std::string host() const;
+        std::string host(bool no_format = false) const;
 
         // Convenience method for debugging, etc.  This is usually called implicitly by passing the
         // Address to fmt to format it.
         std::string to_string() const;
+
+        std::string bt_encode() const;
+
+        void bt_encode(oxenc::bt_dict_producer& btdp) const;
+
+        static std::optional<Address> bt_decode(oxenc::bt_dict_consumer& btdc);
     };
 
     struct RemoteAddress : public Address
@@ -340,6 +347,10 @@ namespace oxen::quic
             return *this;
         }
 
+        bool operator==(const Path& other) const { return std::tie(local, remote) == std::tie(other.local, other.remote); }
+
+        bool operator!=(const Path& other) const { return !(*this == other); }
+
         // template code to pass Path as ngtcp2_path into ngtcp2 functions
         template <typename T>
             requires std::same_as<T, ngtcp2_path>
@@ -357,6 +368,12 @@ namespace oxen::quic
         Path invert() const { return {remote, local}; }
 
         std::string to_string() const;
+
+        std::string bt_encode() const;
+
+        void bt_encode(oxenc::bt_dict_producer& btdp) const;
+
+        static std::optional<Path> bt_decode(oxenc::bt_dict_consumer& btdc);
     };
 }  // namespace oxen::quic
 
@@ -387,6 +404,17 @@ namespace std
 
             auto h = hash<string_view>{}(addr_data);
             h ^= hash<decltype(port)>{}(port) + inverse_golden_ratio + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
+    template <>
+    struct hash<oxen::quic::Path>
+    {
+        size_t operator()(const oxen::quic::Path& addr) const
+        {
+            auto h = hash<oxen::quic::Address>{}(addr.local);
+            h ^= hash<oxen::quic::Address>{}(addr.remote);
             return h;
         }
     };

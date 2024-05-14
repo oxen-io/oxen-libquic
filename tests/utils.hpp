@@ -17,7 +17,7 @@
 
 namespace oxen::quic
 {
-    extern bool disable_ipv6, disable_rotating_buffer;
+    extern bool disable_ipv6, disable_rotating_buffer, enable_tunnel_tests;
 
     namespace log = oxen::log;
     using namespace log::literals;
@@ -48,6 +48,8 @@ namespace oxen::quic
         static void enable_dgram_flip_flop(connection_interface& conn);
         static int disable_dgram_flip_flop(connection_interface& conn);
         static int get_dgram_debug_counter(connection_interface& conn);
+
+        static size_t stream_unacked(Stream& s);
 
         // Bumps the connection's next reference id to make it easier to tell which connection is
         // which in log output.

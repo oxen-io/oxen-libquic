@@ -18,7 +18,6 @@ extern "C"
 
 #include "address.hpp"
 #include "types.hpp"
-#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -33,6 +32,10 @@ namespace oxen::quic
     // Simple struct wrapping a raw packet and its corresponding information
     struct Packet
     {
+      private:
+        explicit Packet() = default;
+
+      public:
         Path path;
         ngtcp2_pkt_info pkt_info{};
         std::variant<bstring_view, bstring> pkt_data;
@@ -47,6 +50,10 @@ namespace oxen::quic
                     pkt_data);
         }
 
+        bool operator==(const Packet& other) const { return (path == other.path) and (data() == other.data()); }
+
+        bool operator!=(const Packet& other) const { return !(*this == other); }
+
         /// Constructs a packet from a path and data view:
         Packet(Path p, bstring_view d) : path{std::move(p)}, pkt_data{std::move(d)} {}
 
@@ -56,6 +63,10 @@ namespace oxen::quic
         /// Constructs a packet from a local address, data, and the IP header; remote addr and ECN
         /// data are extracted from the header.
         Packet(const Address& local, bstring_view data, msghdr& hdr);
+
+        std::string bt_encode() const;
+
+        static std::optional<Packet> bt_decode(bstring buf);
     };
 
     /// RAII class wrapping a UDP socket; the socket is bound at construction and closed during

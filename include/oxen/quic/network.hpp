@@ -22,7 +22,9 @@ namespace oxen::quic
         Network();
         ~Network();
 
-        const std::shared_ptr<::event_base>& loop() const { return _loop->loop(); }
+        const std::shared_ptr<::event_base>& ev_loop() const { return _loop->loop(); }
+
+        const std::shared_ptr<Loop>& loop() const { return _loop; }
 
         bool in_event_loop() const { return _loop->in_event_loop(); }
 

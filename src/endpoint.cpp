@@ -244,7 +244,7 @@ namespace oxen::quic
             }
         }
         else
-            log::debug(log_cat, "Found associated connection to incoming DCID!");
+            log::trace(log_cat, "Found associated connection to incoming DCID!");
 
         if (cptr->is_outbound())
             // For a inbound packet on an outbound connection the packet handling code will have set

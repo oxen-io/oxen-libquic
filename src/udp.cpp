@@ -18,10 +18,13 @@ extern "C"
 #endif
 }
 
+#include <oxenc/bt.h>
+
 #include <system_error>
 
 #include "internal.hpp"
 #include "udp.hpp"
+#include "utils.hpp"
 
 #ifdef _WIN32
 
@@ -59,27 +62,6 @@ namespace oxen::quic
             IP_TOS;
 #endif
 #endif
-
-    /// Checks rv for being -1 and, if so, raises a system_error from errno.  Otherwise returns it.
-    static int check_rv(int rv, std::string_view action)
-    {
-        std::optional<std::error_code> ec;
-#ifdef _WIN32
-        if (rv == SOCKET_ERROR)
-            ec.emplace(WSAGetLastError(), std::system_category());
-#else
-        if (rv == -1)
-            ec.emplace(errno, std::system_category());
-
-#endif
-        if (ec)
-        {
-            log::error(log_cat, "Got error {} ({}) during {}", ec->value(), ec->message(), action);
-            throw std::system_error{*ec};
-        }
-
-        return rv;
-    }
 
     // Same as above, but just logs, doesn't throw.
     static void log_rv_error(int rv, std::string_view action)
@@ -782,6 +764,48 @@ namespace oxen::quic
     {
         writeable_callbacks_.push_back(std::move(cb));
         event_add(wev_.get(), nullptr);
+    }
+
+    std::string Packet::bt_encode() const
+    {
+        oxenc::bt_dict_producer btdp;
+
+        btdp.append("d", data());
+
+        {
+            auto subdict = btdp.append_dict("p");
+            path.bt_encode(subdict);
+        }
+
+        return std::move(btdp).str();
+    }
+
+    std::optional<Packet> Packet::bt_decode(bstring buf)
+    {
+        std::optional<Packet> p = std::nullopt;
+
+        oxenc::bt_dict_consumer btdc{buf};
+
+        bstring data;
+        Path path;
+
+        try
+        {
+            data = btdc.require<bstring>("d");
+
+            {
+                auto [_, subdict] = btdc.next_dict_consumer();
+                path = *Path::bt_decode(subdict);
+            }
+
+            p = Packet{std::move(path), std::move(data)};
+        }
+        catch (const std::exception& e)
+        {
+            log::critical(log_cat, "Exception parsing Packet: {}", e.what());
+        }
+
+        return p;
     }
 
     Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
