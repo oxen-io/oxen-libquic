@@ -49,6 +49,8 @@ namespace oxen::quic
         static int disable_dgram_flip_flop(connection_interface& conn);
         static int get_dgram_debug_counter(connection_interface& conn);
 
+        static size_t stream_unacked(Stream& s);
+
         // Bumps the connection's next reference id to make it easier to tell which connection is
         // which in log output.
         static void increment_ref_id(Endpoint& ep, uint64_t by = 1);

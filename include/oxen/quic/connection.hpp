@@ -490,6 +490,7 @@ namespace oxen::quic
         int stream_ack(int64_t id, size_t size);
         int stream_receive(int64_t id, bstring_view data, bool fin);
         void stream_execute_close(Stream& s, uint64_t app_code);
+        void stream_reset(int64_t id, uint64_t app_code);
         void stream_closed(int64_t id, uint64_t app_code);
         void close_all_streams();
         void check_pending_streams(uint64_t available);

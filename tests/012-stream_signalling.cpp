@@ -7,7 +7,7 @@
 
 namespace oxen::quic::test
 {
-    TEST_CASE("012 - Stream Buffer Watermarking", "[012][watermark][streams]")
+    TEST_CASE("012 - Stream Signalling: Buffer Watermarking", "[012][signalling][watermark][streams]")
     {
         Network test_net{};
         bstring req_msg(100'000, std::byte{'a'});
@@ -143,6 +143,85 @@ namespace oxen::quic::test
             client_stream->clear_watermarks();
 
             REQUIRE_FALSE(client_stream->has_watermarks());
+        }
+    }
+
+    TEST_CASE("012 - Stream Signalling: Stop Read/Write", "[012][signalling][readwrite][streams]")
+    {
+        Network test_net{};
+        bstring req_msg(1'000, std::byte{'a'});
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        Address server_local{};
+        Address client_local{};
+
+        std::shared_ptr<Stream> server_stream;
+
+        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[&](connection_interface& ci) {
+            server_stream = ci.queue_incoming_stream();
+            server_stream->send(bstring_view{req_msg});
+        }};
+
+        auto server_endpoint = test_net.endpoint(server_local, server_established);
+        REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+
+        auto client_endpoint = test_net.endpoint(client_local, client_established);
+        auto conn_interface = client_endpoint->connect(client_remote, client_tls);
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+
+        auto p = std::promise<bool>();
+        auto f = p.get_future();
+
+        auto client_stream = conn_interface->open_stream<Stream>([&](Stream&, bstring_view) { p.set_value(true); });
+
+        client_stream->set_remote_reset_hooks(opt::remote_stream_reset{
+                [](Stream& s, uint64_t ec) {
+                    REQUIRE(ec == STREAM_REMOTE_READ_SHUTDOWN);
+
+                    // Cannot set or clear callbacks while executing the callbacks!
+                    REQUIRE_THROWS(s.set_remote_reset_hooks(opt::remote_stream_reset{}));
+                    REQUIRE_THROWS(s.clear_remote_reset_hooks());
+
+                    s.stop_writing();
+                },
+                [](Stream& s, uint64_t ec) {
+                    REQUIRE(ec == STREAM_REMOTE_WRITE_SHUTDOWN);
+                    s.stop_reading();
+                }});
+
+        REQUIRE(client_stream->is_reading());
+        REQUIRE(client_stream->is_writing());
+
+        SECTION("Stop Writing")
+        {
+            server_stream->stop_writing();
+            REQUIRE_FALSE(server_stream->is_writing());
+
+            client_stream->send(bstring_view{req_msg});
+            require_future(f);
+
+            // allow the acks to get back to the client; extra time for slow CI archs
+            std::this_thread::sleep_for(250ms);
+
+            REQUIRE_FALSE(client_stream->is_reading());
+
+            REQUIRE(TestHelper::stream_unacked(*server_stream.get()) == 0);
+        }
+
+        SECTION("Stop Reading")
+        {
+            client_stream->stop_reading();
+            REQUIRE_FALSE(client_stream->is_reading());
+
+            client_stream->send(bstring_view{req_msg});
+
+            REQUIRE(f.wait_for(1s) == std::future_status::timeout);
         }
     }
 }  //  namespace oxen::quic::test

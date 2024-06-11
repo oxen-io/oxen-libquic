@@ -202,5 +202,42 @@ namespace oxen::quic
                     _hook = nullptr;
             }
         };
+
+        // Used to provide callbacks for remote stream reset. Application can pass one or both callbacks to indicate what
+        // logic should be executed when the remote shuts down stream reading or writing. The signature of `on_reset_hook_t`
+        // matches that of other hooks, so we wrap it in an opt struct to differentiate and to structure access.
+        struct remote_stream_reset
+        {
+            using on_reset_hook_t = std::function<void(Stream&, uint64_t)>;
+
+          private:
+            on_reset_hook_t _on_read_reset = nullptr;
+            on_reset_hook_t _on_write_reset = nullptr;
+
+          public:
+            remote_stream_reset() = default;
+
+            explicit remote_stream_reset(on_reset_hook_t _on_read, on_reset_hook_t _on_write = nullptr) :
+                    _on_read_reset{std::move(_on_read)}, _on_write_reset{std::move(_on_write)}
+            {
+                if (not _on_read_reset and not _on_write_reset)
+                    throw std::invalid_argument{"Must set at least one of `on_read_reset` and `on_write_reset`!"};
+            }
+
+            explicit operator bool() const { return has_read_hook() and has_write_hook(); }
+
+            void clear()
+            {
+                _on_read_reset = nullptr;
+                _on_write_reset = nullptr;
+            }
+
+            bool has_read_hook() const { return _on_read_reset != nullptr; }
+            bool has_write_hook() const { return _on_write_reset != nullptr; }
+
+            void read_reset(Stream& s, uint64_t ec) { return _on_read_reset(s, ec); }
+            void write_reset(Stream& s, uint64_t ec) { return _on_write_reset(s, ec); }
+        };
+
     }  //  namespace opt
 }  // namespace oxen::quic

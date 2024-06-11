@@ -91,6 +91,26 @@ namespace oxen::quic
 
         bool is_paused() const;
 
+        /** Remote Stream Reset:
+            - Applications can call `::set_remote_reset_hooks(...)` to emplace logic to be executed when the remote stream
+                shuts down reading and/or writing
+            - This only happens once per lifetime of the stream; as a result, do NOT set more hooks while inside the body of
+                the hooks themselves!
+        */
+        void set_remote_reset_hooks(opt::remote_stream_reset hooks);
+
+        void clear_remote_reset_hooks();
+
+        bool has_remote_reset_hooks() const;
+
+        void stop_reading();
+
+        void stop_writing();
+
+        bool is_reading() const;
+
+        bool is_writing() const;
+
         // These public methods are synchronized so that they can be safely called from outside the
         // libquic main loop thread.
         bool available() const;
@@ -159,6 +179,13 @@ namespace oxen::quic
 
         opt::watermark _high_water;
         opt::watermark _low_water;
+
+        opt::remote_stream_reset _remote_reset;
+
+        bool _in_reset{false};
+
+        bool _is_reading{true};
+        bool _is_writing{true};
 
         void wrote(size_t bytes) override;
 

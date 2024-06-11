@@ -38,7 +38,7 @@ if(LIBQUIC_BUILD_TESTS)
         009-alpns.cpp
         010-migration.cpp
         011-manual_transmission.cpp
-        012-watermarks.cpp
+        012-stream_signalling.cpp
 
         main.cpp
         case_logger.cpp

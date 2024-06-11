@@ -124,7 +124,7 @@ namespace oxen::quic
                 void* /*stream_user_data*/)
         {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            static_cast<Connection*>(user_data)->stream_closed(stream_id, app_error_code);
+            static_cast<Connection*>(user_data)->stream_reset(stream_id, app_error_code);
             return 0;
         }
 
@@ -1169,6 +1169,51 @@ namespace oxen::quic
         {
             log::trace(log_cat, "Invoking stream close callback");
             stream.closed(app_code);
+        }
+    }
+
+    void Connection::stream_reset(int64_t id, uint64_t app_code)
+    {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        assert(ngtcp2_is_bidi_stream(id));
+        auto it = _streams.find(id);
+
+        if (it == _streams.end())
+            return;
+
+        auto& stream = it->second;
+
+        switch (app_code)
+        {
+            case STREAM_REMOTE_READ_SHUTDOWN:
+                log::debug(log_cat, "Stream (ID:{}) received remote read shutdown signal!", id);
+
+                if (stream->_remote_reset.has_read_hook())
+                {
+                    log::debug(log_cat, "Invoking remote_read_reset hook...");
+                    stream->_in_reset = true;
+                    stream->_remote_reset.read_reset(*stream.get(), app_code);
+                    stream->_in_reset = false;
+                }
+
+                break;
+
+            case STREAM_REMOTE_WRITE_SHUTDOWN:
+                log::debug(log_cat, "Stream (ID:{}) received remote write shutdown signal!", id);
+
+                if (stream->_remote_reset.has_write_hook())
+                {
+                    log::debug(log_cat, "Invoking remote_write_reset hook...");
+                    stream->_in_reset = true;
+                    stream->_remote_reset.write_reset(*stream.get(), app_code);
+                    stream->_in_reset = false;
+                }
+
+                break;
+
+            default:
+                log::critical(
+                        log_cat, "Stream (ID:{}) received unrecognized app code (ec:{}) for stream reset!", id, app_code);
         }
     }
 

@@ -112,6 +112,11 @@ namespace oxen::quic
         ep._next_rid += by;
     }
 
+    size_t TestHelper::stream_unacked(Stream& s)
+    {
+        return s._unacked_size;
+    }
+
     std::pair<std::shared_ptr<GNUTLSCreds>, std::shared_ptr<GNUTLSCreds>> test::defaults::tls_creds_from_ed_keys()
     {
         auto client = GNUTLSCreds::make_from_ed_keys(CLIENT_SEED, CLIENT_PUBKEY);
