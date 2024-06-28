@@ -295,7 +295,7 @@ add_static_target(nettle::nettle nettle_external libnettle.a)
 add_static_target(hogweed::hogweed nettle_external libhogweed.a nettle::nettle)
 
 build_external(gnutls
-    CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --with-included-unistring --with-included-libtasn1 --prefix=${DEPS_DESTDIR} --with-pic
+    CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --with-nettle-mini --with-included-unistring --with-included-libtasn1 --prefix=${DEPS_DESTDIR} --with-pic
         --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
         --without-zlib --without-brotli --without-zstd --without-libintl-prefix --disable-tests
         --disable-valgrind-tests --disable-full-test-suite
