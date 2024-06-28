@@ -8,6 +8,17 @@ include(CheckCXXSourceCompiles)
 
 add_library(filesystem INTERFACE)
 
+file(WRITE ${CMAKE_BINARY_DIR}/fs_test.cpp "#include <filesystem>\nint main() { auto p = std::filesystem::current_path(); return 0; }")
+try_compile(COMPILE_RESULT ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/fs_test.cpp
+            OUTPUT_VARIABLE BUILD_RESULT)
+if (COMPILE_RESULT)
+    message(INFO "Build succeeded @@@@@@@@@@@@@@")
+else()
+    message(FATAL_ERROR "Build failed @@@@@@@@@ ${BUILD_RESULT}")
+endif()
+
+
+
 set(filesystem_code [[
 #include <filesystem>
 
