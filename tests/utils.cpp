@@ -19,7 +19,7 @@ namespace oxen::quic
 
         current_sock.swap(new_sock);
         auto rv = ngtcp2_conn_initiate_migration(conn, conn._path, get_timestamp().count());
-        log::trace(log_cat, "{}", ngtcp2_strerror(rv));
+        log::trace(test_cat, "{}", ngtcp2_strerror(rv));
     }
 
     void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
@@ -37,7 +37,7 @@ namespace oxen::quic
 
         current_sock.swap(new_sock);
         auto rv = ngtcp2_conn_initiate_immediate_migration(conn, conn._path, get_timestamp().count());
-        log::trace(log_cat, "{}", ngtcp2_strerror(rv));
+        log::trace(test_cat, "{}", ngtcp2_strerror(rv));
     }
 
     void TestHelper::nat_rebinding(Connection& conn, Address new_bind)

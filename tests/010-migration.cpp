@@ -31,18 +31,18 @@ namespace oxen::quic::test
         std::shared_ptr<connection_interface> server_ci;
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
             d_promise.set_value();
         };
 
         auto server_established = callback_waiter{[](connection_interface&) {}};
-        auto client_established_b = callback_waiter{[](connection_interface&) { log::trace(log_cat, "LOOK ME UP BRO"); }};
+        auto client_established_b = callback_waiter{[](connection_interface&) { log::trace(test_cat, "LOOK ME UP BRO"); }};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         server_endpoint->listen(server_tls, server_data_cb);
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_established = [&](connection_interface& ci) mutable {
             if (not address_flipped)
@@ -72,7 +72,7 @@ namespace oxen::quic::test
             {
                 if (not secondary_connected)
                 {
-                    log::trace(log_cat, "Skipping address flip!");
+                    log::trace(test_cat, "Skipping address flip!");
                     secondary_connected = true;
                     conn_promise_b.set_value();
                 }
@@ -100,7 +100,7 @@ namespace oxen::quic::test
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
         std::this_thread::sleep_for(5ms);
-        RemoteAddress client_remote_b{defaults::CLIENT_PUBKEY, "127.0.0.1"s, client_ci->local().port()};
+        RemoteAddress client_remote_b{defaults::CLIENT_PUBKEY, LOCALHOST, client_ci->local().port()};
 
         REQUIRE_FALSE(original_addr == client_ci->local());
 

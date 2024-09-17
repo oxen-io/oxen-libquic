@@ -24,7 +24,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established, opt::enable_0rtt_ticketing{});
         CHECK_NOTHROW(server_endpoint->listen(server_tls));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established, opt::enable_0rtt_ticketing{});
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
@@ -49,7 +49,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, server_established, opt::disable_stateless_reset{});
         CHECK_NOTHROW(server_endpoint->listen(server_tls));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established, opt::disable_stateless_reset{});
         auto client_ci = client_endpoint->connect(client_remote, client_tls);

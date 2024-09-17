@@ -109,7 +109,7 @@ namespace oxen::quic::test
         REQUIRE_NOTHROW(vanilla_server->listen(server_tls));
         REQUIRE_NOTHROW(manual_server->listen(server_tls));
 
-        RemoteAddress vanilla_client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, vanilla_server->local().port()};
+        RemoteAddress vanilla_client_remote{defaults::SERVER_PUBKEY, LOCALHOST, vanilla_server->local().port()};
 
         vanilla_client_ci = vanilla_client->connect(vanilla_client_remote, client_tls);
 

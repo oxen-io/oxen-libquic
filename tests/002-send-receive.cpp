@@ -20,7 +20,7 @@ namespace oxen::quic::test
         std::future<bool> d_future = d_promise.get_future();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
             d_promise.set_value(true);
         };
@@ -33,7 +33,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -60,7 +60,7 @@ namespace oxen::quic::test
         std::atomic<int> index = 0;
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
             d_promises.at(index).set_value();
             index += 1;
@@ -77,8 +77,8 @@ namespace oxen::quic::test
         auto server_endpoint_b = test_net.endpoint(server_b_local);
         REQUIRE_NOTHROW(server_endpoint_b->listen(server_tls, server_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
-        RemoteAddress server_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_b->local().port()};
+        RemoteAddress server_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_a->local().port()};
 
         auto server_ci = server_endpoint_b->connect(server_remote, server_tls);
         auto server_stream = server_ci->open_stream();
@@ -112,7 +112,7 @@ namespace oxen::quic::test
         std::atomic<int> index = 0;
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             REQUIRE(good_msg == dat);
             d_promises.at(index).set_value();
             index += 1;
@@ -128,8 +128,8 @@ namespace oxen::quic::test
         auto server_endpoint_b = test_net.endpoint(server_b_local);
         REQUIRE_NOTHROW(server_endpoint_b->listen(server_tls, server_data_cb));
 
-        RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
-        RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
+        RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_a->local().port()};
+        RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_b->local().port()};
 
         auto server_b_ci = server_endpoint_b->connect(server_remote_a, server_tls);
         auto server_b_stream = server_b_ci->open_stream();
@@ -162,7 +162,7 @@ namespace oxen::quic::test
         std::promise<void> done_receiving;
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Server stream data callback -- data received (len {})", dat.size());
+            log::debug(test_cat, "Server stream data callback -- data received (len {})", dat.size());
             static bstring partial;
             partial.append(dat);
             if (partial.size() < good_msg.size())
@@ -186,8 +186,8 @@ namespace oxen::quic::test
 
         auto server_endpoint_b = test_net.endpoint(server_b_local);
 
-        RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_a->local().port()};
-        RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint_b->local().port()};
+        RemoteAddress server_remote_a{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_a->local().port()};
+        RemoteAddress server_remote_b{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint_b->local().port()};
 
         auto conn_to_a = server_endpoint_b->connect(server_remote_a, server_tls);
         auto stream_to_a = conn_to_a->open_stream();
@@ -243,26 +243,26 @@ namespace oxen::quic::test
         {
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
-                    log::info(log_cat, "Server bparser received: {}", msg.view());
+                    log::info(test_cat, "Server bparser received: {}", msg.view());
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_handler("test_endpoint"s, server_bp_cb);
+                s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
-            client_bp->command("test_endpoint"s, "test_request_body"s);
+            client_bp->command(TEST_ENDPOINT, "test_request_body"s);
 
             REQUIRE(server_bp_cb.wait());
         }
@@ -272,7 +272,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(log_cat, "Server bparser received: {}", msg.view());
+                    log::info(test_cat, "Server bparser received: {}", msg.view());
                     msg.respond("test_response"s);
                 }
             }};
@@ -280,14 +280,14 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(log_cat, "Client bparser received: {}", msg.view());
+                    log::info(test_cat, "Client bparser received: {}", msg.view());
                     msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_handler("test_endpoint"s, server_bp_cb);
+                s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
 
@@ -298,14 +298,14 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_constructor);
 
             std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
 
-            client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
+            client_bp->command(TEST_ENDPOINT, "test_request_body"s, client_bp_cb);
 
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
@@ -316,7 +316,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(log_cat, "Server bparser received: {}", msg.view());
+                    log::info(test_cat, "Server bparser received: {}", msg.view());
                     msg.respond("test_response"s);
                 }
             }};
@@ -324,28 +324,28 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(log_cat, "Client bparser received: {}", msg.view());
+                    log::info(test_cat, "Client bparser received: {}", msg.view());
                     msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_handler("test_endpoint"s, server_bp_cb);
+                s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
 
             auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
-            client_bp->command("test_endpoint"s, "test_request_body"s, client_bp_cb);
+            client_bp->command(TEST_ENDPOINT, "test_request_body"s, client_bp_cb);
 
             REQUIRE(server_bp_cb.wait());
             REQUIRE(client_bp_cb.wait());
@@ -370,18 +370,18 @@ namespace oxen::quic::test
             auto client_bp_cb = [&](message msg) {
                 if (msg)
                 {
-                    log::info(log_cat, "GOT REGULAR");
+                    log::info(test_cat, "GOT REGULAR");
                     saw_regular++;
                 }
                 else if (msg.is_error())
                 {
-                    log::info(log_cat, "GOT ERROR");
+                    log::info(test_cat, "GOT ERROR");
 
                     saw_error++;
                 }
                 else if (msg.timed_out)
                 {
-                    log::info(log_cat, "GOT TIMEOUT");
+                    log::info(test_cat, "GOT TIMEOUT");
                     saw_timeout++;
                 }
 
@@ -402,7 +402,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local);
             server_endpoint->listen(server_tls, server_constructor);
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -444,7 +444,7 @@ namespace oxen::quic::test
         auto server_handler = [&](message msg) {
             if (msg)
             {
-                log::info(log_cat, "Server bparser received: {}", msg.view());
+                log::info(test_cat, "Server bparser received: {}", msg.view());
                 if (msg.body() == req_msg)
                     msg.respond(res_msg);
                 else
@@ -457,7 +457,7 @@ namespace oxen::quic::test
             {
                 std::lock_guard lock{mut};
                 responses++;
-                log::debug(log_cat, "Client bparser received response {}: {}", responses, msg.view());
+                log::debug(test_cat, "Client bparser received response {}: {}", responses, msg.view());
                 if (msg.body() == res_msg)
                     good_responses++;
                 if (responses == num_requests)
@@ -465,20 +465,20 @@ namespace oxen::quic::test
             }
             else
             {
-                log::debug(log_cat, "got back a failed message response");
+                log::debug(test_cat, "got back a failed message response");
             }
         };
 
         stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
             auto s = e.make_shared<BTRequestStream>(c, e);
-            s->register_handler("test_endpoint"s, server_handler);
+            s->register_handler(TEST_ENDPOINT, server_handler);
             return s;
         };
 
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -487,7 +487,7 @@ namespace oxen::quic::test
 
         for (int i = 0; i < num_requests; i++)
         {
-            client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
+            client_bp->command(TEST_ENDPOINT, req_msg, client_reply_handler);
         }
 
         require_future(done);
@@ -535,7 +535,7 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     ++responses;
-                    log::debug(log_cat, "Client bparser received response {}: {}", responses.load(), msg.view());
+                    log::debug(test_cat, "Client bparser received response {}: {}", responses.load(), msg.view());
                     if (msg.body() == res_msg)
                         ++good_responses;
                     if (responses == num_requests)
@@ -543,20 +543,20 @@ namespace oxen::quic::test
                 }
                 else
                 {
-                    log::debug(log_cat, "got back a failed message response");
+                    log::debug(test_cat, "got back a failed message response");
                 }
             };
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_handler("test_endpoint"s, server_handler);
+                s->register_handler(TEST_ENDPOINT, server_handler);
                 return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -565,7 +565,7 @@ namespace oxen::quic::test
 
             for (int i = 0; i < num_requests; i++)
             {
-                client_bp->command("test_endpoint"s, req_msg, client_reply_handler);
+                client_bp->command(TEST_ENDPOINT, req_msg, client_reply_handler);
             }
 
             require_future(done, 10s);
@@ -583,21 +583,21 @@ namespace oxen::quic::test
 
             auto client_reply_handler = [&](message msg) mutable {
                 if (msg)
-                    log::debug(log_cat, "Client bparser received response: {}", msg.view());
+                    log::debug(test_cat, "Client bparser received response: {}", msg.view());
                 else
-                    log::debug(log_cat, "got back a failed message response");
+                    log::debug(test_cat, "got back a failed message response");
             };
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
                 auto s = e.make_shared<BTRequestStream>(c, e);
-                s->register_handler("test_endpoint"s, server_handler);
+                s->register_handler(TEST_ENDPOINT, server_handler);
                 return s;
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_constructor));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client_endpoint = test_net.endpoint(client_local);
             auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -606,7 +606,7 @@ namespace oxen::quic::test
             {
                 std::shared_ptr<BTRequestStream> client_bp = conn_interface->open_stream<BTRequestStream>();
                 CHECK_THROWS_WITH(
-                        client_bp->command("test_endpoint"s, req_msg, client_reply_handler), "Request body too long!");
+                        client_bp->command(TEST_ENDPOINT, req_msg, client_reply_handler), "Request body too long!");
             }
 
             SECTION("Receive failure")
@@ -672,7 +672,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         server_endpoint->listen(server_tls, server_conn_est);
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -721,7 +721,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         server_endpoint->listen(server_tls, server_conn_est);
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{50ms});

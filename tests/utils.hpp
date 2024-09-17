@@ -22,7 +22,7 @@ namespace oxen::quic
 
     namespace log = oxen::log;
     using namespace log::literals;
-    inline auto test_cat = log::Cat("test");
+    inline auto test_cat = log::Cat("quic-test");
 
     // Borrowing these from src/internal.hpp:
     void logger_config(std::string out = "stderr", log::Type type = log::Type::Print, log::Level reset = log::Level::trace);
@@ -30,6 +30,7 @@ namespace oxen::quic
 
     using namespace oxenc::literals;
 
+    inline const std::string LOCALHOST = "127.0.0.1"s;
     inline const std::string TEST_ENDPOINT = "test_endpoint"s;
     inline const std::string TEST_BODY = "test_body"s;
 

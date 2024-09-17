@@ -43,7 +43,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -57,7 +57,7 @@ namespace oxen::quic::test
 
         stream->send_chunks(
                 [&](const Stream& s) {
-                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                    log::info(test_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                     if (i++ < 3)
                         return fmt::format("[CHUNK-{}]", i);
                     i--;
@@ -65,7 +65,7 @@ namespace oxen::quic::test
                 },
                 [&](Stream& s) {
                     auto pointer_chunks = [&](const Stream& s) -> std::vector<char>* {
-                        log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                        log::info(test_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                         if (i++ < 6)
                         {
                             auto& vec = bufs[i % parallel_chunks];
@@ -81,7 +81,7 @@ namespace oxen::quic::test
                             pointer_chunks,
                             [&](Stream& s) {
                                 auto smart_ptr_chunks = [&](const Stream& s) -> std::unique_ptr<std::vector<char>> {
-                                    log::info(log_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
+                                    log::info(test_cat, "getting next chunk ({}) for stream {}", i, s.stream_id());
                                     if (i++ >= 10)
                                         return nullptr;
                                     auto vec = std::make_unique<std::vector<char>>();
@@ -92,7 +92,7 @@ namespace oxen::quic::test
                                         smart_ptr_chunks,
                                         [&](Stream& s) {
                                             // (Lokinet RPC was here)
-                                            log::info(log_cat, "All chunks done!");
+                                            log::info(test_cat, "All chunks done!");
                                             s.send("Goodbye."s);
                                         },
                                         parallel_chunks);

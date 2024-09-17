@@ -21,20 +21,20 @@ namespace oxen::quic::test
                           stream_future = stream_promise.get_future();
 
         stream_open_callback server_io_open_cb = [&](IOChannel& s) {
-            log::debug(log_cat, "Calling server stream open callback... stream opened...");
+            log::debug(test_cat, "Calling server stream open callback... stream opened...");
             server_stream = s.get_stream();
             stream_promise.set_value();
             return 0;
         };
 
         stream_data_callback server_io_data_cb = [&](IOChannel&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
+            log::debug(test_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
             server_promise.set_value();
         };
 
         stream_data_callback client_io_data_cb = [&](IOChannel&, bstring_view) {
-            log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
+            log::debug(test_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
             client_promise.set_value();
         };
@@ -47,7 +47,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_io_open_cb, server_io_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_io_data_cb);
@@ -86,7 +86,7 @@ namespace oxen::quic::test
         }
 
         stream_open_callback server_io_open_cb = [&](Stream& s) {
-            log::debug(log_cat, "Calling server stream open callback... stream opened...");
+            log::debug(test_cat, "Calling server stream open callback... stream opened...");
             server_extracted_stream = s.get_stream();
             try
             {
@@ -101,7 +101,7 @@ namespace oxen::quic::test
         };
 
         stream_open_callback client_io_open_cb = [&](Stream& s) {
-            log::debug(log_cat, "Calling client stream open callback... stream opened...");
+            log::debug(test_cat, "Calling client stream open callback... stream opened...");
             client_extracted_stream = s.get_stream();
             try
             {
@@ -116,7 +116,7 @@ namespace oxen::quic::test
         };
 
         stream_data_callback server_io_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
+            log::debug(test_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
             try
             {
@@ -130,7 +130,7 @@ namespace oxen::quic::test
         };
 
         stream_data_callback client_io_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
+            log::debug(test_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
             try
             {
@@ -151,7 +151,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_io_data_cb, server_io_open_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_io_data_cb, client_io_open_cb);

@@ -76,7 +76,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -104,7 +104,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, default_gram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, default_gram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -133,7 +133,7 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local, split_dgram);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, split_dgram, client_established);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls);
@@ -159,13 +159,13 @@ namespace oxen::quic::test
             std::future<void> data_future = data_promise.get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
                 data_promise.set_value();
             };
             std::atomic<bool> bad_call = false;
             dgram_data_callback overridden_dgram_cb = [&](dgram_interface&, bstring) {
-                log::critical(log_cat, "Wrong dgram callback invoked!");
+                log::critical(test_cat, "Wrong dgram callback invoked!");
                 bad_call = true;
             };
 
@@ -179,7 +179,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, default_gram, overridden_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, recv_dgram_cb));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, default_gram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -215,7 +215,7 @@ namespace oxen::quic::test
             std::future<void> data_future = data_promise.get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
                 ++data_counter;
                 if (data == "final"_bs)
                     data_promise.set_value();
@@ -231,7 +231,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls, recv_dgram_cb));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -287,7 +287,7 @@ namespace oxen::quic::test
 
         SECTION("Simple oversized datagram transmission - Clear first row")
         {
-            log::trace(log_cat, "Beginning the unit test from hell");
+            log::trace(test_cat, "Beginning the unit test from hell");
             auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
@@ -303,7 +303,7 @@ namespace oxen::quic::test
                 data_futures[i] = data_promises[i].get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
                 {
@@ -327,7 +327,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -371,7 +371,7 @@ namespace oxen::quic::test
 
         SECTION("Simple datagram transmission - mixed sizes")
         {
-            log::trace(log_cat, "Beginning the unit test from hell");
+            log::trace(test_cat, "Beginning the unit test from hell");
             auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
@@ -387,7 +387,7 @@ namespace oxen::quic::test
                 data_futures[i] = data_promises[i].get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
                 {
@@ -411,7 +411,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -455,7 +455,7 @@ namespace oxen::quic::test
             SKIP("Rotating buffer testing not enabled for this test iteration!");
         SECTION("Simple datagram transmission - induced loss")
         {
-            log::trace(log_cat, "Beginning the unit test from hell");
+            log::trace(test_cat, "Beginning the unit test from hell");
             auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
@@ -473,7 +473,7 @@ namespace oxen::quic::test
             bstring received{};
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring data) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
                 counter += 1;
                 received.swap(data);
@@ -499,7 +499,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);
@@ -545,7 +545,7 @@ namespace oxen::quic::test
     {
         SECTION("Simple datagram transmission - flip flop ordering")
         {
-            log::trace(log_cat, "Beginning the unit test from hell");
+            log::trace(test_cat, "Beginning the unit test from hell");
             auto client_established = callback_waiter{[](connection_interface&) {}};
 
             Network test_net{};
@@ -561,12 +561,12 @@ namespace oxen::quic::test
                 data_futures[i] = data_promises[i].get_future();
 
             dgram_data_callback recv_dgram_cb = [&](dgram_interface&, bstring) {
-                log::debug(log_cat, "Calling endpoint receive datagram callback... data received...");
+                log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
                 try
                 {
                     data_counter += 1;
-                    log::trace(log_cat, "Data counter: {}", data_counter.load());
+                    log::trace(test_cat, "Data counter: {}", data_counter.load());
                     data_promises.at(index).set_value();
                     index += 1;
                 }
@@ -586,7 +586,7 @@ namespace oxen::quic::test
             auto server_endpoint = test_net.endpoint(server_local, split_dgram, recv_dgram_cb);
             REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
 
-            RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
             auto client = test_net.endpoint(client_local, split_dgram, client_established);
             auto conn_interface = client->connect(client_remote, client_tls);

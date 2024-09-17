@@ -50,7 +50,7 @@ namespace oxen::quic::test
         auto p_itr = stream_promises.begin();
 
         stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             data_check += 1;
             p_itr->set_value();
             ++p_itr;
@@ -63,10 +63,10 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
-            log::debug(log_cat, "Async thread A called");
+            log::debug(test_cat, "Async thread A called");
 
             // client A
             auto client_a = test_net.endpoint(client_a_local);
@@ -86,7 +86,7 @@ namespace oxen::quic::test
         }};
 
         std::thread async_thread_b{[&]() {
-            log::debug(log_cat, "Async thread B called");
+            log::debug(test_cat, "Async thread B called");
 
             // client C
             auto client_c = test_net.endpoint(client_c_local);
