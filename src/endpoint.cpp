@@ -759,10 +759,6 @@ namespace oxen::quic
             return;
         }
 
-        // map stateless reset
-        auto [it, _] = reset_token_lookup.emplace(cid, std::move(token));
-        reset_token_map.emplace(it->second, cid);
-
         // ensure we had enough write space
         assert(static_cast<size_t>(nwrite) <= buf.size());
         buf.resize(nwrite);
