@@ -23,7 +23,7 @@ namespace oxen::quic
 
     Network::~Network()
     {
-        log::info(log_cat, "Shutting down network...");
+        log::debug(log_cat, "Shutting down network...");
 
         if (not shutdown_immediate)
             close_gracefully();
@@ -45,7 +45,7 @@ namespace oxen::quic
 
     void Network::close_gracefully()
     {
-        log::info(log_cat, "{} called", __PRETTY_FUNCTION__);
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         std::promise<void> pr;
         auto ft = pr.get_future();

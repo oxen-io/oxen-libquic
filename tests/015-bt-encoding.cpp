@@ -57,13 +57,13 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_bp_cb = callback_waiter{[&](message msg) {
-            log::info(test_cat, "Server bparser received: {}", msg.view());
+            log::debug(test_cat, "Server bparser received: {}", msg.view());
             CHECK(bt_decode(msg.body()));
             msg.respond(msg.body());
         }};
 
         auto client_bp_cb = callback_waiter{[&](message msg) {
-            log::info(test_cat, "Client bparser received: {}", msg.view());
+            log::debug(test_cat, "Client bparser received: {}", msg.view());
             CHECK(bt_decode(msg.body()));
         }};
 
@@ -117,36 +117,36 @@ namespace oxen::quic::test
         std::shared_ptr<BTRequestStream> node_a_bp, node_b_bp, node_c_bp;
 
         auto node_a_response_cb = callback_waiter{[&](message msg) {
-            log::info(test_cat, "Node A received response from Node B: {}", msg.view());
+            log::debug(test_cat, "Node A received response from Node B: {}", msg.view());
             CHECK(bt_decode(msg.body()));
         }};
 
         auto node_a_bp_cb = [&](message msg) {
-            log::info(test_cat, "Node A received request from Node C: {}", msg.view());
+            log::debug(test_cat, "Node A received request from Node C: {}", msg.view());
             CHECK(bt_decode(msg.body()));
             msg.respond(msg.body());
         };
 
         auto node_b_bp_cb = [&](message msg) {
-            log::info(test_cat, "Node B received request from Node A: {}", msg.view());
+            log::debug(test_cat, "Node B received request from Node A: {}", msg.view());
             CHECK(bt_decode(msg.body()));
 
-            log::info(test_cat, "Node B chaining request to Node C", msg.view());
+            log::debug(test_cat, "Node B chaining request to Node C", msg.view());
             auto body = msg.body_str();
             node_b_bp->command(TEST_ENDPOINT, std::move(body), [prev = std::move(msg)](message msg) mutable {
-                log::info(test_cat, "Node B received response from Node C: {}", msg.view());
+                log::debug(test_cat, "Node B received response from Node C: {}", msg.view());
                 prev.respond(msg.body());
             });
         };
 
         auto node_c_bp_cb = [&](message msg) {
-            log::info(test_cat, "Node C received request from Node B: {}", msg.view());
+            log::debug(test_cat, "Node C received request from Node B: {}", msg.view());
             CHECK(bt_decode(msg.body()));
 
-            log::info(test_cat, "Node C chaining request to Node A", msg.view());
+            log::debug(test_cat, "Node C chaining request to Node A", msg.view());
             auto body = msg.body_str();
             node_c_bp->command(TEST_ENDPOINT, std::move(body), [prev = std::move(msg)](message msg) mutable {
-                log::info(test_cat, "Node C received response from Node A: {}", msg.view());
+                log::debug(test_cat, "Node C received response from Node A: {}", msg.view());
                 prev.respond(msg.body());
             });
         };

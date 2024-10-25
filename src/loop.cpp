@@ -177,7 +177,7 @@ namespace oxen::quic
 
         ev_loop = std::shared_ptr<event_base>{event_base_new_with_config(ev_conf.get()), event_base_free};
 
-        log::info(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
+        log::debug(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
 
         setup_job_waker();
 
@@ -194,12 +194,12 @@ namespace oxen::quic
         p.get_future().get();
 
         running.store(true);
-        log::info(log_cat, "loop is started");
+        log::info(log_cat, "libevent loop is started");
     }
 
     Loop::~Loop()
     {
-        log::info(log_cat, "Shutting down loop...");
+        log::debug(log_cat, "Shutting down loop...");
 
         stop_thread();
 
@@ -223,6 +223,8 @@ namespace oxen::quic
 
     void Loop::stop_thread(bool immediate)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+
         if (loop_thread)
             immediate ? event_base_loopbreak(ev_loop.get()) : event_base_loopexit(ev_loop.get(), nullptr);
 

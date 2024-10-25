@@ -1543,9 +1543,8 @@ namespace oxen::quic
         if (_stateless_reset_enabled)
         {
             callbacks.recv_stateless_reset = connection_callbacks::recv_stateless_reset;
-            log::info(log_cat, "Connection configured to watch for stateless reset packets");
             callbacks.dcid_status = connection_callbacks::on_connection_id_status;
-            log::info(log_cat, "Connection configured to monitor activated dcids and stateless reset tokens");
+            log::debug(log_cat, "Connection configured to monitor active dcids and stateless reset packets");
         }
 
         ngtcp2_settings_default(&settings);

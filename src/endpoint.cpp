@@ -98,7 +98,7 @@ namespace oxen::quic
             {
                 if (auto exp = gnutls_db_check_entry_expire_time(*it->second); current < exp)
                 {
-                    log::info(log_cat, "Found existing anti-replay ticket for incoming connection; rejecting...");
+                    log::debug(log_cat, "Found existing anti-replay ticket for incoming connection; rejecting...");
                     return GNUTLS_E_DB_ENTRY_EXISTS;
                 }
 
