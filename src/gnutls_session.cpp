@@ -23,7 +23,7 @@ namespace oxen::quic
         if (not ep->zero_rtt_enabled())
             throw std::runtime_error{"Anti-replay DB hook should not be called on 0rtt-disabled endpoint!"};
 
-        return ep->validate_anti_replay({key, data}, exp_time);
+        return ep->validate_anti_replay(gtls_session_ticket::make(key, data), exp_time);
     }
 
     int gtls_session_callbacks::client_session_cb(
@@ -53,8 +53,8 @@ namespace oxen::quic
                 return rv;
             }
 
-            ep.store_session_ticket(gtls_session_ticket{
-                    remote_key.data(), static_cast<unsigned int>(remote_key.size()), encoded.data, encoded.size});
+            ep.store_session_ticket(gtls_session_ticket::make(
+                        remote_key, {encoded.data, encoded.size}));
         }
 
         return 0;
@@ -248,7 +248,7 @@ namespace oxen::quic
                 {
                     gnutls_datum_t d;
 
-                    if (auto rv = gnutls_pem_base64_decode2(SESSION_TICKET_HEADER, &maybe_ticket->_data, &d); rv != 0)
+                    if (auto rv = gnutls_pem_base64_decode2(SESSION_TICKET_HEADER, maybe_ticket->datum(), &d); rv != 0)
                     {
                         log::warning(log_cat, "Failed to decode session ticket: {}", ngtcp2_strerror(rv));
                         throw std::runtime_error("gnutls_pem_base64_decode2 failed");

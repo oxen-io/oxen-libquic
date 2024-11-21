@@ -204,8 +204,6 @@ namespace oxen::quic
         };
     }  // namespace opt
 
-    using gtls_ticket_ptr = std::unique_ptr<gtls_session_ticket>;
-
     using gtls_db_validate_cb = std::function<bool(gtls_ticket_ptr, time_t)>;
     using gtls_db_get_cb = std::function<gtls_ticket_ptr(ustring_view)>;
     using gtls_db_put_cb = std::function<void(gtls_ticket_ptr, time_t)>;

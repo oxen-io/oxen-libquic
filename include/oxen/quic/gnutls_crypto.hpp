@@ -260,21 +260,21 @@ namespace oxen::quic
         }
     };
 
+    struct gtls_session_ticket;
+    using gtls_ticket_ptr = std::unique_ptr<gtls_session_ticket>;
     struct gtls_session_ticket
     {
-        std::vector<unsigned char> _key;
+      private:
+        const std::vector<unsigned char> _key;
         std::vector<unsigned char> _ticket;
         gnutls_datum_t _data;
 
         explicit gtls_session_ticket(
                 const unsigned char* key, unsigned int keysize, const unsigned char* ticket, unsigned int ticketsize) :
-                _key(keysize), _ticket(ticketsize)
-        {
-            std::memcpy(_key.data(), key, keysize);
-            std::memcpy(_ticket.data(), ticket, ticketsize);
-            _data.data = _ticket.data();
-            _data.size = _ticket.size();
-        }
+                _key{key, key + keysize},
+                _ticket{ticket, ticket + ticketsize},
+                _data{.data = _ticket.data(), .size = ticketsize}
+        {}
 
         explicit gtls_session_ticket(ustring_view key, ustring_view ticket) :
                 gtls_session_ticket{
@@ -284,56 +284,33 @@ namespace oxen::quic
                         static_cast<unsigned int>(ticket.size())}
         {}
 
-        gtls_session_ticket(const gnutls_datum_t* key, const gnutls_datum_t* ticket) :
-                gtls_session_ticket{key->data, key->size, ticket->data, ticket->size}
-        {}
+      public:
+        gtls_session_ticket() = delete;
+        gtls_session_ticket(gtls_session_ticket&& t) = delete;
+        gtls_session_ticket(const gtls_session_ticket& t) = delete;
+        gtls_session_ticket& operator=(gtls_session_ticket&&) = delete;
+        gtls_session_ticket& operator=(const gtls_session_ticket&) = delete;
 
-        gtls_session_ticket(const gtls_session_ticket& t) :
-                gtls_session_ticket{
-                        t._key.data(),
-                        static_cast<unsigned int>(t._key.size()),
-                        t._ticket.data(),
-                        static_cast<unsigned int>(t._ticket.size())}
-        {}
-
-        gtls_session_ticket& operator=(gtls_session_ticket&& other)
+        static gtls_ticket_ptr make(ustring_view key, ustring_view ticket)
         {
-            _key = std::move(other._key);
-            _ticket = std::move(other._ticket);
-            _data.data = _ticket.data();
-            _data.size = _ticket.size();
-            return *this;
+            return gtls_ticket_ptr(new gtls_session_ticket{key, ticket});
+        }
+        static gtls_ticket_ptr make(const gnutls_datum_t* key, const gnutls_datum_t* ticket)
+        {
+            return make({key->data, key->size}, {ticket->data, ticket->size});
         }
 
-        static std::unique_ptr<gtls_session_ticket> make(ustring_view key, ustring_view ticket)
-        {
-            return std::make_unique<gtls_session_ticket>(key, ticket);
-        }
-
-        static std::unique_ptr<gtls_session_ticket> make(gtls_session_ticket&& g)
-        {
-            return std::make_unique<gtls_session_ticket>(std::move(g));
-        }
-
+        // Returns a view of the key for this ticket.  The view is valid as long as this
+        // gtls_session_ticket object remains alive, and so can be used (for example) as the key of
+        // a map containing the object in the value.
         ustring_view key() const { return {_key.data(), _key.size()}; }
 
-        bool operator==(const gtls_session_ticket& other) const { return _ticket == other._ticket; }
+        // Returns a view of the ticket data.
+        ustring_view ticket() const { return {_ticket.data(), _ticket.size()}; }
 
-        bool operator==(const gnutls_datum_t* other) const
-        {
-            return gnutls_memcmp(_data.data, other->data, _data.size) == 0;
-        }
-
-        template <concepts::gtls_datum_type T>
-        operator T*()
-        {
-            return &_data;
-        }
-        template <concepts::gtls_datum_type T>
-        operator const T*() const
-        {
-            return &_data;
-        }
+        // Accesses the ticket data pointer as needed by gnutls API
+        const gnutls_datum_t* datum() const { return &_data; }
+        gnutls_datum_t* datum() { return &_data; }
     };
 
     struct Packet;
@@ -449,17 +426,3 @@ namespace oxen::quic
     Connection* get_connection_from_gnutls(gnutls_session_t g_session);
 
 }  // namespace oxen::quic
-
-namespace std
-{
-    template <>
-    struct hash<oxen::quic::gtls_session_ticket>
-    {
-        size_t operator()(const oxen::quic::gtls_session_ticket& t) const noexcept
-        {
-            auto h = hash<oxen::quic::ustring_view>{}(oxen::quic::ustring_view{t._ticket.data(), t._ticket.size()});
-            h ^= hash<oxen::quic::ustring_view>{}(t.key()) + oxen::quic::inverse_golden_ratio + (h << 7) + (h >> 3);
-            return h;
-        }
-    };
-}  //  namespace std

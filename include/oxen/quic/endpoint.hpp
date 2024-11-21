@@ -165,8 +165,8 @@ namespace oxen::quic
 
         bool stateless_reset_enabled() const { return _stateless_reset_enabled; }
 
-        int validate_anti_replay(gtls_session_ticket ticket, time_t exp);
-        void store_session_ticket(gtls_session_ticket ticket);
+        int validate_anti_replay(gtls_ticket_ptr ticket, time_t exp);
+        void store_session_ticket(gtls_ticket_ptr ticket);
         gtls_ticket_ptr get_session_ticket(const ustring_view& remote_pk);
 
       private:

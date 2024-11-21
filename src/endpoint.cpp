@@ -96,7 +96,7 @@ namespace oxen::quic
 
             if (auto it = session_tickets.find(key); it != session_tickets.end())
             {
-                if (auto exp = gnutls_db_check_entry_expire_time(*it->second); current < exp)
+                if (auto exp = gnutls_db_check_entry_expire_time(it->second->datum()); current < exp)
                 {
                     log::debug(log_cat, "Found existing anti-replay ticket for incoming connection; rejecting...");
                     return GNUTLS_E_DB_ENTRY_EXISTS;
@@ -550,15 +550,15 @@ namespace oxen::quic
         }
     }
 
-    int Endpoint::validate_anti_replay(gtls_session_ticket ticket, time_t current)
+    int Endpoint::validate_anti_replay(gtls_ticket_ptr ticket, time_t current)
     {
-        return _validate_0rtt_ticket(gtls_session_ticket::make(std::move(ticket)), current) ? 0 : GNUTLS_E_DB_ENTRY_EXISTS;
+        return _validate_0rtt_ticket(std::move(ticket), current) ? 0 : GNUTLS_E_DB_ENTRY_EXISTS;
     }
 
-    void Endpoint::store_session_ticket(gtls_session_ticket ticket)
+    void Endpoint::store_session_ticket(gtls_ticket_ptr ticket)
     {
         log::trace(log_cat, "Storing session ticket...");
-        return _put_session_ticket(gtls_session_ticket::make(std::move(ticket)), 0);
+        return _put_session_ticket(std::move(ticket), 0);
     }
 
     gtls_ticket_ptr Endpoint::get_session_ticket(const ustring_view& remote_pk)
