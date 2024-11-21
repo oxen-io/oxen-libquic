@@ -483,7 +483,7 @@ namespace oxen::quic
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
 
-        int init(
+        void init(
                 ngtcp2_settings& settings,
                 ngtcp2_transport_params& params,
                 ngtcp2_callbacks& callbacks,

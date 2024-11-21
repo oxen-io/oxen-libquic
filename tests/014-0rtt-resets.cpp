@@ -48,10 +48,13 @@ namespace oxen::quic::test
 
         auto server_endpoint = test_net.endpoint(server_local, server_established, opt::disable_stateless_reset{});
         CHECK_NOTHROW(server_endpoint->listen(server_tls));
+        REQUIRE_FALSE(server_endpoint->stateless_reset_enabled());
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local, client_established, opt::disable_stateless_reset{});
+        REQUIRE_FALSE(client_endpoint->stateless_reset_enabled());
+
         auto client_ci = client_endpoint->connect(client_remote, client_tls);
 
         CHECK(client_established.wait());

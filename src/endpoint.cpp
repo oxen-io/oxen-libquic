@@ -134,6 +134,7 @@ namespace oxen::quic
 
     void Endpoint::handle_ep_opt(opt::disable_stateless_reset /* rst */)
     {
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         _stateless_reset_enabled = false;
     }
 
@@ -363,7 +364,7 @@ namespace oxen::quic
             }
             else
             {
-                log::info(log_cat, "Dropping packet; unknown connection ID to endpoint not accepting inbound conns");
+                log::info(log_cat, "Received packet with unknown connection ID; local endpoint not accepting inbounds!");
                 return;
             }
         }
@@ -704,16 +705,11 @@ namespace oxen::quic
                     now);
             rv != 0)
         {
-            log::critical(
-                    log_cat,
-                    "Server (local={}) could not verify regular token! path: [local={}, remote={}]",
-                    _local,
-                    pkt.path.local,
-                    pkt.path.remote);
+            log::debug(log_cat, "Server (local={}) could not verify regular token! path: {}", _local, pkt.path);
             return false;
         }
 
-        log::critical(log_cat, "Server successfully verified regular token!");
+        log::debug(log_cat, "Server successfully verified regular token! path: {}", pkt.path);
         return true;
     }
 
@@ -902,7 +898,7 @@ namespace oxen::quic
                 reset_token_lookup.erase(rit->second);
             }
             else
-                log::warning(log_cat, "Received good stateless reset token but no connection exists for it; deleting entry");
+                log::debug(log_cat, "Received good stateless reset token but no connection exists for it; deleting entry");
 
             reset_token_map.erase(rit);
         }

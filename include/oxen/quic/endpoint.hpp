@@ -163,6 +163,8 @@ namespace oxen::quic
         bool zero_rtt_enabled() const { return _0rtt_enabled; }
         unsigned int zero_rtt_window() const { return _0rtt_window; }
 
+        bool stateless_reset_enabled() const { return _stateless_reset_enabled; }
+
         int validate_anti_replay(gtls_session_ticket ticket, time_t exp);
         void store_session_ticket(gtls_session_ticket ticket);
         gtls_ticket_ptr get_session_ticket(const ustring_view& remote_pk);

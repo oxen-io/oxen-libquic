@@ -53,7 +53,7 @@ namespace oxen::quic
 
         if (event_add(ev.get(), &interval) != 0)
         {
-            log::critical(log_cat, "EventHandler failed to start repeating event!");
+            log::warning(log_cat, "EventHandler failed to start repeating event!");
             return false;
         }
 
@@ -69,7 +69,7 @@ namespace oxen::quic
 
         if (event_del(ev.get()) != 0)
         {
-            log::critical(log_cat, "EventHandler failed to pause repeating event!");
+            log::warning(log_cat, "EventHandler failed to pause repeating event!");
             return false;
         }
 
@@ -104,7 +104,7 @@ namespace oxen::quic
                         auto* self = reinterpret_cast<Ticker*>(s);
                         if (not self->f)
                         {
-                            log::critical(log_cat, "Ticker does not have a callback to execute!");
+                            log::warning(log_cat, "Ticker does not have a callback to execute!");
                             return;
                         }
                         // execute callback
@@ -112,13 +112,13 @@ namespace oxen::quic
                     }
                     catch (const std::exception& e)
                     {
-                        log::critical(log_cat, "Ticker caught exception: {}", e.what());
+                        log::warning(log_cat, "Ticker caught exception: {}", e.what());
                     }
                 },
                 this));
 
         if ((one_off or start_immediately) and not start())
-            log::critical(log_cat, "Failed to immediately start one-off event!");
+            log::warning(log_cat, "Failed to immediately start one-off event!");
     }
 
     Ticker::~Ticker()

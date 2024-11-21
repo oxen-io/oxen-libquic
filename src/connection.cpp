@@ -301,7 +301,7 @@ namespace oxen::quic
             _endpoint.drop_connection(*this, io_error{CONN_STATELESS_RESET});
         }
         else
-            log::info(log_cat, "Could not match received stateless reset to any connection!");
+            log::debug(log_cat, "Could not match received stateless reset to any connection!");
         return 0;
     }
 
@@ -391,7 +391,7 @@ namespace oxen::quic
         {
             if (not tls_session->get_early_data_accepted())
             {
-                log::info(log_cat, "Early data was rejected by server!");
+                log::debug(log_cat, "Early data was rejected by server!");
 
                 if (auto rv = ngtcp2_conn_tls_early_data_rejected(conn.get()); rv != 0)
                 {
@@ -406,7 +406,7 @@ namespace oxen::quic
             if (auto len = ngtcp2_conn_encode_0rtt_transport_params(conn.get(), data.data(), data.size()); len > 0)
             {
                 _endpoint.store_0rtt_transport_params(_path.remote, std::move(data));
-                log::info(log_cat, "Client successfully encoded and stored 0rtt transport params");
+                log::debug(log_cat, "Client successfully encoded and stored 0rtt transport params");
             }
             else
                 log::warning(log_cat, "Client could not encode 0-RTT transport parameters: {}", ngtcp2_strerror(len));
@@ -523,13 +523,15 @@ namespace oxen::quic
 
     void Connection::make_early_streams(ngtcp2_conn* connptr)
     {
-        log::debug(log_cat, "Client making streams to attempt 0-rtt early data!");
+        log::trace(log_cat, "Client making streams to attempt 0-rtt early data!");
 
         if (auto remaining = ngtcp2_conn_get_streams_bidi_left(connptr); remaining > 0)
         {
             log::debug(log_cat, "Client has room to promote {} streams for early data!", remaining);
             check_pending_streams(remaining, true);
         }
+        else
+            log::debug(log_cat, "Client has NO room to promote streams for early data!");
     }
 
     void Connection::revert_early_streams()
@@ -1055,7 +1057,10 @@ namespace oxen::quic
             {
                 if (ngtcp2_err_is_fatal(nwrite))
                 {
-                    log::critical(log_cat, "Fatal ngtcp2 error: could not write frame - \"{}\"", ngtcp2_strerror(nwrite));
+                    log::warning(
+                            log_cat,
+                            "Fatal ngtcp2 error: could not write frame - \"{}\" - closing connection...",
+                            ngtcp2_strerror(nwrite));
                     _endpoint.close_connection(*this, io_error{(int)nwrite});
                     return;
                 }
@@ -1152,7 +1157,7 @@ namespace oxen::quic
 
         if (exp_ns == std::numeric_limits<ngtcp2_tstamp>::max())
         {
-            log::info(log_cat, "No retransmit needed right now");
+            log::debug(log_cat, "No retransmit needed right now");
             event_del(packet_retransmit_timer.get());
             return;
         }
@@ -1179,8 +1184,7 @@ namespace oxen::quic
 
     int Connection::stream_opened(int64_t id)
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        log::info(log_cat, "New stream ID:{}", id);
+        log::trace(log_cat, "New stream ID:{}", id);
 
         if (auto itr = _stream_queue.find(id); itr != _stream_queue.end())
         {
@@ -1204,7 +1208,7 @@ namespace oxen::quic
 
         if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
-            log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
+            log::warning(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
             assert(endpoint().in_event_loop());
             stream->close(app_err_code);
             return 0;
@@ -1235,7 +1239,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(ngtcp2_is_bidi_stream(id));
-        log::info(log_cat, "Stream {} closed with code {}", id, app_code);
+        log::info(log_cat, "Stream (ID:{}) closed with code {}", id, app_code);
         auto it = _streams.find(id);
 
         if (it == _streams.end())
@@ -1244,8 +1248,8 @@ namespace oxen::quic
         auto& stream = *it->second;
         stream_execute_close(stream, app_code);
 
-        log::info(log_cat, "Erasing stream {}", id);
         _streams.erase(it);
+        log::trace(log_cat, "Stream (ID:{}) erased", id);
 
         if (!ngtcp2_conn_is_local_stream(conn.get(), id))
             ngtcp2_conn_extend_max_streams_bidi(conn.get(), 1);
@@ -1416,7 +1420,7 @@ namespace oxen::quic
         }
 
         if (!datagrams->dgram_data_cb)
-            log::debug(log_cat, "Connection (CID: {}) has no endpoint-supplied datagram data callback", _source_cid);
+            log::trace(log_cat, "Connection (CID: {}) has no endpoint-supplied datagram data callback", _source_cid);
         else
         {
             bool good = false;
@@ -1453,7 +1457,7 @@ namespace oxen::quic
 
         if (fin)
         {
-            log::info(log_cat, "Connection (CID: {}) received fin from remote", _source_cid);
+            log::debug(log_cat, "Connection (CID: {}) received FIN from remote", _source_cid);
             // TODO: no clean up, as close cb is called after? Or just for streams
         }
 
@@ -1513,7 +1517,7 @@ namespace oxen::quic
         });
     }
 
-    int Connection::init(
+    void Connection::init(
             ngtcp2_settings& settings,
             ngtcp2_transport_params& params,
             ngtcp2_callbacks& callbacks,
@@ -1599,8 +1603,6 @@ namespace oxen::quic
             params.max_datagram_frame_size = 0;
             callbacks.recv_datagram = nullptr;
         }
-
-        return 0;
     }
 
     Connection::Connection(
@@ -1649,7 +1651,7 @@ namespace oxen::quic
         pseudo_stream = _endpoint.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 
-        const auto d_str = is_outbound() ? "outbound"s : "inbound"s;
+        const auto d_str = is_outbound() ? "outbound" : "inbound";
         log::trace(log_cat, "Creating new {} connection object", d_str);
 
         ngtcp2_settings settings;
@@ -1659,8 +1661,8 @@ namespace oxen::quic
         int rv = 0;
 
         auto handshake_timeout = context->config.handshake_timeout.value_or(default_handshake_timeout);
-        if (rv = init(settings, params, callbacks, handshake_timeout); rv != 0)
-            log::critical(log_cat, "Error: {} connection not created", d_str);
+
+        init(settings, params, callbacks, handshake_timeout);
 
         tls_session = tls_creds->make_session(*this, context, alpns);
 
@@ -1727,7 +1729,7 @@ namespace oxen::quic
                     else
                     {
                         make_early_streams(connptr);
-                        log::info(log_cat, "Client encoded and set 0rtt params, ready to attempt early data!");
+                        log::debug(log_cat, "Client encoded and set 0rtt params, ready to attempt early data!");
                     }
                 }
             }

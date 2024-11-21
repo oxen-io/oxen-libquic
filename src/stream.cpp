@@ -31,7 +31,7 @@ namespace oxen::quic
 
         if (!close_callback)
             close_callback = [](Stream&, uint64_t error_code) {
-                log::info(log_cat, "Default stream close callback called ({})", quic_strerror(error_code));
+                log::debug(log_cat, "Default stream close callback called ({})", quic_strerror(error_code));
             };
 
         log::trace(log_cat, "Stream object created");
@@ -70,7 +70,7 @@ namespace oxen::quic
 
             _is_watermarked = true;
 
-            log::info(log_cat, "Stream set watermarks!");
+            log::trace(log_cat, "Stream set watermarks!");
         });
     }
 
@@ -90,7 +90,7 @@ namespace oxen::quic
             if (_high_water)
                 _high_water.clear();
             _is_watermarked = false;
-            log::info(log_cat, "Stream cleared currently set watermarks!");
+            log::trace(log_cat, "Stream cleared currently set watermarks!");
         });
     }
 
@@ -163,9 +163,9 @@ namespace oxen::quic
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (_is_shutdown)
-                log::info(log_cat, "Stream is already shutting down");
+                log::trace(log_cat, "Stream is already shutting down");
             else if (_is_closing)
-                log::debug(log_cat, "Stream is already closing");
+                log::trace(log_cat, "Stream is already closing");
             else
             {
                 _is_closing = _is_shutdown = true;
@@ -215,7 +215,7 @@ namespace oxen::quic
         if (_ready)
             _conn->packet_io_ready();
         else
-            log::info(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
+            log::debug(log_cat, "Stream not ready for broadcast yet, data appended to buffer and on deck");
     }
 
     void Stream::acknowledge(size_t bytes)
@@ -250,11 +250,11 @@ namespace oxen::quic
             if (unsent >= _high_mark)
             {
                 _low_primed = true;
-                log::info(log_cat, "Low water hook primed!");
+                log::trace(log_cat, "Low water hook primed!");
 
                 if (_high_water and _high_primed)
                 {
-                    log::info(log_cat, "Executing high watermark hook!");
+                    log::debug(log_cat, "Executing high watermark hook!");
                     _high_primed = false;
                     return _high_water(*this);
                 }
@@ -264,11 +264,11 @@ namespace oxen::quic
             else if (unsent <= _low_mark)
             {
                 _high_primed = true;
-                log::info(log_cat, "High water hook primed!");
+                log::trace(log_cat, "High water hook primed!");
 
                 if (_low_water and _low_primed)
                 {
-                    log::info(log_cat, "Executing low watermark hook!");
+                    log::debug(log_cat, "Executing low watermark hook!");
                     _low_primed = false;
                     return _low_water(*this);
                 }
