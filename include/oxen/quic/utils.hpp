@@ -33,6 +33,7 @@ extern "C"
 #include <map>
 #include <optional>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -147,6 +148,14 @@ namespace oxen::quic
 
     namespace detail
     {
+        struct ustring_hasher
+        {
+            size_t operator()(const ustring_view& sv) const noexcept
+            {
+                return std::hash<std::string_view>{}({reinterpret_cast<const char*>(sv.data()), sv.size()});
+            }
+        };
+
         template <size_t N>
         struct bsv_literal
         {
@@ -262,19 +271,3 @@ namespace oxen::quic
     }
 
 }  // namespace oxen::quic
-
-namespace std
-{
-    template <>
-    struct hash<oxen::quic::ustring_view>
-    {
-        size_t operator()(const oxen::quic::ustring_view& sv) const noexcept
-        {
-            return hash<string_view>{}({reinterpret_cast<const char*>(sv.data()), sv.size()});
-        }
-    };
-
-    template <>
-    struct hash<oxen::quic::ustring> : hash<oxen::quic::ustring_view>
-    {};
-}  //  namespace std

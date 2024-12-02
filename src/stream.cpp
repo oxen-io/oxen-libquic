@@ -308,7 +308,7 @@ namespace oxen::quic
         assert(endpoint.in_event_loop());
         log::trace(log_cat, "Stream (ID:{}) reverting after early data rejected...", _stream_id);
         _unacked_size = 0;
-        log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacacked...", _stream_id, size());
+        log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
     }
 
     std::vector<ngtcp2_vec> Stream::pending()

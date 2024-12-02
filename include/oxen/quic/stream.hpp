@@ -36,6 +36,12 @@ namespace oxen::quic
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
 
+    inline namespace concepts
+    {
+        template <typename T>
+        concept stream_derived_type = std::derived_from<T, Stream>;
+    }
+
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class TestHelper;
@@ -137,7 +143,7 @@ namespace oxen::quic
         size_t unsent_impl() const override;
 
       private:
-        // Called if 0-RTT early data was rejected; marks all sent data as unacked
+        // Called if 0-RTT early data was rejected; marks all sent data as unsent
         void revert_stream();
 
         std::vector<ngtcp2_vec> pending() override;

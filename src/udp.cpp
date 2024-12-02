@@ -792,7 +792,7 @@ namespace oxen::quic
                  {static_cast<const sockaddr*>(hdr.msg_name), hdr.msg_namelen}
 #endif
             },
-            pkt_data{data.begin(), data.end()}
+            data_sp{data.begin(), data.end()}
     {
         assert(path.remote.is_ipv4() || path.remote.is_ipv6());
 

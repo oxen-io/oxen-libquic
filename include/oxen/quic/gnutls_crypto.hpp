@@ -57,17 +57,55 @@ namespace oxen::quic
     // These bytes mean "this is a raw Ed25519 public key" in ASN.1 (or something like that)
     inline constexpr auto ASN_ED25519_PUBKEY_PREFIX = "302a300506032b6570032100"_hex;
 
-    struct gnutls_key
+    struct gtls_datum
+    {
+      private:
+        gnutls_datum_t d{NULL, 0};
+
+      public:
+        gtls_datum() = default;
+        gtls_datum(unsigned char* data, size_t datalen) : d{data, static_cast<unsigned int>(datalen)} {}
+
+        ~gtls_datum() { reset(); }
+
+        void reset()
+        {
+            if (d.data != NULL)
+                gnutls_free(d.data);
+            d.size = 0;
+        }
+
+        ustring_view view() const { return {d.data, d.size}; }
+
+        const unsigned char* data() const { return d.data; }
+        unsigned char* data() { return d.data; }
+
+        size_t size() const { return d.size; }
+
+        template <std::same_as<gnutls_datum_t> T>
+        operator const T*() const
+        {
+            return &d;
+        }
+
+        template <std::same_as<gnutls_datum_t> T>
+        operator T*()
+        {
+            return &d;
+        }
+    };
+
+    struct gtls_key
     {
       private:
         std::array<unsigned char, GNUTLS_KEY_SIZE> buf{};
 
-        gnutls_key(const unsigned char* data, size_t size) { write(data, size); }
+        gtls_key(const unsigned char* data, size_t size) { write(data, size); }
 
       public:
-        gnutls_key() = default;
-        gnutls_key(std::string_view data) : gnutls_key{convert_sv<unsigned char>(data)} {}
-        gnutls_key(ustring_view data) : gnutls_key{data.data(), data.size()} {}
+        gtls_key() = default;
+        gtls_key(std::string_view data) : gtls_key{convert_sv<unsigned char>(data)} {}
+        gtls_key(ustring_view data) : gtls_key{data.data(), data.size()} {}
 
         //  Writes to the internal buffer holding the gnutls key
         void write(const unsigned char* data, size_t size)
@@ -80,9 +118,9 @@ namespace oxen::quic
 
         ustring_view view() const { return {buf.data(), buf.size()}; }
 
-        gnutls_key(const gnutls_key& other) { *this = other; }
+        gtls_key(const gtls_key& other) { *this = other; }
 
-        gnutls_key& operator=(const gnutls_key& other)
+        gtls_key& operator=(const gtls_key& other)
         {
             buf = other.buf;
             return *this;
@@ -92,23 +130,22 @@ namespace oxen::quic
 
         explicit operator bool() const { return not buf.empty(); }
 
-        bool operator==(const gnutls_key& other) const { return buf == other.buf; }
-        bool operator!=(const gnutls_key& other) const { return !(*this == other); }
+        bool operator==(const gtls_key& other) const { return buf == other.buf; }
+        bool operator!=(const gtls_key& other) const { return !(*this == other); }
     };
 
     // key: remote key to verify, alpn: negotiated alpn's
     using key_verify_callback = std::function<bool(const ustring_view& key, const ustring_view& alpn)>;
 
     inline const gnutls_datum_t GNUTLS_DEFAULT_ALPN{
-            const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(default_alpn_str.data())),
-            static_cast<uint32_t>(default_alpn_str.size())};
+            const_cast<unsigned char*>(default_alpn_str.data()), default_alpn_str.size()};
 
     struct gnutls_callback_wrapper
     {
-        gnutls_callback cb = nullptr;
-        unsigned int htype = 20;
-        unsigned int when = 1;
-        unsigned int incoming = 0;
+        gnutls_callback cb{nullptr};
+        unsigned int htype{20};
+        unsigned int when{1};
+        unsigned int incoming{0};
 
         bool applies(unsigned int h, unsigned int w, unsigned int i) const
         {
@@ -133,10 +170,10 @@ namespace oxen::quic
     struct x509_loader
     {
         std::variant<std::string, fs::path> source;
-        gnutls_datum_t mem{nullptr, 0};  // Will point at the string content when in_mem() is true
+        gnutls_datum_t mem;  // Will point at the string content when in_mem() is true
         gnutls_x509_crt_fmt_t format{};
 
-        x509_loader() = default;
+        // x509_loader() = default;
         x509_loader(std::string input)
         {
             if (auto path = fs::path(
@@ -175,8 +212,8 @@ namespace oxen::quic
         {
             if (auto* s = std::get_if<std::string>(&source))
             {
-                mem.data = reinterpret_cast<uint8_t*>(s->data());
-                mem.size = s->size();
+                mem.data = reinterpret_cast<unsigned char*>(s->data());
+                mem.size = static_cast<unsigned int>(s->size());
             }
             else
             {
@@ -221,7 +258,7 @@ namespace oxen::quic
         //
         // Hidden behind a template so that implicit conversion to pointer doesn't cause trouble via
         // other unwanted implicit conversions.
-        template <concepts::gtls_datum_type T>
+        template <std::same_as<gnutls_datum_t> T>
         operator const T*() const
         {
             return &mem;
@@ -262,18 +299,18 @@ namespace oxen::quic
 
     struct gtls_session_ticket;
     using gtls_ticket_ptr = std::unique_ptr<gtls_session_ticket>;
+
     struct gtls_session_ticket
     {
       private:
         const std::vector<unsigned char> _key;
         std::vector<unsigned char> _ticket;
+        // do not double free; points to vector data that will be freed already
         gnutls_datum_t _data;
 
         explicit gtls_session_ticket(
                 const unsigned char* key, unsigned int keysize, const unsigned char* ticket, unsigned int ticketsize) :
-                _key{key, key + keysize},
-                _ticket{ticket, ticket + ticketsize},
-                _data{.data = _ticket.data(), .size = ticketsize}
+                _key{key, key + keysize}, _ticket{ticket, ticket + ticketsize}, _data{_ticket.data(), ticketsize}
         {}
 
         explicit gtls_session_ticket(ustring_view key, ustring_view ticket) :
@@ -291,13 +328,15 @@ namespace oxen::quic
         gtls_session_ticket& operator=(gtls_session_ticket&&) = delete;
         gtls_session_ticket& operator=(const gtls_session_ticket&) = delete;
 
-        static gtls_ticket_ptr make(ustring_view key, ustring_view ticket)
-        {
-            return gtls_ticket_ptr(new gtls_session_ticket{key, ticket});
-        }
         static gtls_ticket_ptr make(const gnutls_datum_t* key, const gnutls_datum_t* ticket)
         {
-            return make({key->data, key->size}, {ticket->data, ticket->size});
+            return gtls_ticket_ptr(new gtls_session_ticket{key->data, key->size, ticket->data, ticket->size});
+        }
+
+        static gtls_ticket_ptr make(ustring_view key, const gnutls_datum_t* ticket)
+        {
+            return gtls_ticket_ptr(
+                    new gtls_session_ticket{key.data(), static_cast<unsigned int>(key.size()), ticket->data, ticket->size});
         }
 
         // Returns a view of the key for this ticket.  The view is valid as long as this
@@ -380,15 +419,17 @@ namespace oxen::quic
 
       private:
         gnutls_session_t session;
-        gnutls_datum_t session_ticket_key;
+        gtls_datum session_ticket_key{};
         gnutls_anti_replay_t anti_replay;
 
-        bool is_client;
-        bool _0rtt_enabled;
+        const bool _is_client;
+        const bool _0rtt_enabled;
 
-        gnutls_key _expected_remote_key{};
+        ustring _selected_alpn{};
+        gtls_key _expected_remote_key{};
+        gtls_key _remote_key{};
 
-        gnutls_key _remote_key{};
+        void set_selected_alpn();
 
       public:
         GNUTLSSession(
@@ -396,15 +437,13 @@ namespace oxen::quic
                 const std::shared_ptr<IOContext>& ctx,
                 Connection& c,
                 const std::vector<ustring>& alpns,
-                std::optional<gnutls_key> expected_key = std::nullopt);
+                std::optional<gtls_key> expected_key = std::nullopt);
 
         ~GNUTLSSession();
 
         void* get_session() override { return session; }
 
         void* get_anti_replay() const override { return anti_replay; }
-
-        const void* get_session_ticket_key() const override { return &session_ticket_key; }
 
         bool get_early_data_accepted() const override
         {
@@ -413,13 +452,13 @@ namespace oxen::quic
 
         ustring_view remote_key() const override { return _remote_key.view(); }
 
-        ustring_view selected_alpn() override;
+        ustring_view selected_alpn() const override { return _selected_alpn; }
 
         bool validate_remote_key();
 
         int send_session_ticket() override;
 
-        void set_expected_remote_key(ustring key) override { _expected_remote_key(key); }
+        void set_expected_remote_key(ustring_view key) override { _expected_remote_key(key); }
     };
 
     GNUTLSSession* get_session_from_gnutls(gnutls_session_t g_session);

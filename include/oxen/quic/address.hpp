@@ -25,6 +25,18 @@ namespace oxen::quic
 {
     inline constexpr std::array<uint8_t, 16> _ipv6_any_addr = {0};
 
+    struct Address;
+
+    inline namespace concepts
+    {
+        template <typename T>
+        concept raw_sockaddr_type =
+                std::same_as<T, sockaddr> || std::same_as<T, sockaddr_in> || std::same_as<T, sockaddr_in6>;
+
+        template <typename T>
+        concept quic_address_type = std::derived_from<T, Address>;
+    }  // namespace concepts
+
     // Holds an address, with a ngtcp2_addr held for easier passing into ngtcp2 functions
     struct Address
     {

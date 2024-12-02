@@ -91,7 +91,7 @@ namespace oxen::quic
         _0rtt_enabled = true;
         _0rtt_window = rtt.window.count();
 
-        _validate_0rtt_ticket = rtt._check ? std::move(rtt._check) : [this](gtls_ticket_ptr ticket, time_t current) -> bool {
+        _validate_0rtt_ticket = rtt.check ? std::move(rtt.check) : [this](gtls_ticket_ptr ticket, time_t current) -> bool {
             auto key = ticket->key();
 
             if (auto it = session_tickets.find(key); it != session_tickets.end())
@@ -105,11 +105,11 @@ namespace oxen::quic
                 log::debug(log_cat, "Found expired anti-replay ticket for incoming connection");
             }
 
-            session_tickets[std::move(key)] = std::move(ticket);
+            session_tickets[key] = std::move(ticket);
             return 0;
         };
 
-        _get_session_ticket = rtt._fetch ? std::move(rtt._fetch) : [this](ustring_view key) -> gtls_ticket_ptr {
+        _get_session_ticket = rtt.fetch ? std::move(rtt.fetch) : [this](ustring_view key) -> gtls_ticket_ptr {
             gtls_ticket_ptr ret = nullptr;
             if (auto it = session_tickets.find(key); it != session_tickets.end())
             {
@@ -123,7 +123,7 @@ namespace oxen::quic
             return ret;
         };
 
-        _put_session_ticket = rtt._put ? std::move(rtt._put) : [this](gtls_ticket_ptr ticket, time_t /* exp */) {
+        _put_session_ticket = rtt.put ? std::move(rtt.put) : [this](gtls_ticket_ptr ticket, time_t /* exp */) {
             auto key = ticket->key();
             auto [_, b] = session_tickets.insert_or_assign(std::move(key), std::move(ticket));
 
@@ -194,37 +194,16 @@ namespace oxen::quic
     void Endpoint::_connect(
             RemoteAddress remote, quic_cid qcid, ConnectionID rid, std::promise<std::shared_ptr<Connection>>& p)
     {
-        Path path = Path{_local, remote};
-        auto remote_pk = std::move(remote).get_remote_key();
-
-        for (;;)
-        {
-            // emplace random CID into lookup keyed to unique reference ID
-            if (auto [it_a, res_a] = conn_lookup.emplace(quic_cid::random(), rid); res_a)
-            {
-                qcid = it_a->first;
-
-                if (auto [it_b, res_b] = conns.emplace(rid, nullptr); res_b)
-                {
-                    it_b->second = Connection::make_conn(
-                            *this,
-                            rid,
-                            it_a->first,
-                            quic_cid::random(),
-                            std::move(path),
-                            outbound_ctx,
-                            outbound_alpns,
-                            handshake_timeout,
-                            remote_pk);
-
-                    p.set_value(it_b->second);
-                    return;
-                }
-            }
-        }
+        Address addr{remote};
+        return _connect(std::move(addr), std::move(qcid), std::move(rid), p, std::move(remote).get_remote_key());
     }
 
-    void Endpoint::_connect(Address remote, quic_cid qcid, ConnectionID rid, std::promise<std::shared_ptr<Connection>>& p)
+    void Endpoint::_connect(
+            Address remote,
+            quic_cid qcid,
+            ConnectionID rid,
+            std::promise<std::shared_ptr<Connection>>& p,
+            std::optional<ustring> pk)
     {
         Path path = Path{_local, std::move(remote)};
 
@@ -245,7 +224,8 @@ namespace oxen::quic
                             std::move(path),
                             outbound_ctx,
                             outbound_alpns,
-                            handshake_timeout);
+                            handshake_timeout,
+                            pk);
 
                     p.set_value(it_b->second);
                     return;

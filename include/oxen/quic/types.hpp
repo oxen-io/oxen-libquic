@@ -8,25 +8,6 @@
 
 namespace oxen::quic
 {
-    class Stream;
-    struct Address;
-
-    namespace concepts
-    {
-        template <typename T>
-        concept stream_derived_type = std::derived_from<T, Stream>;
-
-        template <typename T>
-        concept quic_address_type = std::derived_from<T, Address>;
-
-        template <typename T>
-        concept raw_sockaddr_type =
-                std::same_as<T, sockaddr> || std::same_as<T, sockaddr_in> || std::same_as<T, sockaddr_in6>;
-
-        template <typename T>
-        concept gtls_datum_type = std::same_as<T, gnutls_datum_t>;
-    }  // namespace concepts
-
     enum class Direction { OUTBOUND = 0, INBOUND = 1 };
 
     enum class Splitting { NONE = 0, ACTIVE = 1 };

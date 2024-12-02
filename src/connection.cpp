@@ -315,11 +315,10 @@ namespace oxen::quic
             set_remote_addr(path->remote);
             log::debug(log_cat, "Client set new remote ({}) on successful path validation...", _path.remote);
         }
+        else if (success)
+            log::debug(log_cat, "Client path validation succeeded as no address was provided by server...");
         else
-            log::warning(
-                    log_cat,
-                    "Client path validation {}; no address was provided by server...",
-                    success ? "succeeded" : "failed");
+            log::warning(log_cat, "Client path validation failed; no address was provided by server...");
 
         return 0;
     }
@@ -670,7 +669,7 @@ namespace oxen::quic
                 pending_streams.pop_front();
 
                 if (_0rtt_enabled and is_early_stream)
-                    _early_streams.emplace_hint(_early_streams.end(), _id);
+                    _early_streams.emplace_back(_id);
             }
             else
                 return;
@@ -1208,7 +1207,7 @@ namespace oxen::quic
 
         if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
-            log::warning(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
+            log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
             assert(endpoint().in_event_loop());
             stream->close(app_err_code);
             return 0;

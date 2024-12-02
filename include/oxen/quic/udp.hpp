@@ -36,6 +36,7 @@ namespace oxen::quic
         Path path;
         ngtcp2_pkt_info pkt_info{};
         std::vector<std::byte> pkt_data;
+        std::span<const std::byte> data_sp;
 
         size_t size() const { return pkt_data.size(); }
 
@@ -43,14 +44,14 @@ namespace oxen::quic
         template <oxenc::basic_char Char = std::byte>
         std::basic_string_view<Char> data(size_t pos = 0) const
         {
-            return std::basic_string_view<Char>{reinterpret_cast<const Char*>(pkt_data.data() + pos), pkt_data.size()};
+            return std::basic_string_view<Char>{reinterpret_cast<const Char*>(data_sp.data() + pos), data_sp.size() - pos};
         }
 
         /// Constructs a packet from a path and data view:
-        Packet(Path p, bstring_view d) : path{std::move(p)}, pkt_data{d.begin(), d.end()} {}
+        Packet(Path p, bstring_view d) : path{std::move(p)}, data_sp{d.begin(), d.end()} {}
 
         /// Constructs a packet from a path and transferred data:
-        Packet(Path p, bstring&& d) : path{std::move(p)}, pkt_data(d.size())
+        Packet(Path p, bstring&& d) : path{std::move(p)}, pkt_data(d.size()), data_sp{pkt_data.data(), d.size()}
         {
             std::memmove(pkt_data.data(), d.data(), d.size());
         }

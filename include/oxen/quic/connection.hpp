@@ -418,7 +418,7 @@ namespace oxen::quic
 
         ustring remote_pubkey{};
 
-        std::set<int64_t> _early_streams;
+        std::vector<int64_t> _early_streams;
 
         void make_early_streams(ngtcp2_conn* connptr);
 

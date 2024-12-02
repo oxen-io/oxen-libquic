@@ -131,7 +131,7 @@ namespace oxen::quic
         // data.
         struct static_secret
         {
-            inline static constexpr size_t SECRET_MIN_SIZE = 16;
+            inline static constexpr size_t SECRET_MIN_SIZE{16};
 
             ustring secret;
             explicit static_secret(ustring s) : secret{std::move(s)}
@@ -154,7 +154,7 @@ namespace oxen::quic
 
             manual_routing() = default;
 
-            send_handler_t send_hook = nullptr;
+            send_handler_t send_hook{nullptr};
 
           public:
             explicit manual_routing(send_handler_t cb) : send_hook{std::move(cb)}
@@ -181,8 +181,8 @@ namespace oxen::quic
             using buffer_hook_t = std::function<void(Stream&)>;
 
           private:
-            buffer_hook_t _hook = nullptr;
-            bool _persist = true;
+            buffer_hook_t _hook{nullptr};
+            bool _persist{true};
 
           public:
             watermark() = default;
@@ -212,11 +212,18 @@ namespace oxen::quic
     {
         /** 0-RTT ticketing:
                 The application has two choices in managing 0-RTT ticket storage and the server-side anti-replay db. Passing
-            either the default-constructed or expiry window constructed struct will signal to the endpoints that all storage
+            either the default-constructed or expiry window-constructed struct will signal to the endpoints that all storage
             will happen internally.
                 The application can also pass ALL callbacks and take full responsiblity for management. In doing so, the user
             must still pass an expiry window value, as that is given directly to gnutls. The following details enumerate the
             specifics on the parameters and resulting capacities needed from the application.
+
+            - `expiry` : In order to prevent the boundless recording of ClientHello messages, a certain window can be set to
+                only record messages within this time period. Any ClientHello messages received outside of this window are
+                considered to be replays, while those received within the period are referenced against the database. The
+                specific calculation of the 'obfuscated_ticket_age' is enumerated in RFC 8446 - Section 8.2
+            see:
+            https://datatracker.ietf.org/doc/html/rfc8446#section-8.2
 
             - `gtls_db_validate_cb` : The invocation of this cb provides the session ticket and the current ticket time given
                 by ngtcp2. All tickets should be held through the application chosen expiry window. The server must return
@@ -228,7 +235,6 @@ namespace oxen::quic
             see:
             https://www.gnutls.org/manual/html_node/Core-TLS-API.html#gnutls_005fanti_005freplay_005fset_005fadd_005ffunction
 
-
             - `gtls_db_get_cb` : The invocation is provided one ustring_view storing the ticket key. The application will
                 return the session ticket in a unique ptr, or nullptr if not found. This can be constructed using the static
                 gtls_session_ticket::make(...) overrides provded. If the endpoint successfully fetches the ticket, it must
@@ -239,25 +245,26 @@ namespace oxen::quic
                 `gnutls_db_check_entry_expire_time`, but why be redundant?
 
             Note: If one callback is provided, all the other must be as well. Endpoints are bi-directional in libquic, so
-                the sever-only validate hooks and client-only get/put hooks must be provided together.
+                the server-only validate hooks and client-only get/put hooks must be provided together. Moreover, ALL hooks
+                must access the database being used; the verify hook must be consistent with the others.
          */
         struct enable_0rtt_ticketing
         {
             std::chrono::milliseconds window{DEFAULT_ANTI_REPLAY_WINDOW};
 
-            gtls_db_validate_cb _check = nullptr;
-            gtls_db_get_cb _fetch = nullptr;
-            gtls_db_put_cb _put = nullptr;
+            gtls_db_validate_cb check{nullptr};
+            gtls_db_get_cb fetch{nullptr};
+            gtls_db_put_cb put{nullptr};
 
             enable_0rtt_ticketing() = default;
 
-            explicit enable_0rtt_ticketing(std::chrono::milliseconds w) : window{w} {}
+            enable_0rtt_ticketing(std::chrono::milliseconds w) : window{w} {}
 
             explicit enable_0rtt_ticketing(
                     std::chrono::milliseconds w, gtls_db_validate_cb v, gtls_db_get_cb g, gtls_db_put_cb p) :
-                    window{w}, _check{std::move(v)}, _fetch{std::move(g)}, _put{std::move(p)}
+                    window{w}, check{std::move(v)}, fetch{std::move(g)}, put{std::move(p)}
             {
-                if (not(_check and _fetch and _put))
+                if (not(check and fetch and put))
                     throw std::invalid_argument{"All callbacks must be set!"};
             }
         };

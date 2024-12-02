@@ -207,7 +207,7 @@ namespace oxen::quic
         std::vector<ustring> inbound_alpns;
         std::chrono::nanoseconds handshake_timeout{DEFAULT_HANDSHAKE_TIMEOUT};
 
-        std::unordered_map<ustring_view, gtls_ticket_ptr> session_tickets;
+        std::unordered_map<ustring_view, gtls_ticket_ptr, detail::ustring_hasher> session_tickets;
 
         std::unordered_map<Address, ustring> encoded_transport_params;
 
@@ -222,7 +222,12 @@ namespace oxen::quic
 
         void _connect(RemoteAddress remote, quic_cid qcid, ConnectionID rid, std::promise<std::shared_ptr<Connection>>& p);
 
-        void _connect(Address remote, quic_cid qcid, ConnectionID rid, std::promise<std::shared_ptr<Connection>>& p);
+        void _connect(
+                Address remote,
+                quic_cid qcid,
+                ConnectionID rid,
+                std::promise<std::shared_ptr<Connection>>& p,
+                std::optional<ustring> pk = std::nullopt);
 
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
@@ -408,9 +413,9 @@ namespace oxen::quic
         static constexpr void check_address_scheme()
         {
             if constexpr ((std::is_same_v<opt::disable_key_verification, std::remove_cvref_t<Opt>> || ...))
-            {
                 static_assert(std::is_same_v<T, Address>, "Disabling key verification requires keyless address!");
-            }
+            else
+                static_assert(std::is_same_v<T, RemoteAddress>, "Key verification requires keyed address!");
         }
     };
 
