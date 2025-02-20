@@ -112,8 +112,13 @@ if (WARNINGS_AS_ERRORS)
 endif()
 add_library(libquic_internal-warnings INTERFACE)
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.0.0)
-    target_compile_options(libquic_internal-warnings INTERFACE -fconcepts)
+# gcc 11 and earlier bug
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12.0.0)
+    if (libquic_IS_TOPLEVEL_PROJECT)
+        list(APPEND warning_flags -Wno-error=stringop-overflow)
+    else()
+        target_compile_options(libquic_external INTERFACE -Wno-error=stringop-overflow)
+    endif()
 endif()
 
 target_compile_options(libquic_internal-warnings INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")
