@@ -1,7 +1,4 @@
-#include <catch2/catch_test_macros.hpp>
-#include <thread>
-
-#include "utils.hpp"
+#include "unit_test.hpp"
 
 namespace oxen::quic::test
 {
@@ -10,7 +7,7 @@ namespace oxen::quic::test
     TEST_CASE("006 - Server streams: Direct creation and transmission", "[006][server][streams][send][execute]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsv;
+        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
 
         std::atomic<int> data_check{0};
 
@@ -21,20 +18,20 @@ namespace oxen::quic::test
                           stream_future = stream_promise.get_future();
 
         stream_open_callback server_io_open_cb = [&](IOChannel& s) {
-            log::debug(log_cat, "Calling server stream open callback... stream opened...");
+            log::debug(test_cat, "Calling server stream open callback... stream opened...");
             server_stream = s.get_stream();
             stream_promise.set_value();
             return 0;
         };
 
-        stream_data_callback server_io_data_cb = [&](IOChannel&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
+        stream_data_callback server_io_data_cb = [&](IOChannel&, bspan) {
+            log::debug(test_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
             server_promise.set_value();
         };
 
-        stream_data_callback client_io_data_cb = [&](IOChannel&, bstring_view) {
-            log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
+        stream_data_callback client_io_data_cb = [&](IOChannel&, bspan) {
+            log::debug(test_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
             client_promise.set_value();
         };
@@ -47,17 +44,17 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_io_open_cb, server_io_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto conn_interface = client_endpoint->connect(client_remote, client_tls, client_io_data_cb);
 
         auto client_stream = conn_interface->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(stream_future);
 
-        server_stream->send(msg);
+        server_stream->send(msg, nullptr);
 
         require_future(client_future);
         require_future(server_future);
@@ -67,8 +64,8 @@ namespace oxen::quic::test
     TEST_CASE("006 - Server streams: Remote initiation, server send", "[006][server][streams][send][execute]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsv;
-        constexpr auto response = "okay okay i get it already"_bsv;
+        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        constexpr auto response = "okay okay i get it already"_bsp;
 
         std::atomic<int> ci{0}, si{0};
         std::atomic<int> data_check{0};
@@ -86,7 +83,7 @@ namespace oxen::quic::test
         }
 
         stream_open_callback server_io_open_cb = [&](Stream& s) {
-            log::debug(log_cat, "Calling server stream open callback... stream opened...");
+            log::debug(test_cat, "Calling server stream open callback... stream opened...");
             server_extracted_stream = s.get_stream();
             try
             {
@@ -101,7 +98,7 @@ namespace oxen::quic::test
         };
 
         stream_open_callback client_io_open_cb = [&](Stream& s) {
-            log::debug(log_cat, "Calling client stream open callback... stream opened...");
+            log::debug(test_cat, "Calling client stream open callback... stream opened...");
             client_extracted_stream = s.get_stream();
             try
             {
@@ -115,8 +112,8 @@ namespace oxen::quic::test
             return 0;
         };
 
-        stream_data_callback server_io_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received... incrementing counter...");
+        stream_data_callback server_io_data_cb = [&](Stream&, bspan) {
+            log::debug(test_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
             try
             {
@@ -129,8 +126,8 @@ namespace oxen::quic::test
             }
         };
 
-        stream_data_callback client_io_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling client stream data callback... data received... incrementing counter...");
+        stream_data_callback client_io_data_cb = [&](Stream&, bspan) {
+            log::debug(test_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
             try
             {
@@ -151,26 +148,26 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_io_data_cb, server_io_open_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_endpoint = test_net.endpoint(client_local);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_io_data_cb, client_io_open_cb);
 
         auto client_stream = client_ci->open_stream();
-        client_stream->send(msg);
+        client_stream->send(msg, nullptr);
 
         require_future(server_futures[0]);
         require_future(server_futures[1]);
 
-        server_extracted_stream->send(response);
+        server_extracted_stream->send(response, nullptr);
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
         auto server_stream = server_ci->open_stream();
-        server_stream->send(msg);
+        server_stream->send(msg, nullptr);
 
         for (auto& c : client_futures)
             require_future(c);
 
-        client_extracted_stream->send(response);
+        client_extracted_stream->send(response, nullptr);
 
         require_future(server_futures[2]);
         REQUIRE(data_check == 4);

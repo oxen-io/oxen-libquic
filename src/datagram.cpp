@@ -17,12 +17,6 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
-    int64_t DatagramIO::stream_id() const
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return std::numeric_limits<int64_t>::min();
-    }
-
     std::shared_ptr<Stream> DatagramIO::get_stream()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -46,12 +40,7 @@ namespace oxen::quic
     size_t DatagramIO::unsent_impl() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        size_t sum{0};
-        if (send_buffer.empty())
-            return sum;
-        for (const auto& entry : send_buffer.buf)
-            sum += entry.size();
-        return sum;
+        return _send_buffer.pending_bytes();
     }
     bool DatagramIO::has_unsent_impl() const
     {
@@ -67,6 +56,31 @@ namespace oxen::quic
         return {};
     }
 
+    void DatagramIO::early_data_begin()
+    {
+        _send_buffer.early_data_begin();
+    }
+    void DatagramIO::early_data_retry()
+    {
+        _send_buffer.early_data_retry();
+    }
+    void DatagramIO::early_data_end(bool accepted)
+    {
+        _send_buffer.early_data_end(accepted);
+    }
+
+    void DatagramIO::set_split_datagram_lookahead(int n)
+    {
+        endpoint.call([this, val = n >= 0 ? static_cast<size_t>(n) : datagram_queue::DEFAULT_SPLIT_LOOKAHEAD] {
+            log::debug(log_cat, "Changing split datagram lookahead from {} to {}", _send_buffer.split_lookahead, val);
+            _send_buffer.split_lookahead = val;
+        });
+    }
+    int DatagramIO::get_split_datagram_lookahead() const
+    {
+        return endpoint.call_get([this] { return static_cast<int>(_send_buffer.split_lookahead); });
+    }
+
     dgram_interface::dgram_interface(Connection& c) : ci{c}, reference_id{ci.reference_id()} {}
 
     std::shared_ptr<connection_interface> dgram_interface::get_conn_interface()
@@ -74,67 +88,48 @@ namespace oxen::quic
         return ci.shared_from_this();
     }
 
-    void dgram_interface::reply(bstring_view data, std::shared_ptr<void> keep_alive)
+    void dgram_interface::reply(bspan data, std::shared_ptr<void> keep_alive)
     {
         ci.send_datagram(data, std::move(keep_alive));
     }
 
-    void DatagramIO::send_impl(bstring_view data, std::shared_ptr<void> keep_alive)
+    void DatagramIO::send_impl(bspan data, std::shared_ptr<void> keep_alive)
     {
-        // if packet_splitting is lazy OR packet_splitting is off, send as "normal" datagram
-        endpoint.call([this, data, keep_alive = std::move(keep_alive)]() {
+        endpoint.call([this, data, keep_alive = std::move(keep_alive)]() mutable {
             if (!_conn)
             {
                 log::warning(log_cat, "Unable to send datagram: connection has gone away");
                 return;
             }
 
-            // check this first and once; already considers policy when returning
-            const auto max_size = _conn->get_max_datagram_size_impl();
-
-            // we use >= instead of > for that just-in-case 1-byte cushion
-            if (data.size() > max_size)
-            {
-                log::warning(
-                        log_cat,
-                        "Data of length {} cannot be sent with {} datagrams of max size {}",
-                        data.size(),
-                        _packet_splitting ? "unsplit" : "split",
-                        max_size);
-                // Ideally we would throw, but because we're inside a `call` and are probably
-                // running after the `send_impl` call returned, all we can really do is warn and
-                // drop.
-                return;
-            }
+            auto base_dgid = _next_dgram_counter++ << 2;
+            _next_dgram_counter %= 1 << 14;
 
             log::trace(
                     log_cat,
-                    "Connection ({}) sending {} datagram: {}",
+                    "Connection ({}) queuing datagram with base dgid={:04x}: {}",
                     _conn->reference_id(),
-                    _packet_splitting ? "split" : "whole",
+                    base_dgid,
                     buffer_printer{data});
 
-            bool split = _packet_splitting && data.size() > max_size / 2;
-
-            auto dgram_id = _next_dgram_counter << 2;
-            if (split)
-                dgram_id |= 0b10;
-            (++_next_dgram_counter) %= 1 << 14;
-
-            send_buffer.emplace(data, dgram_id, std::move(keep_alive), split ? dgram::OVERSIZED : dgram::STANDARD, max_size);
+            _send_buffer.emplace(data, base_dgid, std::move(keep_alive));
 
             _conn->packet_io_ready();
         });
     }
 
-    prepared_datagram DatagramIO::pending_datagram(bool r)
+    std::optional<prepared_datagram> DatagramIO::pending_datagram(bool prefer_small)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        return send_buffer.prepare(r, _packet_splitting);
+        return _send_buffer.fetch(_conn->get_max_datagram_piece(), prefer_small);
     }
 
-    std::optional<bstring> DatagramIO::to_buffer(bstring_view data, uint16_t dgid)
+    void DatagramIO::confirm_datagram_sent()
+    {
+        _send_buffer.confirm_sent();
+    }
+
+    std::optional<std::vector<std::byte>> DatagramIO::to_buffer(bspan data, uint16_t dgid)
     {
         log::trace(log_cat, "DatagramIO handed datagram with endian swapped ID: {}", dgid);
 

@@ -1,7 +1,5 @@
 #include "endpoint.hpp"
 
-#include "opt.hpp"
-
 extern "C"
 {
 #include <ngtcp2/ngtcp2.h>
@@ -11,14 +9,16 @@ extern "C"
 #endif
 }
 
+#include "connection.hpp"
+#include "gnutls_crypto.hpp"
+#include "internal.hpp"
+#include "opt.hpp"
+#include "types.hpp"
+#include "utils.hpp"
+
 #include <cstddef>
 #include <list>
 #include <optional>
-
-#include "connection.hpp"
-#include "internal.hpp"
-#include "types.hpp"
-#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -80,6 +80,11 @@ namespace oxen::quic
         assert(_static_secret.size() >= 16);  // opt::static_secret should have checked this
     }
 
+    void Endpoint::handle_ep_opt(opt::manual_routing mrouting)
+    {
+        _manual_routing = std::move(mrouting);
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -87,21 +92,31 @@ namespace oxen::quic
         return ConnectionID{++_next_rid};
     }
 
-    ustring Endpoint::make_static_secret()
+    std::vector<unsigned char> Endpoint::make_static_secret()
     {
-        ustring secret;
+        std::vector<unsigned char> secret;
         secret.resize(32);
         gnutls_rnd(gnutls_rnd_level_t::GNUTLS_RND_KEY, secret.data(), secret.size());
         return secret;
     }
 
+    void Endpoint::manually_receive_packet(Packet&& pkt)
+    {
+        call([this, packet = std::move(pkt)]() mutable { handle_packet(std::move(packet)); });
+    }
+
     void Endpoint::_init_internals()
     {
-        log::debug(log_cat, "Starting new UDP socket on {}", _local);
-        socket = std::make_unique<UDPSocket>(
-                get_loop().get(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
+        if (not _manual_routing)
+        {
+            log::debug(log_cat, "Starting new UDP socket on {}", _local);
+            socket = std::make_unique<UDPSocket>(
+                    get_loop().get(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
 
-        _local = socket->address();
+            _local = socket->address();
+        }
+        else
+            log::info(log_cat, "Endpoint enabled with manual packet routing -- bypassing UDP socket creation!");
 
         expiry_timer.reset(event_new(
                 get_loop().get(),
@@ -121,6 +136,43 @@ namespace oxen::quic
         _accepting_inbound = true;
 
         log::debug(log_cat, "Inbound context ready for incoming connections");
+    }
+
+    std::shared_ptr<Connection> Endpoint::_connect(RemoteAddress remote)
+    {
+        Path path = Path{_local, std::move(remote)};
+
+        auto rid = next_reference_id();
+
+        for (;;)
+        {
+            // emplace random CID into lookup keyed to unique reference ID
+            if (auto [it_a, ins_a] = conn_lookup.emplace(quic_cid::random(), rid); ins_a) [[likely]]
+            {
+                auto [it_b, ins_b] = conns.emplace(rid, nullptr);
+                assert(ins_b);
+                try
+                {
+                    it_b->second = Connection::make_conn(
+                            *this,
+                            rid,
+                            it_a->first,
+                            quic_cid::random(),
+                            std::move(path),
+                            outbound_ctx,
+                            outbound_alpns,
+                            handshake_timeout,
+                            remote.get_remote_key());
+                    return it_b->second;
+                }
+                catch (...)
+                {
+                    conns.erase(it_b);
+                    conn_lookup.erase(it_a);
+                    throw;
+                }
+            }
+        }
     }
 
     void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
@@ -206,30 +258,32 @@ namespace oxen::quic
         // check existing conns
         log::trace(log_cat, "Incoming connection ID: {}", dcid);
 
-        auto cptr = fetch_associated_conn(&dcid);
+        auto cptr = fetch_associated_conn(dcid);
+
+        log::trace(log_cat, "{} associated connection for incoming DCID", cptr ? "Found" : "No");
 
         if (!cptr)
         {
             if (_accepting_inbound)
             {
-                cptr = accept_initial_connection(pkt);
+                bool dealt_with;
+                std::tie(cptr, dealt_with) = accept_initial_connection(pkt);
+                if (!cptr && dealt_with)
+                    return;
+            }
+
+            if (!cptr)
+            {
+                cptr = check_stateless_reset(pkt);
 
                 if (!cptr)
                 {
-                    log::warning(log_cat, "Error: connection could not be created");
+                    log::debug(log_cat, "Unknown packet received from {}; sending stateless reset", pkt.path.remote);
+                    send_stateless_reset(pkt, dcid);
                     return;
                 }
-
-                initial_association(*cptr);
-            }
-            else
-            {
-                log::info(log_cat, "Dropping packet; unknown connection ID to endpoint not accepting inbound conns");
-                return;
             }
         }
-        else
-            log::debug(log_cat, "Found associated connection to incoming DCID!");
 
         if (cptr->is_outbound())
             // For a inbound packet on an outbound connection the packet handling code will have set
@@ -247,13 +301,19 @@ namespace oxen::quic
         cptr->handle_conn_packet(std::move(pkt));
     }
 
-    void Endpoint::drop_connection(Connection& conn, io_error err)
+    void Endpoint::_drop_connection(Connection& conn, io_error err)
     {
         log::debug(log_cat, "Dropping connection ({}) with errcode {}", conn.reference_id(), err.code());
 
         _execute_close_hooks(conn, std::move(err));
 
         delete_connection(conn);
+    }
+
+    void Endpoint::drop_connection(Connection& conn, io_error err)
+    {
+        log::debug(log_cat, "Scheduling drop connection ({}) with errcode {}", conn.reference_id(), err.code());
+        call_soon([this, &conn, err] { _drop_connection(conn, err); });
     }
 
     void Endpoint::close_connection(Connection& conn, io_error ec, std::optional<std::string> msg)
@@ -305,7 +365,7 @@ namespace oxen::quic
                     log_cat,
                     "Connection ({}) passed idle expiry timer; closing now without close packet",
                     conn.reference_id());
-            drop_connection(conn, io_error{CONN_IDLE_CLOSED});
+            _drop_connection(conn, io_error{CONN_IDLE_CLOSED});
             return;
         }
 
@@ -372,23 +432,22 @@ namespace oxen::quic
         const auto& rid = conn.reference_id();
 
         conn.halt_events();
+        conn.set_closing();
 
-        log::debug(log_cat, "Deleting associated CIDs for connection ({})", rid);
+        log::debug(log_cat, "Deleting associated CIDs for connection {}", rid);
 
-        if (conn.is_inbound())
+        const auto& cids = conn.associated_cids();
+        log::debug(log_cat, "Deleting {} associated CIDs for connection {}", cids.size(), rid);
+        while (not cids.empty())
         {
-            dissociate_cid(ngtcp2_conn_get_client_initial_dcid(conn), conn);
-        }
-
-        log::debug(log_cat, "Deleting {} associated CIDs for connection ({})", conn.associated_cids().size(), rid);
-
-        auto& cids = conn.associated_cids();
-
-        for (auto itr = cids.begin(); itr != cids.end();)
-        {
+            auto itr = cids.begin();
             dissociate_cid(&*itr, conn);
-            itr = cids.erase(itr);
         }
+
+        const auto& resets = conn.associated_reset_tokens();
+        log::debug(log_cat, "Deleting {} associated reset tokens for connection {}", resets.size(), rid);
+        for (const auto& htok : resets)
+            reset_token_conns.erase(htok);
 
         conn.drop_streams();
 
@@ -406,91 +465,114 @@ namespace oxen::quic
         }
     }
 
-    int Endpoint::validate_anti_replay(ustring key, ustring data, time_t /* exp */)
-    {
-        if (auto itr = anti_replay_db.find(key); itr != anti_replay_db.end())
-        {
-            auto& entry = itr->second;
-
-            if (entry == data)
-                return GNUTLS_E_DB_ENTRY_EXISTS;
-        }
-
-        anti_replay_db[std::move(key)] = std::move(data);
-        return 0;
-    }
-
-    void Endpoint::store_0rtt_transport_params(ustring remote_pk, ustring encoded_params)
-    {
-        encoded_transport_params.insert_or_assign(remote_pk, std::move(encoded_params));
-    }
-
-    std::optional<ustring> Endpoint::get_0rtt_transport_params(ustring remote_pk)
-    {
-        if (auto itr = encoded_transport_params.find(remote_pk); itr != encoded_transport_params.end())
-            return itr->second;
-
-        return std::nullopt;
-    }
-
     void Endpoint::initial_association(Connection& conn)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(in_event_loop());
-
-        std::array<ngtcp2_cid, MAX_ACTIVE_CIDS> scids;
 
         auto dir_str = conn.is_outbound() ? "CLIENT"s : "SERVER"s;
         auto n = ngtcp2_conn_get_scid(conn, nullptr);
 
         log::trace(log_cat, "{} associating {} active initial CID's", dir_str, n);
 
+        if (n > 1)
+            // If this is really the initial association then there should be exactly 1, i.e. the
+            // initial dcid we send to the remote during handshake.
+            log::error(log_cat, "Unexpected initial CID list length {} > 1", n);
+
+        std::vector<ngtcp2_cid> scids;
+        scids.resize(n);
         ngtcp2_conn_get_scid(conn, scids.data());
 
-        for (size_t i = 0; i < n; ++i)
-            associate_cid(&scids[0], conn);
+        for (const auto& scid : scids)
+            associate_cid(scid, conn);
 
         log::debug(log_cat, "Connection (RID:{}) completed initial CID association", conn.reference_id());
     }
 
+    void Endpoint::associate_reset(const uint8_t* token, Connection& conn)
+    {
+        assert(in_event_loop());
+        if (!token)
+        {
+            log::debug(log_cat, "Cannot add a null reset token");
+            return;
+        }
+
+        log::debug(log_cat, "{} {} adding reset token", conn.is_inbound() ? "SERVER" : "CLIENT", conn.reference_id());
+
+        auto htok = hash_reset_token(token);
+        if (auto [it, ins] = reset_token_conns.emplace(htok, conn.reference_id()); !ins)
+            it->second = conn.reference_id();
+        conn.store_associated_reset(htok);
+    }
+
+    void Endpoint::dissociate_reset(const uint8_t* token, Connection& conn)
+    {
+        assert(in_event_loop());
+        if (!token)
+            return;
+
+        auto htok = hash_reset_token(token);
+        conn.delete_associated_reset(htok);
+        if (auto it = reset_token_conns.find(htok); it != reset_token_conns.end())
+        {
+            log::debug(
+                    log_cat,
+                    "{} removing reset token {} for {}",
+                    conn.is_inbound() ? "SERVER" : "CLIENT",
+                    oxenc::to_hex(token, token + NGTCP2_STATELESS_RESET_TOKENLEN),
+                    conn.reference_id());
+            reset_token_conns.erase(it);
+        }
+        else
+        {
+            log::warning(
+                    log_cat,
+                    "{}: reset token {} was not found for {}",
+                    conn.is_inbound() ? "SERVER" : "CLIENT",
+                    oxenc::to_hex(token, token + NGTCP2_STATELESS_RESET_TOKENLEN),
+                    conn.reference_id());
+        }
+    }
+
+    void Endpoint::associate_cid(quic_cid qcid, Connection& conn, bool weakly)
+    {
+        assert(in_event_loop());
+        log::trace(
+                log_cat, "{} associating CID:{} to {}", conn.is_inbound() ? "SERVER" : "CLIENT", qcid, conn.reference_id());
+
+        auto inserted = conn_lookup.emplace(qcid, conn.reference_id()).second;
+        if (inserted || !weakly)
+            conn.store_associated_cid(qcid);
+    }
+
     void Endpoint::associate_cid(const ngtcp2_cid* cid, Connection& conn)
     {
-        auto dir_str = conn.is_inbound() ? "SERVER"s : "CLIENT"s;
-        log::trace(
-                log_cat,
-                "{} associating CID:{} to {}",
-                dir_str,
-                oxenc::to_hex(cid->data, cid->data + cid->datalen),
-                conn.reference_id());
-
         assert(in_event_loop());
-        auto ccid = quic_cid{*cid};
-        conn_lookup.emplace(ccid, conn.reference_id());
-        conn.store_associated_cid(ccid);
+        if (cid->datalen)
+            return associate_cid(quic_cid{*cid}, conn);
+    }
+
+    void Endpoint::dissociate_cid(quic_cid qcid, Connection& conn)
+    {
+        assert(in_event_loop());
+        log::trace(
+                log_cat, "{} dissociating CID:{} to {}", conn.is_inbound() ? "SERVER" : "CLIENT", qcid, conn.reference_id());
+
+        conn_lookup.erase(qcid);
+        conn.delete_associated_cid(qcid);
     }
 
     void Endpoint::dissociate_cid(const ngtcp2_cid* cid, Connection& conn)
     {
-        if (not cid->datalen)
-            return;
-
-        auto dir_str = conn.is_inbound() ? "SERVER"s : "CLIENT"s;
-        log::trace(
-                log_cat,
-                "{} dissociating CID:{} to {}",
-                dir_str,
-                oxenc::to_hex(cid->data, cid->data + cid->datalen),
-                conn.reference_id());
-
         assert(in_event_loop());
-        auto ccid = quic_cid{*cid};
-        conn_lookup.erase(ccid);
+        if (cid->datalen)
+            return dissociate_cid(quic_cid{*cid}, conn);
     }
 
-    Connection* Endpoint::fetch_associated_conn(ngtcp2_cid* cid)
+    Connection* Endpoint::fetch_associated_conn(const quic_cid& ccid)
     {
-        auto ccid = quic_cid{*cid};
-
         if (auto it_a = conn_lookup.find(ccid); it_a != conn_lookup.end())
         {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
@@ -519,11 +601,11 @@ namespace oxen::quic
                     now);
             rv != 0)
         {
-            log::warning(log_cat, "Server could not verify regular token!");
+            log::debug(log_cat, "Server (local={}) could not verify regular token! path: {}", _local, pkt.path);
             return false;
         }
 
-        log::debug(log_cat, "Server successfully verified regular token!");
+        log::debug(log_cat, "Server successfully verified regular token! path: {}", pkt.path);
         return true;
     }
 
@@ -545,12 +627,62 @@ namespace oxen::quic
                     now);
             rv != 0)
         {
-            log::warning(log_cat, "Server could not verify retry token!");
+            log::info(log_cat, "Server could not verify retry token!");
             return false;
         }
 
         log::debug(log_cat, "Server successfully verified retry token!");
         return true;
+    }
+
+    void Endpoint::send_stateless_reset(const Packet& pkt, quic_cid& cid)
+    {
+        if (pkt.size() <= MIN_STATELESS_RESET_SIZE)
+        {
+            log::debug(
+                    log_cat,
+                    "not sending stateless reset: incoming packet size {} is below stateless reset threshold {}",
+                    pkt.size(),
+                    MIN_STATELESS_RESET_SIZE);
+            return;
+        }
+
+        // We have to ensure that our packet is strictly smaller than the packet that came in to
+        // avoid infinite looping (see RFC 9000 section 10.3.3).  If we just naively made it smaller
+        // by a fixed amount (e.g. -1) then such a loop would be easily detectable by someone
+        // observing our packets, and also a -1 could involve a lot of looping before it terminates,
+        // so instead we jump the size down randomly by Unif[1, max_reduction], but making sure that
+        // we don't go below MIN_STATELESS_RESET_SIZE.
+        size_t reduce = 1;
+        if (const size_t max_reduction = pkt.size() - MIN_STATELESS_RESET_SIZE; max_reduction > 1)
+        {
+            gnutls_rnd(GNUTLS_RND_NONCE, &reduce, sizeof(reduce));
+            reduce = 1 + reduce % max_reduction;
+        }
+
+        std::vector<std::byte> buf;
+        buf.resize(pkt.size() - reduce);
+        std::vector<uint8_t> rand_data;
+        rand_data.resize(buf.size() - NGTCP2_STATELESS_RESET_TOKENLEN);
+        gnutls_rnd(GNUTLS_RND_RANDOM, rand_data.data(), rand_data.size());
+
+        auto token = generate_reset_token(cid);
+        auto nwrite =
+                ngtcp2_pkt_write_stateless_reset(u8data(buf), buf.size(), token.data(), rand_data.data(), rand_data.size());
+
+        log::debug(log_cat, "sending stateless reset of size {} in response to incoming packet size {}", nwrite, pkt.size());
+
+        if (nwrite < 0)
+        {
+            log::warning(log_cat, "Server failed to write stateless reset packet!");
+            return;
+        }
+
+        // ensure we had enough write space
+        assert(static_cast<size_t>(nwrite) <= buf.size());
+        buf.resize(nwrite);
+
+        send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
     void Endpoint::send_retry(const Packet& pkt, ngtcp2_pkt_hd* hdr)
@@ -623,14 +755,14 @@ namespace oxen::quic
         send_or_queue_packet(pkt.path, std::move(buf), /* ecn */ 0);
     }
 
-    void Endpoint::store_path_validation_token(ustring remote_pk, ustring token)
+    void Endpoint::store_path_validation_token(Address remote, std::vector<unsigned char> token)
     {
-        path_validation_tokens.insert_or_assign(std::move(remote_pk), std::move(token));
+        path_validation_tokens.insert_or_assign(std::move(remote), std::move(token));
     }
 
-    std::optional<ustring> Endpoint::get_path_validation_token(ustring remote_pk)
+    std::optional<std::vector<unsigned char>> Endpoint::get_path_validation_token(const Address& remote)
     {
-        if (auto itr = path_validation_tokens.find(remote_pk); itr != path_validation_tokens.end())
+        if (auto itr = path_validation_tokens.find(remote); itr != path_validation_tokens.end())
             return itr->second;
 
         return std::nullopt;
@@ -674,32 +806,52 @@ namespace oxen::quic
         return std::make_optional<quic_cid>(vid.dcid, vid.dcidlen);
     }
 
-    Connection* Endpoint::accept_initial_connection(const Packet& pkt)
+    Connection* Endpoint::check_stateless_reset(const Packet& pkt)
     {
-        log::trace(log_cat, "Accepting new connection...");
+        log::trace(log_cat, "Checking last 16B of pkt for stateless reset token...");
+        Connection* cptr = nullptr;
+
+        auto pkt_data = pkt.data<uint8_t>();
+        if (pkt_data.size() < NGTCP2_STATELESS_RESET_TOKENLEN)
+        {
+            log::trace(log_cat, "Packet too small to contain a stateless reset token, remote: {}", pkt.path.remote);
+            return cptr;
+        }
+
+        auto token = pkt_data.last<NGTCP2_STATELESS_RESET_TOKENLEN>();
+        log::trace(log_cat, "Checking for stateless reset token {}", oxenc::to_hex(token.begin(), token.end()));
+        auto htoken = hash_reset_token(token);
+
+        if (auto it = reset_token_conns.find(htoken); it != reset_token_conns.end())
+        {
+            log::trace(log_cat, "reset token mapped to {}", it->second);
+            cptr = get_conn(it->second).get();
+            if (cptr)
+                log::debug(log_cat, "Matched stateless reset token to connection {}", cptr->reference_id());
+            else
+            {
+                log::debug(
+                        log_cat,
+                        "Received good stateless reset token but no connection still exists for it; deleting entry");
+                reset_token_conns.erase(it);
+            }
+        }
+        else
+            log::trace(log_cat, "No stateless reset token match for pkt from remote: {}", pkt.path.remote);
+
+        return cptr;
+    }
+    std::pair<Connection*, bool> Endpoint::accept_initial_connection(const Packet& pkt)
+    {
+        log::trace(log_cat, "Attempt to accept new connection...");
 
         ngtcp2_pkt_hd hdr;
 
         auto data = pkt.data<uint8_t>();
         auto rv = ngtcp2_accept(&hdr, data.data(), data.size());
 
-        if (rv < 0)  // catches all other possible ngtcp2 errors
-        {
-            log::warning(
-                    log_cat,
-                    "Unknown packet received from {}, length={}, code={}; ignoring it.",
-                    pkt.path.remote,
-                    data.size(),
-                    ngtcp2_strerror(rv));
-            return nullptr;
-        }
-        if (hdr.type == NGTCP2_PKT_0RTT)
-        {
-            log::error(log_cat, "0RTT is under development in this implementation; dropping packet");
-            return nullptr;
-        }
-
-        assert(hdr.type == NGTCP2_PKT_INITIAL);
+        if (rv < 0 || hdr.type != NGTCP2_PKT_INITIAL)
+            return {nullptr, false};
 
         ngtcp2_cid original_cid;
         ngtcp2_cid* pkt_original_cid = nullptr;
@@ -713,7 +865,7 @@ namespace oxen::quic
                     if (not verify_retry_token(pkt, &hdr, &original_cid))
                     {
                         send_stateless_connection_close(pkt, &hdr, io_error{NGTCP2_INVALID_TOKEN});
-                        return nullptr;
+                        return {nullptr, true};
                     }
 
                     pkt_original_cid = &original_cid;
@@ -723,19 +875,17 @@ namespace oxen::quic
                     if (not verify_token(pkt, &hdr))
                     {
                         send_retry(pkt, &hdr);
-                        return nullptr;
+                        return {nullptr, true};
                     }
 
                     token_type = NGTCP2_TOKEN_TYPE_NEW_TOKEN;
                     break;
                 default:
                     if (hdr.dcid.datalen < NGTCP2_MIN_INITIAL_DCIDLEN)
-                    {
                         send_stateless_connection_close(pkt, &hdr, io_error{NGTCP2_INVALID_TOKEN});
-                        return nullptr;
-                    }
-                    send_retry(pkt, &hdr);
-                    return nullptr;
+                    else
+                        send_retry(pkt, &hdr);
+                    return {nullptr, true};
             }
         }
 
@@ -745,6 +895,7 @@ namespace oxen::quic
 
         auto next_rid = next_reference_id();
 
+        Connection* conn;
         for (;;)
         {
             // emplace random CID into lookup keyed to unique reference ID
@@ -766,21 +917,48 @@ namespace oxen::quic
                             token_type,
                             pkt_original_cid);
 
-                    return it_b->second.get();
+                    conn = it_b->second.get();
+                    break;
                 }
             }
         }
+
+        initial_association(*conn);
+        return {conn, true};
     }
 
     io_result Endpoint::send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
+        if (_manual_routing)
+        {
+            try
+            {
+                for (size_t i = 0; i < n_pkts; i++)
+                {
+                    _manual_routing(path, bspan{buf, *bufsize});
+                    buf += *bufsize++;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                log::warning(
+                        log_cat,
+                        "Manual packet router raised an exception ({}); dropping packets and signaling error",
+                        e.what());
+                return io_result{EIO};
+            }
+            n_pkts = 0;
+            return io_result{};
+        }
+
         if (!socket)
         {
             log::warning(log_cat, "Cannot send packets on closed socket ({})", path);
             return io_result{EBADF};
         }
+
         assert(n_pkts >= 1 && n_pkts <= MAX_BATCH);
 
         log::trace(log_cat, "Sending {} UDP packet(s) {}...", n_pkts, path);
@@ -826,7 +1004,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        if (!socket)
+        if (not _manual_routing and !socket)
         {
             log::warning(log_cat, "Cannot sent to dead socket for path {}", p);
             if (callback)
@@ -838,20 +1016,20 @@ namespace oxen::quic
         size_t bufsize = buf.size();
         auto res = send_packets(p, buf.data(), &bufsize, ecn, n_pkts);
 
-        if (res.blocked())
+        if (res.blocked() and not _manual_routing)
         {
             socket->when_writeable([this, p, buf = std::move(buf), ecn, cb = std::move(callback)]() mutable {
                 send_or_queue_packet(p, std::move(buf), ecn, std::move(cb));
             });
         }
         else if (callback)
-            callback({});
+            callback(res);
     }
 
-    void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p)
+    void Endpoint::send_version_negotiation(const ngtcp2_version_cid& vid, Path p)
     {
         uint8_t rint;
-        gnutls_rnd(GNUTLS_RND_RANDOM, &rint, 8);
+        gnutls_rnd(GNUTLS_RND_RANDOM, &rint, sizeof(rint));
         std::vector<std::byte> buf;
         buf.resize(MAX_PMTUD_UDP_PAYLOAD);
         std::array<uint32_t, NGTCP2_PROTO_VER_MAX - NGTCP2_PROTO_VER_MIN + 2> versions;
@@ -906,7 +1084,7 @@ namespace oxen::quic
             conn->check_stream_timeouts();
     }
 
-    std::shared_ptr<connection_interface> Endpoint::get_conn(ConnectionID rid)
+    std::shared_ptr<Connection> Endpoint::get_conn(ConnectionID rid)
     {
         if (auto it = conns.find(rid); it != conns.end())
             return it->second;
@@ -917,10 +1095,8 @@ namespace oxen::quic
     Connection* Endpoint::get_conn(const quic_cid& id)
     {
         if (auto it_a = conn_lookup.find(id); it_a != conn_lookup.end())
-        {
             if (auto it_b = conns.find(it_a->second); it_b != conns.end())
                 return it_b->second.get();
-        }
 
         return nullptr;
     }

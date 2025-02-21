@@ -1,7 +1,6 @@
 #include "loop.hpp"
 
 #include "internal.hpp"
-// #include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -29,15 +28,103 @@ namespace oxen::quic
         });
     }
 
-    Loop::Loop(std::shared_ptr<::event_base> loop_ptr, std::thread::id thread_id) :
-            ev_loop{std::move(loop_ptr)}, loop_thread_id{thread_id}
+    /** Static casting to `decltype(timeval::tv_{sec,usec})` makes sure that;
+        - on linux
+            .tv_sec is type __time_t
+            .tv_usec is type __suseconds_t
+        - on OSX    (https://developer.apple.com/documentation/kernel/timeval)
+            .tv_sec is type __darwin_time_t
+                - this is an annoying typedef of `time_t`
+            .tv_usec is type __darwin_suseconds_t
+                - this is an equally annoying typedef for `suseconds_t`
+        Alas, yet again another mac idiosyncrasy...
+     */
+    static timeval loop_time_to_timeval(std::chrono::microseconds t)
     {
-        assert(ev_loop);
-        log::trace(log_cat, "Beginning event loop creation with pre-existing ev loop thread");
+        return timeval{
+                .tv_sec = static_cast<decltype(timeval::tv_sec)>(t / 1s),
+                .tv_usec = static_cast<decltype(timeval::tv_usec)>((t % 1s) / 1us)};
+    }
 
-        setup_job_waker();
+    bool Ticker::start()
+    {
+        if (_is_running)
+            return false;
 
-        running.store(true);
+        if (event_add(ev.get(), &interval) != 0)
+        {
+            log::warning(log_cat, "EventHandler failed to start repeating event!");
+            return false;
+        }
+
+        _is_running = true;
+
+        return true;
+    }
+
+    bool Ticker::stop()
+    {
+        if (not _is_running)
+            return false;
+
+        if (event_del(ev.get()) != 0)
+        {
+            log::warning(log_cat, "EventHandler failed to pause repeating event!");
+            return false;
+        }
+
+        _is_running = false;
+
+        return true;
+    }
+
+    void Ticker::init_event(
+            const loop_ptr& _loop,
+            std::chrono::microseconds _t,
+            std::function<void()> task,
+            bool one_off,
+            bool start_immediately,
+            bool task_rescheduling)
+    {
+        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)]() mutable {
+            func();
+            event_del(ev.get());
+            event_add(ev.get(), &interval);
+        };
+
+        interval = loop_time_to_timeval(_t);
+
+        ev.reset(event_new(
+                _loop.get(),
+                -1,
+                task_rescheduling ? 0 : EV_PERSIST,
+                [](evutil_socket_t, short, void* s) {
+                    try
+                    {
+                        auto* self = reinterpret_cast<Ticker*>(s);
+                        if (not self->f)
+                        {
+                            log::warning(log_cat, "Ticker does not have a callback to execute!");
+                            return;
+                        }
+                        // execute callback
+                        self->f();
+                    }
+                    catch (const std::exception& e)
+                    {
+                        log::warning(log_cat, "Ticker caught exception: {}", e.what());
+                    }
+                },
+                this));
+
+        if ((one_off or start_immediately) and not start())
+            log::warning(log_cat, "Failed to immediately start one-off event!");
+    }
+
+    Ticker::~Ticker()
+    {
+        ev.reset();
+        f = nullptr;
     }
 
     static std::vector<std::string_view> get_ev_methods()
@@ -85,11 +172,12 @@ namespace oxen::quic
 
         std::unique_ptr<event_config, decltype(&event_config_free)> ev_conf{event_config_new(), event_config_free};
         event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_PRECISE_TIMER);
+        event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_NO_CACHE_TIME);
         event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST);
 
         ev_loop = std::shared_ptr<event_base>{event_base_new_with_config(ev_conf.get()), event_base_free};
 
-        log::info(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
+        log::debug(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
 
         setup_job_waker();
 
@@ -106,18 +194,25 @@ namespace oxen::quic
         p.get_future().get();
 
         running.store(true);
-        log::info(log_cat, "loop is started");
+        log::info(log_cat, "libevent loop is started");
     }
 
     Loop::~Loop()
     {
-        log::info(log_cat, "Shutting down loop...");
+        log::debug(log_cat, "Shutting down loop...");
 
-        if (loop_thread)
-            event_base_loopbreak(ev_loop.get());
+        stop_thread();
 
-        if (loop_thread and loop_thread->joinable())
-            loop_thread->join();
+        for (auto& [id, list] : tickers)
+        {
+            std::for_each(list.begin(), list.end(), [](auto& t) {
+                if (auto tick = t.lock())
+                {
+                    tick->f = nullptr;
+                    tick->stop();
+                }
+            });
+        }
 
         log::info(log_cat, "Loop shutdown complete");
 
@@ -126,28 +221,52 @@ namespace oxen::quic
 #endif
     }
 
-    void Loop::call_soon(std::function<void(void)> f)
+    void Loop::stop_thread(bool immediate)
     {
-        {
-            std::lock_guard lock{job_queue_mutex};
-            job_queue.emplace(std::move(f));
-            log::trace(log_cat, "Event loop now has {} jobs queued", job_queue.size());
-        }
-
-        event_active(job_waker.get(), 0, 0);
-    }
-
-    void Loop::shutdown(bool immediate)
-    {
-        log::info(log_cat, "Shutting down loop...");
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         if (loop_thread)
             immediate ? event_base_loopbreak(ev_loop.get()) : event_base_loopexit(ev_loop.get(), nullptr);
 
         if (loop_thread and loop_thread->joinable())
             loop_thread->join();
+    }
 
-        log::info(log_cat, "Loop shutdown complete");
+    void Loop::clear_old_tickers()
+    {
+        for (auto& [id, list] : tickers)
+        {
+            for (auto itr = list.begin(); itr != list.end();)
+            {
+                if (itr->expired())
+                    itr = list.erase(itr);
+                else
+                    ++itr;
+            }
+        }
+    }
+
+    std::shared_ptr<Ticker> Loop::make_handler(caller_id_t _id)
+    {
+        clear_old_tickers();
+        auto t = make_shared<Ticker>();
+        tickers[_id].push_back(t);
+        return t;
+    }
+
+    void Loop::stop_tickers(caller_id_t id)
+    {
+        if (auto it = tickers.find(id); it != tickers.end())
+        {
+            for (auto& t : it->second)
+            {
+                if (auto tick = t.lock())
+                {
+                    tick->f = nullptr;
+                    tick->stop();
+                }
+            }
+        }
     }
 
     void Loop::setup_job_waker()
