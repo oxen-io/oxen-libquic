@@ -1,20 +1,35 @@
 BasedOnStyle: Google
+
+AccessModifierOffset: -2
+
+# alignment
 AlignAfterOpenBracket: AlwaysBreak
 AlignConsecutiveAssignments: 'false'
 AlignConsecutiveDeclarations: 'false'
 AlignEscapedNewlines: Left
 AlignOperands: AlignAfterOperator
 AlignTrailingComments: 'true'
+
+# inlining
 AllowAllArgumentsOnNextLine: 'true'
 AllowShortBlocksOnASingleLine: 'false'
 AllowShortCaseLabelsOnASingleLine: 'false'
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: 'Inline'
 AllowShortIfStatementsOnASingleLine: 'false'
 AllowShortLoopsOnASingleLine: 'false'
+RequiresClausePosition: 'OwnLine'
+
+# breaking
 AlwaysBreakAfterReturnType: None
 AlwaysBreakTemplateDeclarations: Yes
 BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Custom
+BreakBeforeConceptDeclarations: 'Always'
+BreakBeforeTernaryOperators: 'true'
+BreakConstructorInitializers: AfterColon
+PenaltyBreakString: '3'
+
+# bracing
 BraceWrapping:
   AfterCaseLabel: true
   AfterClass: true
@@ -33,29 +48,51 @@ BraceWrapping:
   SplitEmptyFunction: false
   SplitEmptyRecord: false
   SplitEmptyNamespace: false
-BreakBeforeTernaryOperators: 'true'
-BreakConstructorInitializers: AfterColon
+
+ColumnLimit: 125
+CompactNamespaces: 'true'
+ConstructorInitializerIndentWidth: 8
+ContinuationIndentWidth: 8
 Cpp11BracedListStyle: 'true'
+IndentWidth: 4
 KeepEmptyLinesAtTheStartOfBlocks: 'true'
 NamespaceIndentation: All
-CompactNamespaces: 'true'
-PenaltyBreakString: '3'
+QualifierAlignment: Left
+RemoveSemicolon: true
+
+#includes
+SortIncludes: CaseInsensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '".+\.h'
+    Priority: 2
+  - Regex: '^<(oxenc|oxen)'
+    Priority: 3
+  - Regex: '^<(event2|ngtcp2)'
+    Priority: 4
+  - Regex: '<winsock2\.h>'
+    Priority: 5
+  - Regex: '<windows\.h>'
+    Priority: 6
+  - Regex: '^<CLI'
+    Priority: 7
+  - Regex: '^<catch2'
+    Priority: 8
+  - Regex: '^<.*\.h(pp)?>$'
+    Priority: 9
+  - Regex: '(<)(.)+(>)'
+    Priority: 10
+
+# spacing
 SpaceBeforeParens: ControlStatements
 SpacesInAngles: 'false'
 SpacesInContainerLiterals: 'false'
 SpacesInParentheses: 'false'
 SpacesInSquareBrackets: 'false'
-Standard: c++20
-UseTab: Never
-SortIncludes: true
-ColumnLimit: 125
-IndentWidth: 4
-AccessModifierOffset: -2
-ConstructorInitializerIndentWidth: 8
-ContinuationIndentWidth: 8
-QualifierAlignment: Left
 
-RemoveSemicolon: true
+Standard: c++20
+
+UseTab: Never
 
 # treat pointers and reference declarations as if part of the type
 DerivePointerAlignment: false

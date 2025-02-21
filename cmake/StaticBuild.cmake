@@ -74,6 +74,9 @@ include(ExternalProject)
 
 set(DEPS_DESTDIR ${CMAKE_BINARY_DIR}/static-deps)
 set(DEPS_SOURCEDIR ${CMAKE_BINARY_DIR}/static-deps-sources)
+set(DEPS_CMAKE_MODS ${DEPS_DESTDIR}/cmake-static-modules)
+file(MAKE_DIRECTORY ${DEPS_CMAKE_MODS})
+list(INSERT CMAKE_MODULE_PATH 0 ${DEPS_CMAKE_MODS})
 
 include_directories(BEFORE SYSTEM ${DEPS_DESTDIR}/include)
 
@@ -95,6 +98,15 @@ function(expand_urls output source_file)
     list(APPEND expanded "${mirror}/${source_file}")
   endforeach()
   set(${output} "${expanded}" PARENT_SCOPE)
+endfunction()
+
+
+# Creates a FindXXX.cmake in the module search path so that find_package(XXX) will load from there
+# instead of trying to load a system one.
+function(add_find_package_override NAME VERSION INCLUDE_DIR LIBRARY LIBRARIES)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindXXX.cmake.template
+        ${DEPS_CMAKE_MODS}/Find${NAME}.cmake
+        @ONLY)
 endfunction()
 
 
@@ -355,10 +367,12 @@ build_external(gnutls
     ${DEPS_DESTDIR}/include/gnutls/gnutls.h
 )
 add_static_target(gnutls::gnutls gnutls_external libgnutls.a hogweed::hogweed)
-set(GNUTLS_FOUND ON CACHE BOOL "")
-set(GNUTLS_INCLUDE_DIR ${DEPS_DESTDIR}/include CACHE PATH "")
-set(GNUTLS_LIBRARY ${DEPS_DESTDIR}/lib/libgnutls.a CACHE FILEPATH "")
-set(GNUTLS_LIBRARIES ${DEPS_DESTDIR}/lib/libgnutls.a CACHE FILEPATH "")
+add_find_package_override(
+    GnuTLS
+    ${GNUTLS_VERSION}
+    ${DEPS_DESTDIR}/include
+    ${DEPS_DESTDIR}/lib/libgnutls.a
+    ${DEPS_DESTDIR}/lib/libgnutls.a)
 if(WIN32)
     target_link_libraries(gnutls::gnutls INTERFACE ws2_32 ncrypt crypt32 iphlpapi)
 endif()

@@ -56,6 +56,7 @@ if(NOT NGTCP2_FOUND OR NOT NGTCP2_GNUTLS_FOUND)
     set(ENABLE_STATIC_LIB ON CACHE BOOL "")
     set(ENABLE_SHARED_LIB OFF CACHE BOOL "")
     set(ENABLE_LIB_ONLY OFF CACHE BOOL "")
+    set(BUILD_TESTING OFF CACHE BOOL "")
 
     add_subdirectory(ngtcp2 EXCLUDE_FROM_ALL)
     add_library(ngtcp2::ngtcp2 ALIAS ngtcp2_static)  # Base ngtcp2 (no crypto)
@@ -73,20 +74,31 @@ if(NOT NGTCP2_FOUND OR NOT NGTCP2_GNUTLS_FOUND)
 endif()
 
 # oxen-logging
-if (NOT TARGET oxen::logging)
+if(BUILD_STATIC_DEPS)
+    message(STATUS "Building static dependencies; using oxen-logging submodule")
+    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+endif()
+
+if(NOT OXEN_LOGGING_FORCE_SUBMODULES AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 19.0.0)
+    message(STATUS "Forcing oxen-logging submodules; Clang version > 19 requires fmt version > 10")
+    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+endif()
+
+if (NOT OXEN_LOGGING_FORCE_SUBMODULES AND NOT TARGET oxen::logging)
     message(STATUS "Target oxen::logging not found; using submodule")
-    if(BUILD_STATIC_DEPS)
-        set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
-    endif()
-    add_subdirectory(oxen-logging)
+    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
 else()
     message(STATUS "Target oxen::logging already found!")
 endif()
-set(OXEN_LOGGING_SOURCE_ROOT "${OXEN_LOGGING_SOURCE_ROOT};${PROJECT_SOURCE_DIR}" CACHE INTERNAL "")
+
+if (OXEN_LOGGING_FORCE_SUBMODULES)
+    add_subdirectory(oxen-logging)
+endif()
+oxen_logging_add_source_dir("${PROJECT_SOURCE_DIR}")
 
 # oxenc
 if (NOT TARGET oxenc)
-    system_or_submodule(OXENC oxenc liboxenc>=1.1.0 oxen-encoding)
+    system_or_submodule(OXENC oxenc liboxenc>=1.2.0 oxen-encoding)
 endif()
 
 # libevent
@@ -110,4 +122,11 @@ if(NOT TARGET gnutls::gnutls)
     pkg_check_modules(GNUTLS gnutls>=3.7.2 IMPORTED_TARGET REQUIRED)
     target_link_libraries(gnutls INTERFACE PkgConfig::GNUTLS)
     add_library(gnutls::gnutls ALIAS gnutls)
+endif()
+
+if(NOT TARGET nettle::nettle)
+    add_library(nettle INTERFACE)
+    pkg_check_modules(NETTLE nettle IMPORTED_TARGET REQUIRED)
+    target_link_libraries(nettle INTERFACE PkgConfig::NETTLE)
+    add_library(nettle::nettle ALIAS nettle)
 endif()
