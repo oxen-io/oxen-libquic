@@ -17,7 +17,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 project(libquic
-    VERSION 1.1.0
+    VERSION 1.2.0
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
@@ -40,7 +40,7 @@ option(LIBQUIC_VERSION_SO "Add the project major/minor version into the shared l
 if (libquic_IS_TOPLEVEL_PROJECT OR BUILD_SHARED_LIBS)
     set(libquic_INSTALL_DEFAULT ON)
 else()
-    set(libquic_INSTALL_DEFAULT ON)
+    set(libquic_INSTALL_DEFAULT OFF)
 endif()
 option(LIBQUIC_INSTALL "Add quic libraries/headers/programs to cmake install target; defaults to ON if BUILD_SHARED_LIBS is enabled or we are the top-level project" ${libquic_INSTALL_DEFAULT})
 

@@ -3,11 +3,7 @@
 //
 // It runs in its own log level; to activate it, run alltests with `-T`/`--test-tracing`.
 //
-#include <catch2/catch_test_case_info.hpp>
-#include <catch2/reporters/catch_reporter_event_listener.hpp>
-#include <catch2/reporters/catch_reporter_registrars.hpp>
-#include <oxen/log.hpp>
-#include <oxen/log/internal.hpp>
+#include "unit_test.hpp"
 
 namespace fmt
 {
