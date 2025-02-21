@@ -2,44 +2,19 @@
     Test client binary
 */
 
-#include <oxenc/endian.h>
-#include <oxenc/hex.h>
-
-#include <CLI/Validators.hpp>
-#include <chrono>
-#include <future>
-#include <oxen/quic.hpp>
-#include <oxen/quic/gnutls_crypto.hpp>
-#include <random>
-#include <thread>
-
 #include "utils.hpp"
 
 using namespace oxen::quic;
 
-using ustring = std::basic_string<unsigned char>;
-using ustring_view = std::basic_string_view<unsigned char>;
-
 int main(int argc, char* argv[])
 {
-    CLI::App cli{"libQUIC test client"};
+    CLI::App cli{"libQUIC datagram speedtest client"};
 
-    std::string remote_addr = "127.0.0.1:5500";
-    cli.add_option("--remote", remote_addr, "Remove address to connect to")->type_name("IP:PORT")->capture_default_str();
-
-    std::string remote_pubkey;
-    cli.add_option("-p,--remote-pubkey", remote_pubkey, "Remote speedtest-client pubkey")
-            ->type_name("PUBKEY_HEX_OR_B64")
-            ->transform([](const std::string& val) -> std::string {
-                if (auto pk = decode_bytes(val))
-                    return std::move(*pk);
-                throw CLI::ValidationError{
-                        "Invalid value passed to --remote-pubkey: expected value encoded as hex or base64"};
-            })
-            ->required();
-
-    std::string local_addr = "";
-    cli.add_option("--local", local_addr, "Local bind address, if required")->type_name("IP:PORT")->capture_default_str();
+    std::string local_addr, remote_pubkey, seed_string;
+    auto remote_addr = DEFAULT_DGRAM_SPEED_ADDR.to_string();
+    bool enable_0rtt;
+    std::filesystem::path zerortt_path;
+    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, enable_0rtt, zerortt_path);
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
@@ -49,6 +24,9 @@ int main(int argc, char* argv[])
 
     size_t dgram_size = 0;
     cli.add_option("--dgram-size", dgram_size, "Datagram size to send");
+
+    int lookahead = -1;
+    cli.add_option("--lookahead", lookahead, "Split datagram small packet lookahead; -1 uses the default value.");
 
     try
     {
@@ -63,7 +41,7 @@ int main(int argc, char* argv[])
     {
         std::shared_ptr<Stream> stream;
         std::atomic<bool> active = false;
-        ustring msg{};
+        std::vector<std::byte> msg{};
         uint64_t size;
         uint64_t dgram_size;
         uint64_t n_iter;
@@ -73,63 +51,69 @@ int main(int argc, char* argv[])
         std::future<void> running = run_prom.get_future();
         std::atomic<bool> failed = false;
 
-        send_data() {}
-        send_data(uint64_t _total_size, uint64_t _dgram_size) : size{_total_size}, dgram_size{_dgram_size}
+        send_data(uint64_t _total_size, uint64_t _dgram_size) :
+                size{_total_size}, dgram_size{_dgram_size}, n_iter{size / dgram_size + 1}
         {
-            n_iter = size / dgram_size + 1;
-
             log::warning(test_cat, "Preparing to send {} datagrams of max size {}", n_iter, size);
 
-            msg.resize(dgram_size);
-            // Byte 0 must be set to 0, except for the final packet where we set it to 1
-            for (uint64_t i = 0; i < dgram_size; i++)
-                msg[i] = static_cast<unsigned char>(i % 256);
+            // Oversized message that should be big enough for any datagram size.  We send subspans
+            // of this starting at [1]...[250] for all but the last one (the last one starts at [0]
+            // and has initial byte 0, which the server uses to identify the last packet), to help
+            // identify in trace logging which packet could be going wrong.
+            msg.resize(5000);
+            for (uint64_t i = 0; i < msg.size(); i++)
+                msg[i] = static_cast<std::byte>(i % 256);
         }
+
+        std::span<const std::byte> data(size_t pkt_i) { return std::span{msg}.subspan(1 + pkt_i % 250, dgram_size); }
+        std::span<const std::byte> final_data() { return std::span{msg}.subspan(0, dgram_size); }
     };
+
+    std::optional<send_data> dgram_data;
 
     setup_logging(log_file, log_level);
 
     Network client_net{};
 
-    auto [seed, pubkey] = generate_ed25519();
+    auto [seed, pubkey] = generate_ed25519(seed_string);
     auto client_tls = GNUTLSCreds::make_from_ed_keys(seed, pubkey);
-
-    send_data* d_ptr;
+    if (enable_0rtt)
+        zerortt_storage::enable(*client_tls, zerortt_path);
 
     stream_close_callback stream_closed = [&](Stream& s, uint64_t errcode) {
         size_t i = s.stream_id() >> 2;
         log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id(), errcode);
     };
 
-    dgram_data_callback recv_dgram_cb = [&](dgram_interface, bstring data) {
+    dgram_data_callback recv_dgram_cb = [&](dgram_interface, std::span<const std::byte> data) {
         log::critical(test_cat, "Calling endpoint receive datagram callback... data received...");
 
-        if (d_ptr->is_sending)
+        if (dgram_data->is_sending)
         {
             log::error(test_cat, "Got a datagram response ({}B) before we were done sending data!", data.size());
-            d_ptr->failed = true;
+            dgram_data->failed = true;
         }
         else if (data.size() != 5)
         {
             log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
-            d_ptr->failed = true;
+            dgram_data->failed = true;
         }
-        else if (data != "DONE!"_bsv)
+        else if (data != "DONE!"_bsp)
         {
             log::error(
                     test_cat,
                     "Got unexpected data: expected 'DONE!', got (hex): '{}'",
                     oxenc::to_hex(data.begin(), data.end()));
-            d_ptr->failed = true;
+            dgram_data->failed = true;
         }
         else
         {
-            d_ptr->failed = false;
+            dgram_data->failed = false;
             log::critical(test_cat, "All done, hurray!\n");
         }
 
-        d_ptr->is_done = true;
-        d_ptr->run_prom.set_value();
+        dgram_data->is_done = true;
+        dgram_data->run_prom.set_value();
     };
 
     Address client_local{};
@@ -139,9 +123,6 @@ int main(int argc, char* argv[])
         client_local = Address{a, p};
     }
 
-    std::promise<bool> tls;
-    std::future<bool> tls_future = tls.get_future();
-
     auto client_established = callback_waiter{[](connection_interface&) {}};
 
     auto [server_a, server_p] = parse_addr(remote_addr);
@@ -149,52 +130,54 @@ int main(int argc, char* argv[])
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
     log::critical(test_cat, "Calling 'client_connect'...");
-    auto client = client_net.endpoint(client_local, client_established, recv_dgram_cb, split_dgram);
+    auto client = client_net.endpoint(
+            client_local,
+            client_established,
+            recv_dgram_cb,
+            split_dgram,
+            generate_static_secret(seed_string),
+            opt::alpns{"dgram-speed"});
     auto client_ci = client->connect(server_addr, client_tls, stream_closed);
 
-    client_established.wait();
+    client_ci->set_split_datagram_lookahead(lookahead);
+
+    if (!client_established.wait())
+    {
+        log::critical(log_cat, "Connection timed out!");
+        return 1;
+    }
 
     uint64_t max_size =
             std::max<uint64_t>((dgram_size == 0) ? client_ci->get_max_datagram_size() : dgram_size, sizeof(uint8_t));
 
-    send_data dgram_data{size, max_size};
-    d_ptr = &dgram_data;
+    dgram_data.emplace(size, max_size);
 
-    bstring remaining_str;
+    std::vector<std::byte> remaining_str;
     remaining_str.resize(8);
-    oxenc::write_host_as_little(d_ptr->n_iter, remaining_str.data());
+    oxenc::write_host_as_little(dgram_data->n_iter, remaining_str.data());
     log::warning(test_cat, "Sending datagram count to remote...");
-    client_ci->send_datagram(bstring_view{remaining_str.data(), remaining_str.size()});
-
-    std::promise<void> send_prom;
-    std::future<void> send_f = send_prom.get_future();
+    client_ci->send_datagram(remaining_str, nullptr);
 
     std::chrono::steady_clock::time_point started_at;
 
-    client->call([&]() {
-        d_ptr->is_sending = true;
-        log::warning(test_cat, "Sending payload to remote...");
+    dgram_data->is_sending = true;
+    log::warning(test_cat, "Sending payload to remote...");
 
-        started_at = std::chrono::steady_clock::now();
+    started_at = std::chrono::steady_clock::now();
 
-        for (uint64_t i = 1; i < d_ptr->n_iter; ++i)
-        {
-            // Just send these with the 0 at the beginning
-            client_ci->send_datagram(ustring_view{d_ptr->msg});
-        }
-        // Send a final one with the max value in the beginning so the server knows its done
-        ustring last_payload{d_ptr->msg};
-        last_payload[0] = 1;  // Signals that this is the last one
-        client_ci->send_datagram(std::move(last_payload));
+    for (uint64_t i = 0; i < dgram_data->n_iter - 1; ++i)
+    {
+        // Just send these with the 0 at the beginning
+        client_ci->send_datagram(dgram_data->data(i), nullptr);
+    }
+    // Send a final one always using i = 0 so that we get the bit of the data starting with the
+    // terminal 0 byte value.
+    client_ci->send_datagram(dgram_data->final_data(), nullptr);
 
-        log::warning(test_cat, "Client done sending payload to remote!");
-        d_ptr->is_sending = false;
+    log::warning(test_cat, "Client done sending payload to remote!");
+    dgram_data->is_sending = false;
 
-        send_prom.set_value();
-    });
-
-    send_f.get();
-    d_ptr->running.get();
+    dgram_data->running.get();
 
     auto elapsed = std::chrono::duration<double>{std::chrono::steady_clock::now() - started_at}.count();
     fmt::print("Elapsed time: {:.5f}s\n", elapsed);

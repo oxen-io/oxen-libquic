@@ -1,7 +1,4 @@
-#include <catch2/catch_test_macros.hpp>
-#include <thread>
-
-#include "utils.hpp"
+#include "unit_test.hpp"
 
 namespace oxen::quic::test
 {
@@ -31,7 +28,7 @@ namespace oxen::quic::test
     TEST_CASE("003 - Multi-client to server transmission: Execution", "[003][multi-client][execute]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsv;
+        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
 
         std::atomic<int> data_check{0};
         std::vector<std::promise<void>> stream_promises{4};
@@ -49,8 +46,8 @@ namespace oxen::quic::test
 
         auto p_itr = stream_promises.begin();
 
-        stream_data_callback server_data_cb = [&](Stream&, bstring_view) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
+        stream_data_callback server_data_cb = [&](Stream&, bspan) {
+            log::debug(test_cat, "Calling server stream data callback... data received...");
             data_check += 1;
             p_itr->set_value();
             ++p_itr;
@@ -63,10 +60,10 @@ namespace oxen::quic::test
         auto server_endpoint = test_net.endpoint(server_local);
         REQUIRE_NOTHROW(server_endpoint->listen(server_tls, server_data_cb));
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         std::thread async_thread_a{[&]() {
-            log::debug(log_cat, "Async thread A called");
+            log::debug(test_cat, "Async thread A called");
 
             // client A
             auto client_a = test_net.endpoint(client_a_local);
@@ -81,12 +78,12 @@ namespace oxen::quic::test
             auto stream_b = c_interface_b->open_stream();
 
             // send
-            stream_a->send(msg);
-            stream_b->send(msg);
+            stream_a->send(msg, nullptr);
+            stream_b->send(msg, nullptr);
         }};
 
         std::thread async_thread_b{[&]() {
-            log::debug(log_cat, "Async thread B called");
+            log::debug(test_cat, "Async thread B called");
 
             // client C
             auto client_c = test_net.endpoint(client_c_local);
@@ -101,8 +98,8 @@ namespace oxen::quic::test
             auto stream_d = c_interface_d->open_stream();
 
             // send
-            stream_c->send(msg);
-            stream_d->send(msg);
+            stream_c->send(msg, nullptr);
+            stream_d->send(msg, nullptr);
         }};
 
         for (auto& f : stream_futures)

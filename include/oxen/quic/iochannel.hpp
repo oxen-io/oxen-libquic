@@ -1,9 +1,11 @@
 #pragma once
-#include <concepts>
 
+#include "address.hpp"
 #include "connection_ids.hpp"
 #include "messages.hpp"
 #include "utils.hpp"
+
+#include <concepts>
 
 namespace oxen::quic
 {
@@ -47,10 +49,18 @@ namespace oxen::quic
         Address local() const;
         Address remote() const;
 
+        void send(bspan data, std::shared_ptr<void> keep_alive) { send_impl(data, std::move(keep_alive)); }
+
         template <oxenc::basic_char CharType>
-        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        void send(std::span<const CharType> data, std::shared_ptr<void> keep_alive)
         {
-            send_impl(convert_sv<std::byte>(data), std::move(keep_alive));
+            send_impl(span_to_span<std::byte>(data), std::move(keep_alive));
+        }
+
+        template <oxenc::basic_char CharType>
+        void send(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive)
+        {
+            send_impl(str_to_bspan(data), std::move(keep_alive));
         }
 
         template <oxenc::basic_char CharType>
@@ -58,13 +68,15 @@ namespace oxen::quic
         {
             auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
             std::basic_string_view<CharType> view{*keep_alive};
-            send(view, std::move(keep_alive));
+            send_impl(str_to_bspan(view), std::move(keep_alive));
         }
 
         template <oxenc::basic_char Char>
         void send(std::vector<Char>&& buf)
         {
-            send(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
+            auto keep_alive = std::make_shared<std::vector<Char>>(std::move(buf));
+            auto bsp = vec_to_span<std::byte>(*keep_alive);
+            send_impl(bsp, std::move(keep_alive));
         }
 
       protected:
@@ -75,10 +87,10 @@ namespace oxen::quic
 
         // This is the (single) send implementation that implementing classes must provide; other
         // calls to send are converted into calls to this.
-        virtual void send_impl(bstring_view, std::shared_ptr<void> keep_alive) = 0;
+        virtual void send_impl(bspan, std::shared_ptr<void> keep_alive) = 0;
 
         virtual std::vector<ngtcp2_vec> pending() = 0;
-        virtual prepared_datagram pending_datagram(bool) = 0;
+        virtual std::optional<prepared_datagram> pending_datagram(bool) = 0;
         virtual bool sent_fin() const = 0;
         virtual void set_fin(bool) = 0;
         virtual void wrote(size_t) = 0;
