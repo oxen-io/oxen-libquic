@@ -1,16 +1,11 @@
-#include <catch2/catch_test_macros.hpp>
-#include <oxen/quic.hpp>
-#include <oxen/quic/gnutls_crypto.hpp>
-#include <thread>
-
-#include "utils.hpp"
+#include "unit_test.hpp"
 
 namespace oxen::quic::test
 {
     TEST_CASE("010 - Migration", "[010][migration]")
     {
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsv;
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -30,19 +25,19 @@ namespace oxen::quic::test
         std::shared_ptr<Endpoint> client_endpoint;
         std::shared_ptr<connection_interface> server_ci;
 
-        stream_data_callback server_data_cb = [&](Stream&, bstring_view dat) {
-            log::debug(log_cat, "Calling server stream data callback... data received...");
-            REQUIRE(good_msg == dat);
+        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+            log::debug(test_cat, "Calling server stream data callback... data received...");
+            REQUIRE_THAT(dat, EqualsSpan(good_msg));
             d_promise.set_value();
         };
 
         auto server_established = callback_waiter{[](connection_interface&) {}};
-        auto client_established_b = callback_waiter{[](connection_interface&) { log::trace(log_cat, "LOOK ME UP BRO"); }};
+        auto client_established_b = callback_waiter{[](connection_interface&) { log::trace(test_cat, "LOOK ME UP BRO"); }};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         server_endpoint->listen(server_tls, server_data_cb);
 
-        RemoteAddress client_remote{defaults::SERVER_PUBKEY, "127.0.0.1"s, server_endpoint->local().port()};
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         auto client_established = [&](connection_interface& ci) mutable {
             if (not address_flipped)
@@ -60,10 +55,10 @@ namespace oxen::quic::test
                 }
 
                 // Uncomment this when NGTCP2 releases v1.2.0
-                // SECTION("Immediate migration")
-                // {
-                // TestHelper::migrate_connection_immediate(conn, client_secondary);
-                // }
+                SECTION("Immediate migration")
+                {
+                    TestHelper::migrate_connection_immediate(conn, client_secondary);
+                }
 
                 address_flipped = true;
                 conn_promise_a.set_value();
@@ -72,7 +67,7 @@ namespace oxen::quic::test
             {
                 if (not secondary_connected)
                 {
-                    log::trace(log_cat, "Skipping address flip!");
+                    log::trace(test_cat, "Skipping address flip!");
                     secondary_connected = true;
                     conn_promise_b.set_value();
                 }
@@ -94,13 +89,13 @@ namespace oxen::quic::test
 
         auto client_stream = client_ci->open_stream();
 
-        REQUIRE_NOTHROW(client_stream->send(good_msg));
+        REQUIRE_NOTHROW(client_stream->send(good_msg, nullptr));
         require_future(d_future);
 
         server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
         std::this_thread::sleep_for(5ms);
-        RemoteAddress client_remote_b{defaults::CLIENT_PUBKEY, "127.0.0.1"s, client_ci->local().port()};
+        RemoteAddress client_remote_b{defaults::CLIENT_PUBKEY, LOCALHOST, client_ci->local().port()};
 
         REQUIRE_FALSE(original_addr == client_ci->local());
 

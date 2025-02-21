@@ -4,21 +4,22 @@ extern "C"
 {
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <mswsock.h>
 #include <winsock2.h>
+
+#include <mswsock.h>
 #else
 #include <netinet/in.h>
 #endif
 }
 
+#include "address.hpp"
+#include "types.hpp"
+#include "utils.hpp"
+
 #include <event2/event.h>
 
 #include <cstdint>
 #include <variant>
-
-#include "address.hpp"
-#include "types.hpp"
-#include "utils.hpp"
 
 namespace oxen::quic
 {
@@ -35,27 +36,38 @@ namespace oxen::quic
     {
         Path path;
         ngtcp2_pkt_info pkt_info{};
-        std::variant<bstring_view, bstring> pkt_data;
+        std::variant<bspan, std::vector<std::byte>> pkt_data;
 
+        size_t size() const
+        {
+            return std::visit([](const auto& d) { return d.size(); }, pkt_data);
+        }
+
+        // Return a span over the data, regardless of whether it is owned (vector) or not (span)
+        // inside pkt_data.
         template <oxenc::basic_char Char = std::byte>
-        std::basic_string_view<Char> data() const
+        std::span<const Char> data() const
         {
             return std::visit(
-                    [](const auto& d) {
-                        return std::basic_string_view<Char>{reinterpret_cast<const Char*>(d.data()), d.size()};
-                    },
+                    [](const auto& d) { return std::span<const Char>{reinterpret_cast<const Char*>(d.data()), d.size()}; },
                     pkt_data);
         }
 
+        // Ensures that this packet owns its own data; if it currently doesn't (i.e. if it just
+        // holds a span) then the span is replaced with a new vector containing a copy of that data.
+        // This method should be used if a Packet is being stored to ensure that it doesn't store a
+        // dangling data pointer.
+        void ensure_owned_data();
+
         /// Constructs a packet from a path and data view:
-        Packet(Path p, bstring_view d) : path{std::move(p)}, pkt_data{std::move(d)} {}
+        Packet(Path p, bspan d) : path{std::move(p)}, pkt_data{d} {}
 
         /// Constructs a packet from a path and transferred data:
-        Packet(Path p, bstring&& d) : path{std::move(p)}, pkt_data{std::move(d)} {}
+        Packet(Path p, std::vector<std::byte>&& d) : path{std::move(p)}, pkt_data{std::move(d)} {}
 
         /// Constructs a packet from a local address, data, and the IP header; remote addr and ECN
         /// data are extracted from the header.
-        Packet(const Address& local, bstring_view data, msghdr& hdr);
+        Packet(const Address& local, bspan data, msghdr& hdr);
     };
 
     /// RAII class wrapping a UDP socket; the socket is bound at construction and closed during
@@ -127,7 +139,7 @@ namespace oxen::quic
         ~UDPSocket();
 
       private:
-        void process_packet(bstring_view payload, msghdr& hdr);
+        void process_packet(bspan payload, msghdr& hdr);
         io_result receive();
 
         socket_t sock_;
@@ -139,6 +151,8 @@ namespace oxen::quic
         receive_callback_t receive_callback_;
         event_ptr wev_ = nullptr;
         std::vector<std::function<void()>> writeable_callbacks_;
+
+        friend class TestHelper;
     };
 
 }  // namespace oxen::quic

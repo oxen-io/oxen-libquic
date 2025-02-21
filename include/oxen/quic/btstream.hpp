@@ -1,13 +1,11 @@
-#include <oxenc/bt.h>
-
 #include "endpoint.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
 
+#include <oxenc/bt.h>
+
 namespace oxen::quic
 {
-    using time_point = std::chrono::steady_clock::time_point;
-
     // timeout is used for sent requests awaiting responses
     inline constexpr std::chrono::seconds DEFAULT_TIMEOUT{10s};
 
@@ -37,7 +35,7 @@ namespace oxen::quic
 
       private:
         int64_t req_id;
-        bstring data;
+        std::vector<std::byte> data;
 
         // We keep the locations of variables fields as relative positions inside `data` *rather*
         // than using std::string_view members because the string_views are more difficult to
@@ -54,15 +52,15 @@ namespace oxen::quic
         //   didn't get any reply from the other side in time.  This *can* happen earlier than the
         //   requested timeout in cases where we detect early that the response cannot arrive, such
         //   as the connection closing.
-        message(BTRequestStream& bp, bstring req, bool is_timeout = false);
+        message(BTRequestStream& bp, std::vector<std::byte> req, bool is_timeout = false);
 
       public:
         inline static constexpr auto TYPE_REPLY = "R"sv;
         inline static constexpr auto TYPE_ERROR = "E"sv;
         inline static constexpr auto TYPE_COMMAND = "C"sv;
 
-        void respond(bstring_view body, bool error = false) const;
-        void respond(std::string_view body, bool error = false) const { respond(convert_sv<std::byte>(body), error); }
+        void respond(bspan body, bool error = false) const;
+        void respond(std::string_view body, bool error = false) const { respond(str_to_bspan(body), error); }
 
         const bool timed_out{false};
         bool is_error() const { return type() == TYPE_ERROR; }
@@ -81,7 +79,7 @@ namespace oxen::quic
         explicit operator bool() const { return !timed_out && !is_error(); }
 
         template <oxenc::basic_char Char = char>
-        std::basic_string_view<Char> view() const
+        std::span<const Char> span() const
         {
             return {reinterpret_cast<const Char*>(data.data()), data.size()};
         }
@@ -152,7 +150,7 @@ namespace oxen::quic
 
         bool is_expired(time_point now) const { return expiry < now; }
 
-        message to_timeout() && { return {return_sender, ""_bs, true}; }
+        message to_timeout() && { return {return_sender, {}, true}; }
 
       private:
         void handle_req_opts(std::function<void(message)> func) { cb = std::move(func); }
@@ -178,7 +176,7 @@ namespace oxen::quic
         std::unordered_map<std::string, std::function<void(message)>> func_map;
         std::function<void(message)> generic_handler;
 
-        bstring buf;
+        std::vector<std::byte> buf;
         std::string size_buf;
 
         size_t current_len{0};
@@ -216,7 +214,7 @@ namespace oxen::quic
                     std::chrono::milliseconds timeout - request timeout (defaults to 10 seconds)
         */
         template <typename... Opt>
-        void command(std::string ep, bstring_view body, Opt&&... opts)
+        void command(std::string ep, bspan body, Opt&&... opts)
         {
             auto rid = next_rid++;
             auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
@@ -233,10 +231,10 @@ namespace oxen::quic
         template <typename... Opt>
         void command(std::string ep, std::string_view body, Opt&&... opts)
         {
-            command(std::move(ep), convert_sv<std::byte>(body), std::forward<Opt>(opts)...);
+            command(std::move(ep), str_to_bspan(body), std::forward<Opt>(opts)...);
         }
 
-        void respond(int64_t rid, bstring_view body, bool error = false);
+        void respond(int64_t rid, bspan body, bool error = false);
 
         /// Registers an individual endpoint to be recognized by this BTRequestStream object.  Can be
         /// called multiple times to set up multiple commands.  See also register_generic_handler.
@@ -249,13 +247,18 @@ namespace oxen::quic
         /// exception if the endpoint in this message should be considered not found.
         void register_generic_handler(std::function<void(message)> request_handler);
 
+        /// Returns the number of requests/commands that are pending outbound transmission. These have
+        /// NOT been sent yet, rather they have been queued by the application
         size_t num_pending() const;
+
+        /// Returns the number of sent requests awaiting response
+        size_t num_awaiting_response() const;
 
       protected:
         void check_timeouts() override;
         void check_timeouts(std::optional<std::chrono::steady_clock::time_point> now);
 
-        void receive(bstring_view data) override;
+        void receive(bspan data) override;
 
         void closed(uint64_t app_code) override;
 
@@ -269,16 +272,18 @@ namespace oxen::quic
 
         void handle_input(message msg);
 
-        void process_incoming(std::string_view req);
+        void process_incoming(bspan req);
 
-        std::string encode_command(std::string_view endpoint, int64_t rid, bstring_view body);
+        std::string encode_command(std::string_view endpoint, int64_t rid, bspan body);
 
-        std::string encode_response(int64_t rid, bstring_view body, bool error);
+        std::string encode_response(int64_t rid, bspan body, bool error);
 
         sent_request* add_sent_request(std::shared_ptr<sent_request> req);
 
         size_t parse_length(std::string_view req);
 
         size_t num_pending_impl() const { return user_buffers.size(); }
+
+        size_t num_awaiting_response_impl() const { return sent_reqs.size(); }
     };
 }  // namespace oxen::quic

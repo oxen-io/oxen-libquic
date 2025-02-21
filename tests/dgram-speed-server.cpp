@@ -2,28 +2,27 @@
     Test server binary
 */
 
-#include <gnutls/gnutls.h>
-#include <oxenc/endian.h>
-#include <oxenc/hex.h>
-
-#include <CLI/Validators.hpp>
-#include <future>
-#include <oxen/quic.hpp>
-#include <oxen/quic/connection.hpp>
-#include <oxen/quic/gnutls_crypto.hpp>
-#include <thread>
-
 #include "utils.hpp"
 
 using namespace oxen::quic;
 
 int main(int argc, char* argv[])
 {
-    CLI::App cli{"libQUIC test server"};
+    CLI::App cli{"libQUIC datagram speedtest server"};
 
-    std::string server_addr = "127.0.0.1:5500";
+    auto server_addr = DEFAULT_DGRAM_SPEED_ADDR.to_string();
+    std::string seed_string;
+    bool enable_0rtt;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
 
-    cli.add_option("--listen", server_addr, "Server address to listen on")->type_name("IP:PORT")->capture_default_str();
+    bool verify_datagrams = false;
+    cli.add_flag("-V,--verify-datagrams", verify_datagrams, "Verify the value of each received datagrams");
+
+    bool shutdown_on_error = false;
+    cli.add_flag(
+            "--shutdown",
+            shutdown_on_error,
+            "Stop the server after a non-perfect fidelity or datagram verification failure");
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
@@ -39,12 +38,14 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-    auto [seed, pubkey] = generate_ed25519();
+    auto [seed, pubkey] = generate_ed25519(seed_string);
     auto server_tls = GNUTLSCreds::make_from_ed_keys(seed, pubkey);
+    if (enable_0rtt)
+        server_tls->enable_inbound_0rtt();
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
+    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_DGRAM_SPEED_ADDR.port());
     Address server_local{listen_addr, listen_port};
 
     stream_open_callback stream_opened = [&](Stream& s) {
@@ -56,16 +57,33 @@ int main(int argc, char* argv[])
     {
         uint64_t n_expected = 0;
         uint64_t n_received = 0;
+        size_t last_dgram_size = 0;
     };
 
-    recv_info dgram_data;
-
-    std::promise<void> t_prom;
-    std::future<void> t_fut = t_prom.get_future();
+    std::unordered_map<ConnectionID, recv_info> conn_dgram_data;
 
     std::shared_ptr<Endpoint> server;
 
-    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, bstring_view data) {
+    std::atomic<bool> shutdown{false};
+
+    std::vector<std::byte> dgram_rainbow;
+    dgram_rainbow.resize(5000);
+    for (size_t i = 0; i < dgram_rainbow.size(); i++)
+        dgram_rainbow[i] = static_cast<std::byte>(i % 256);
+
+    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, std::span<const std::byte> data) {
+        auto& dgram_data = conn_dgram_data[di.reference_id];
+
+        if (data.size() != dgram_data.last_dgram_size)
+        {
+            log::warning(
+                    test_cat,
+                    "Received a changed datagram size {}; last datagram was {}",
+                    data.size(),
+                    dgram_data.last_dgram_size);
+            dgram_data.last_dgram_size = data.size();
+        }
+
         if (dgram_data.n_expected == 0)
         {
             // The very first packet should be 8 bytes containing the uint64_t count of total
@@ -76,17 +94,46 @@ int main(int argc, char* argv[])
             dgram_data.n_expected = count;
             log::warning(
                     test_cat,
-                    "First data from new connection datagram channel, expecting {} datagrams!",
+                    "First data from new connection {} datagram channel, expecting {} datagrams!",
+                    di.get_conn_interface()->remote(),
                     dgram_data.n_expected);
             return;
         }
 
-        // Subsequent packets start with a \x00 until the final one; that has first byte set to \x01.
-        const bool done = data[0] != std::byte{0};
+        // The final packet starts with a \x00; up until then we get starts from 1,2,...250,1,2,...,250,1,2,...
+        const bool done = data[0] == std::byte{0};
 
         auto& info = dgram_data;
+
+        if (verify_datagrams)
+        {
+            // The first byte value is itself the rainbow offset, and goes 1->250 repeatedly until
+            // the final packet, which has initial byte 0:
+            size_t offset = static_cast<uint8_t>(data[0]);
+            bool bad = false;
+            if (offset > 250)
+            {
+                bad = true;
+                log::error(log_cat, "Datagram {} verification found invalid first byte value {}", info.n_received, offset);
+            }
+            else if (data != std::span{dgram_rainbow}.subspan(offset, data.size()))
+            {
+                bad = true;
+            }
+            if (bad)
+            {
+                log::error(
+                        test_cat,
+                        "Datagram {} verification failed: expected byte rainbow, received {}",
+                        info.n_received,
+                        buffer_printer{data});
+                if (shutdown_on_error)
+                    shutdown = true;
+            }
+        }
+
         bool need_more = info.n_received < info.n_expected;
-        info.n_received += 1;
+        info.n_received++;
 
         if (info.n_received > info.n_expected)
         {
@@ -102,13 +149,16 @@ int main(int argc, char* argv[])
 
             log::critical(
                     test_cat,
-                    "Datagram test complete. Fidelity: {}\% ({} received of {} expected)",
+                    "Datagram test complete for {}. Fidelity: {}\% ({} received of {} expected)",
+                    di.get_conn_interface()->remote(),
                     reception_rate,
                     info.n_received,
                     info.n_expected);
 
-            di.reply("DONE!"sv);
-            t_prom.set_value();
+            if (shutdown_on_error && info.n_received < info.n_expected)
+                shutdown = true;
+
+            di.reply("DONE!"s);
         }
     };
 
@@ -117,7 +167,8 @@ int main(int argc, char* argv[])
         log::debug(test_cat, "Starting up endpoint");
         auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
         // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
-        server = server_net.endpoint(server_local, recv_dgram_cb, split_dgram);
+        server = server_net.endpoint(
+                server_local, recv_dgram_cb, split_dgram, generate_static_secret(seed_string), opt::alpns{"dgram-speed"});
         server->listen(server_tls, stream_opened);
     }
     catch (const std::exception& e)
@@ -126,20 +177,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    {
-        // We always want to see this log statement because it contains the pubkey the client needs,
-        // but it feels wrong to force it to a critical statement, so temporarily lower the level to
-        // info to display it.
-        log_level_lowerer enable_info{log::Level::info, test_cat.name};
-        log::info(
-                test_cat,
-                "Listening on {}; client connection args:\n\t{}--remote-pubkey={}",
-                server_local,
-                server_local != Address{"127.0.0.1", 5500} ? "--remote {} "_format(server_local.to_string()) : "",
-                oxenc::to_base64(pubkey));
-    }
+    server_log_listening(server_local, DEFAULT_DGRAM_SPEED_ADDR, pubkey, seed_string, enable_0rtt);
 
-    t_fut.get();
-
-    log::warning(test_cat, "Shutting down test server");
+    while (!shutdown)
+        std::this_thread::sleep_for(100ms);
 }

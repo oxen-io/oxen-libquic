@@ -2,30 +2,22 @@
     Test server binary
 */
 
-#include <gnutls/gnutls.h>
-#include <oxenc/endian.h>
-#include <oxenc/hex.h>
-
-#include <CLI/Validators.hpp>
-#include <future>
-#include <oxen/quic.hpp>
-#include <oxen/quic/gnutls_crypto.hpp>
-#include <thread>
-
+#include "oxen/quic/opt.hpp"
 #include "utils.hpp"
 
 using namespace oxen::quic;
 
 int main(int argc, char* argv[])
 {
-    CLI::App cli{"libQUIC test server"};
-
-    std::string server_addr = "127.0.0.1:5500";
-
-    cli.add_option("--listen", server_addr, "Server address to listen on")->type_name("IP:PORT")->capture_default_str();
+    CLI::App cli{"libQUIC stream speedtest server"};
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
+
+    std::string server_addr = DEFAULT_SPEEDTEST_ADDR.to_string();
+    std::string seed_string;
+    bool enable_0rtt;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
 
     bool no_hash = false;
     cli.add_flag(
@@ -51,12 +43,14 @@ int main(int argc, char* argv[])
 
     setup_logging(log_file, log_level);
 
-    auto [seed, pubkey] = generate_ed25519();
+    auto [seed, pubkey] = generate_ed25519(seed_string);
     auto server_tls = GNUTLSCreds::make_from_ed_keys(seed, pubkey);
+    if (enable_0rtt)
+        server_tls->enable_inbound_0rtt();
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, 5500);
+    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_SPEEDTEST_ADDR.port());
     Address server_local{listen_addr, listen_port};
 
     stream_open_callback stream_opened = [&](Stream& s) {
@@ -78,7 +72,7 @@ int main(int argc, char* argv[])
 
     std::map<ConnectionID, std::map<int64_t, stream_info>> csd;
 
-    stream_data_callback stream_data = [&](Stream& s, bstring_view data) {
+    stream_data_callback stream_data = [&](Stream& s, bspan data) {
         auto& sd = csd[s.reference_id];
 
         auto it = sd.find(s.stream_id());
@@ -91,7 +85,7 @@ int main(int argc, char* argv[])
             }
 
             auto size = oxenc::load_little_to_host<uint64_t>(data.data());
-            data.remove_prefix(sizeof(uint64_t));
+            data = data.subspan(sizeof(uint64_t));
 
             it = sd.emplace(s.stream_id(), size).first;
             log::warning(test_cat, "First data from new stream {}, expecting {}B!", s.stream_id(), size);
@@ -106,7 +100,7 @@ int main(int argc, char* argv[])
             log::critical(test_cat, "Received too much data ({}B > {}B)!", info.received, info.expected);
             if (!need_more)
                 return;
-            data.remove_suffix(info.received - info.expected);
+            data = data.first(data.size() - (info.received + info.expected));
         }
 
         if (!no_checksum)
@@ -126,8 +120,7 @@ int main(int argc, char* argv[])
 
         if (info.received >= info.expected)
         {
-            std::basic_string<unsigned char> final_hash;
-            final_hash.resize(33);
+            std::vector<unsigned char> final_hash(33);
             gnutls_hash_output(info.hasher, final_hash.data());
             final_hash[32] = info.checksum;
 
@@ -145,7 +138,7 @@ int main(int argc, char* argv[])
     try
     {
         log::debug(test_cat, "Starting up endpoint");
-        auto _server = server_net.endpoint(server_local);
+        auto _server = server_net.endpoint(server_local, generate_static_secret(seed_string), opt::alpns{"speedtest"});
         _server->listen(server_tls, stream_opened, stream_data);
     }
     catch (const std::exception& e)
@@ -154,26 +147,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    {
-        // We always want to see this log statement because it contains the pubkey the client needs,
-        // but it feels wrong to force it to a critical statement, so temporarily lower the level to
-        // info to display it.
-        log_level_lowerer enable_info{log::Level::info, test_cat.name};
-        std::vector<std::string> flags;
-        if (server_local != Address{"127.0.0.1", 5500})
-            flags.push_back("--remote {}"_format(server_local.to_string()));
-        flags.push_back("--remote-pubkey={}"_format(oxenc::to_base64(pubkey)));
-        if (no_hash)
-            flags.push_back(no_checksum ? "-HX" : "-H");
-        else if (no_checksum)
-            flags.push_back("-X");
-
-        log::info(
-                test_cat,
-                "Listening on {}; client connection args:\n\t{}",
-                server_local,
-                "{}"_format(fmt::join(flags, " ")));
-    }
+    auto flag_opts = "-{}"_format(fmt::join(std::vector{no_hash ? "H" : "", no_checksum ? "X" : ""}, ""));
+    if (flag_opts == "-")
+        flag_opts = "";
+    server_log_listening(server_local, DEFAULT_SPEEDTEST_ADDR, pubkey, seed_string, enable_0rtt, flag_opts);
 
     for (;;)
         std::this_thread::sleep_for(10min);
