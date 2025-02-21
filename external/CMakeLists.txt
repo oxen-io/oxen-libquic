@@ -74,25 +74,14 @@ if(NOT NGTCP2_FOUND OR NOT NGTCP2_GNUTLS_FOUND)
 endif()
 
 # oxen-logging
-if(BUILD_STATIC_DEPS)
-    message(STATUS "Building static dependencies; using oxen-logging submodule")
-    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
-endif()
-
-if(NOT OXEN_LOGGING_FORCE_SUBMODULES AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 19.0.0)
-    message(STATUS "Forcing oxen-logging submodules; Clang version > 19 requires fmt version > 10")
-    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
-endif()
-
-if (NOT OXEN_LOGGING_FORCE_SUBMODULES AND NOT TARGET oxen::logging)
+if (NOT TARGET oxen::logging)
     message(STATUS "Target oxen::logging not found; using submodule")
-    set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+    if(BUILD_STATIC_DEPS)
+        set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
+    endif()
+    add_subdirectory(oxen-logging)
 else()
     message(STATUS "Target oxen::logging already found!")
-endif()
-
-if (OXEN_LOGGING_FORCE_SUBMODULES)
-    add_subdirectory(oxen-logging)
 endif()
 oxen_logging_add_source_dir("${PROJECT_SOURCE_DIR}")
 
