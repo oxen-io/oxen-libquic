@@ -1,5 +1,11 @@
 oxen-libquic (1.2.0-1~ubuntu2004) focal; urgency=medium
 
+  * fix tests linkage to nettle
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Fri, 21 Feb 2025 17:11:00 -0400
+
+oxen-libquic (1.2.0-1~ubuntu2004) focal; urgency=medium
+
   * drop legacy docker name
   * fix tests linkage to nettle
 
