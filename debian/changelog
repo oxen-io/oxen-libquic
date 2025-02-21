@@ -2,6 +2,12 @@ oxen-libquic (1.2.0-1~ubuntu2410) oracular; urgency=medium
 
   * fix tests linkage to nettle
 
+ -- Jason Rhinelander <jason@imaginary.ca>  Fri, 21 Feb 2025 17:10:47 -0400
+
+oxen-libquic (1.2.0-1~ubuntu2410) oracular; urgency=medium
+
+  * fix tests linkage to nettle
+
  -- Jason Rhinelander <jason@imaginary.ca>  Fri, 21 Feb 2025 16:49:46 -0400
 
 oxen-libquic (1.2.0-1~ubuntu2410) oracular; urgency=medium
