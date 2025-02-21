@@ -1,3 +1,172 @@
+oxen-libquic (1.2.0-1~deb11) bullseye; urgency=medium
+
+  [ Jason Rhinelander ]
+  * Bump version to 1.2.0 for dev branch
+
+  [ dr7ana ]
+  * No-UDP Endpoints: manual data I/O routing
+  * 011 tunneling test case
+
+  [ Jason Rhinelander ]
+  * Use a variant inside Packet instead
+  * Fix callback not passing the actual result
+  * log readmsg errors in debug builds; misc cleanups
+
+  [ dr7ana ]
+  * Construct network from existing loop object
+
+  [ Jason Rhinelander ]
+  * BTRequestStream: fire callbacks if invoked on closing stream
+  * Throw exception if trying to open a stream on a dead connection
+  * Dead conn stream handling redux
+  * Allowing specifying a dgram data callback in listen/connect
+  * C++20 concepts, constexpr _bsv, _usv, oxen-encoding
+
+  [ dr7ana ]
+  * Stream buffer watermarking
+  * Stream pausing
+
+  [ Jason Rhinelander ]
+  * Bump oxen-logging to latest
+  * Update oxen-logging for better source dir handling
+  * bump oxen-logging
+  * bump oxen-logging
+  * Add three-way operator to Address and fix port order
+
+  [ dr7ana ]
+  * bugfix for vector sender; path methods
+  * Max IP in range; Revamp ipv4/6 methods
+  * Added ::next_ip() methods, overflow checking, revamped 001 test
+  * added constexpr ipv{4,6} default ctors
+  * const ipv6_range operator==
+  * ipv{4,6} string ctors
+
+  [ Jason Rhinelander ]
+  * Fix crash when stream buffer outlives the sent_req
+  * Remove sent_request::payload(), ::view()
+  * Fix session-ios "crash2"
+  * Remove superfluous endpoint.call
+  * Fix when_writeable firing after a connection has gone away
+
+  [ dr7ana ]
+  * oxenc vbump
+  * cmake target compile feature
+
+  [ Jason Rhinelander ]
+  * Defer Connection destruction
+
+  [ dr7ana ]
+  * loop event repeater
+  * Loop EventHandler added, lifetime management
+  * Logic modifications:
+  * Review fixes
+  * correct casting
+
+  [ Jason Rhinelander ]
+  * Make to_string() formattability opt-in
+  * fix wrong install option default value
+  * Fix segfault in stream send() when called from outside the event loop
+  * Downgrade very common log warnings
+
+  [ dr7ana ]
+  * Revised network<->event loop relationship
+  * typedef ID, readability change
+  * Getter for num sent bt reqs
+  * ticker events are perpetually pending, preventing execution of pre-IO polling logic on each iteration of the event loop
+  * why use many func when one func do trick
+  * lets banana split the middle?
+  * IP ranges and IP networks
+  * ipv4 broadcast, add ::broadcast()
+  * about time we finished 0rtt
+  * gtls session ticketing straightened out, defaulted through callbacks
+  * Key verification directionally toggled
+  * Stateless reset layout
+  * stream revert on early data rejected, instead of close
+  * stateless reset default on, opt toggles off
+  * associate all ngtcp2 cids to token, not ref id
+  * Opt configuration under the hood
+  * unit test bt chaining and serialization
+  * do not store token on unknown packet
+  * downgrade logs, btlogger to regular logger
+  * log downgrade, misc cleanup
+
+  [ Jason Rhinelander ]
+  * Make gtls_session_ticket always go through unique_ptr
+
+  [ dr7ana ]
+  * Review fixes: - added RAII gnutls_datum object, used where needed. Must be careful, can double free if the memory is owned by another object or held within ngtcp2 - misc fixes from #147
+  * return ptr to promise, not promise by ref
+  * testing out stateless reset token lifetime
+  * bump debian sid CI 16 -> 17/18, clang-format 15 -> 16
+  * oxenc bump, CI clang-format 15 -> 16
+  * retyping
+  * more retyping, test cmake config, libc++-19 misc
+  * point submodule at session-foundation repo
+  * ci clang 16->17
+  * dont capture spans with promises
+  * Catch2 matcher to compare spans
+  * keep const_span confined to the oxenc pen
+
+  [ Jason Rhinelander ]
+  * Enhance ping test scripts
+  * Fix Packet::size() returning 0 for external packet data
+  * Fix UB in random value generation
+  * Fix drop_connection bugs
+  * Make stateless reset work
+  * avoid token generation when not wanted
+  * Remove no-longer-used opt::disable_stateless_reset
+  * Fix wrong-destruction-order crash in callback_waiter
+  * Add stateless reset test case
+  * Change SHAKE128 to SHAKE256
+  * Fix misleading log statement about congestion
+  * Add microsecond timestamps for test suite logs
+  * Working 0-RTT support
+  * Fix mismatched datagram_interface method name
+  * Datagram queuing, sending overhaul with 0-RTT support
+  * remove unnecessary sections
+  * simplify
+  * Move stateless_reset into its own test unit
+  * Drop faulty assertion
+  * fix spelling
+  * Revert Packet storage to a variant
+  * Fix manual routing when sending >1 packets at a time
+  * Bikeshedding Ticker "fixed_interval"/"wait"
+  * Renamed `endpoint_map` because it was not a map
+  * Formatting
+  * Add FIXME around dubious datagram data copying
+  * Add ability to close an endpoint
+  * Various 0-RTT-related fixes
+  * 0-RTT tests
+  * build fixes
+  * Remove dangerous `= nullptr` default from send keep-alives
+
+  [ Morgan Pretty ]
+  * Updated NGTCP2 to the latest release and disabled building tests
+
+  [ Jason Rhinelander ]
+  * Fixes
+  * Improve and generalize speed test arguments
+  * dgram-server: accept multiple connections
+  * Fix backwards datagram reassembly; add debug helpers to dgram-speed
+  * Make static gnutls work with newer ngtcp2
+  * Bump clang-format to 19
+  * Fix 014 test filename
+  * Slow things down for the horrible cupertino-made OS
+  * Fix bug parsing split length btstream requests
+  * Remove implicit gnutls includes
+  * Make `alpns{"string"}` work with older gcc
+  * Skip ping-client on windows
+  * more ci test timing tweaks
+  * Disable wine test pipeline failure
+  * Explicitly link to nettle
+  * Replace (broken) runtime check with assert
+  * Make conns an unordered_map
+  * more timing tweaks
+  * Disable 0rtt tests on non-amd64 debug builds
+  * Bump ngtcp2 to latest 1.11.0
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Fri, 21 Feb 2025 16:17:33 -0400
+
 oxen-libquic (1.1.0-2~deb11) bullseye; urgency=medium
 
   * Bump oxen-logging to latest
