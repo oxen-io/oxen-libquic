@@ -12,6 +12,7 @@ add_library(quic
     endpoint.cpp
     error.cpp
     format.cpp
+    gnutls_crypto.cpp
     gnutls_creds.cpp
     gnutls_session.cpp
     iochannel.cpp
@@ -36,7 +37,10 @@ target_link_libraries(quic
     oxenc
     PRIVATE
     libquic_internal
+    nettle::nettle
 )
+
+target_compile_features(quic INTERFACE cxx_std_20)
 
 set_target_properties(quic PROPERTIES LIBRARY_OUTPUT_NAME oxenquic)
 if(LIBQUIC_VERSION_SO)
