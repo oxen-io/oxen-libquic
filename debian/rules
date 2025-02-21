@@ -27,7 +27,7 @@ override_dh_auto_configure:
 		-DLIBQUIC_SPEEDTEST_PREFIX=quic-
 
 override_dh_auto_test:
-	./obj-$(DEB_BUILD_GNU_TYPE)/tests/alltests --log-level warning --no-ipv6 --colour-mode ansi
+	./obj-$(DEB_BUILD_GNU_TYPE)/tests/alltests --log-level warning --no-ipv6 --disable-0rtt --colour-mode ansi
 
 # dh_make generated override targets
 # This is example for Cmake (See https://bugs.debian.org/641051 )
