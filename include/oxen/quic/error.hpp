@@ -50,6 +50,10 @@ namespace oxen::quic
     inline constexpr uint64_t CONN_SEND_FAIL = ERROR_BASE + 1002;
     // Connection closing because it reached idle timeout
     inline constexpr uint64_t CONN_IDLE_CLOSED = ERROR_BASE + 1003;
+    // Early data rejected:
+    inline constexpr uint64_t CONN_EARLY_DATA_REJECTED = ERROR_BASE + 1004;
+    // Stateless reset received
+    inline constexpr uint64_t CONN_STATELESS_RESET = ERROR_BASE + 1005;
 
     inline std::string quic_strerror(uint64_t e)
     {

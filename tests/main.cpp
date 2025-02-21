@@ -1,8 +1,8 @@
-#include <catch2/catch_session.hpp>
-
 #include "utils.hpp"
 
-bool oxen::quic::disable_ipv6, oxen::quic::disable_rotating_buffer;
+#include <catch2/catch_session.hpp>
+
+bool oxen::quic::disable_ipv6, oxen::quic::disable_rotating_buffer, oxen::quic::disable_0rtt;
 
 int main(int argc, char* argv[])
 {
@@ -14,12 +14,14 @@ int main(int argc, char* argv[])
     oxen::quic::disable_ipv6 = false;
     oxen::quic::disable_rotating_buffer = false;
 
-    auto cli = session.cli() | Opt(log_level, "level")["--log-level"]("oxen-logging log level to apply to the test run") |
-               Opt(log_file, "file")["--log-file"](
-                       "oxen-logging log file to output logs to, or one of  or one of stdout/-/stderr/syslog.") |
-               Opt(oxen::quic::disable_ipv6)["--no-ipv6"]("disable ipv6 addressing in the test suite") |
-               Opt(oxen::quic::disable_rotating_buffer)["--no-buf"]("disable rotating buffers in the test suite") |
-               Opt(test_case_tracing)["-T"]["--test-tracing"]("enable oxen log tracing of test cases/sections");
+    auto cli =
+            session.cli() | Opt(log_level, "level")["--log-level"]("oxen-logging log level to apply to the test run") |
+            Opt(log_file, "file")["--log-file"](
+                    "oxen-logging log file to output logs to, or one of  or one of stdout/-/stderr/syslog.") |
+            Opt(oxen::quic::disable_ipv6)["--no-ipv6"]("disable ipv6 addressing in the test suite") |
+            Opt(oxen::quic::disable_rotating_buffer)["--no-buf"]("disable rotating buffers in the test suite") |
+            Opt(oxen::quic::disable_0rtt)["--disable-0rtt"]("disable 0rtt tests (especially for non-AMD64 debug builds)") |
+            Opt(test_case_tracing)["-T"]["--test-tracing"]("enable oxen log tracing of test cases/sections");
 
     session.cli(cli);
 

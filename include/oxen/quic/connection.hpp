@@ -1,6 +1,10 @@
 #pragma once
 
-#include <concepts>
+#include "connection_ids.hpp"
+#include "context.hpp"
+#include "format.hpp"
+#include "types.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -10,23 +14,15 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
-
-#include "connection_ids.hpp"
-#include "context.hpp"
-#include "format.hpp"
-#include "types.hpp"
-#include "utils.hpp"
+#include <unordered_set>
 
 namespace oxen::quic
 {
     struct dgram_interface;
     class Network;
 
-    inline constexpr uint64_t MAX_ACTIVE_CIDS{8};
+    inline constexpr uint64_t MAX_ACTIVE_CIDS{4};
     inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
-
-    template <typename T>
-    concept StreamDerived = std::derived_from<T, Stream>;
 
     class connection_interface : public std::enable_shared_from_this<connection_interface>
     {
@@ -38,14 +34,14 @@ namespace oxen::quic
         virtual std::shared_ptr<Stream> get_stream_impl(int64_t id) = 0;
 
       public:
-        virtual ustring_view selected_alpn() const = 0;
+        virtual std::string_view selected_alpn() const = 0;
 
         /// Queues an incoming stream of the given StreamT type, forwarding the given arguments to
         /// the StreamT constructor.  The stream will be given the next unseen incoming connection
         /// ID; it will be made ready once the associated stream id is seen from the remote
         /// connection.  Note that this constructor bypasses the stream constructor callback for the
         /// applicable stream id.
-        template <StreamDerived StreamT, typename... Args, typename EndpointDeferred = Endpoint>
+        template <concepts::stream_derived_type StreamT, typename... Args, typename EndpointDeferred = Endpoint>
         std::shared_ptr<StreamT> queue_incoming_stream(Args&&... args)
         {
             // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
@@ -70,7 +66,7 @@ namespace oxen::quic
         /// such as from an increase in available stream ids resulting from the closure of an
         /// existing stream.  Note that this constructor bypasses the stream constructor callback
         /// for the applicable stream id.
-        template <StreamDerived StreamT, typename... Args, typename EndpointDeferred = Endpoint>
+        template <concepts::stream_derived_type StreamT, typename... Args, typename EndpointDeferred = Endpoint>
             requires std::derived_from<StreamT, Stream>
         std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
@@ -90,7 +86,7 @@ namespace oxen::quic
         /// StreamT is specified, is of the given Stream subclass).  Returns nullptr if the id is
         /// not currently an open stream; throws std::invalid_argument if the stream exists but is
         /// not an instance of the given StreamT type.
-        template <StreamDerived StreamT = Stream>
+        template <concepts::stream_derived_type StreamT = Stream>
         std::shared_ptr<StreamT> maybe_stream(int64_t id)
         {
             auto s = get_stream_impl(id);
@@ -111,7 +107,7 @@ namespace oxen::quic
         /// StreamT is specified, is of the given Stream subclass).  Otherwise throws
         /// std::out_of_range if the stream was not found, and std::invalid_argument if the stream
         /// was found, but is not an instance of StreamT.
-        template <StreamDerived StreamT = Stream>
+        template <concepts::stream_derived_type StreamT = Stream>
         std::shared_ptr<StreamT> get_stream(int64_t id)
         {
             if (auto s = maybe_stream<StreamT>(id))
@@ -120,18 +116,17 @@ namespace oxen::quic
         }
 
         template <oxenc::basic_char CharType>
-            requires(!std::same_as<CharType, std::byte>)
-        void send_datagram(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        void send_datagram(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive)
         {
-            send_datagram(convert_sv<std::byte>(data), std::move(keep_alive));
+            send_datagram(str_to_bspan(data), std::move(keep_alive));
         }
 
         template <oxenc::basic_char Char>
         void send_datagram(std::vector<Char>&& buf)
         {
-            send_datagram(
-                    std::basic_string_view<Char>{buf.data(), buf.size()},
-                    std::make_shared<std::vector<Char>>(std::move(buf)));
+            auto keep_alive = std::make_shared<std::vector<Char>>(std::move(buf));
+            auto bsp = vec_to_span<std::byte>(*keep_alive);
+            send_datagram(bsp, std::move(keep_alive));
         }
 
         template <oxenc::basic_char CharType>
@@ -139,10 +134,16 @@ namespace oxen::quic
         {
             auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
             std::basic_string_view<CharType> view{*keep_alive};
-            send_datagram(view, std::move(keep_alive));
+            send_datagram(str_to_bspan(view), std::move(keep_alive));
         }
 
-        virtual void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) = 0;
+        template <oxenc::basic_char CharType>
+        void send_datagram(std::span<const CharType> data, std::shared_ptr<void> keep_alive)
+        {
+            send_datagram(span_to_span<std::byte>(data), std::move(keep_alive));
+        }
+
+        virtual void send_datagram(bspan data, std::shared_ptr<void> keep_alive) = 0;
 
         virtual Endpoint& endpoint() = 0;
         virtual const Endpoint& endpoint() const = 0;
@@ -154,7 +155,7 @@ namespace oxen::quic
         virtual const ConnectionID& reference_id() const = 0;
         virtual bool is_validated() const = 0;
         virtual Direction direction() const = 0;
-        virtual ustring_view remote_key() const = 0;
+        virtual uspan remote_key() const = 0;
         virtual bool is_inbound() const = 0;
         virtual bool is_outbound() const = 0;
         virtual std::string direction_str() = 0;
@@ -199,6 +200,45 @@ namespace oxen::quic
         /// with datagram splitting enabled.
         size_t get_max_datagram_size();
 
+        /// Sets the maximum split datagram queue lookahead for coalescing split datagrams.  This is
+        /// how far we look ahead in the datagram queue to find "small" pieces of split datagrams
+        /// that we can send ahead of schedule if including those helps fill out a quic packet.
+        ///
+        /// For example, suppose an application is sending packets of size 1500 with a max (unsplit)
+        /// datagram size of 1350, and sends 6 such packets in a row, split into
+        /// [Aa][Bb][Cc][Dd][Ee][Ff], where each "A-F" part of the split will be 1350 bytes and each
+        /// a-f part is the remaining 150 bytes.  With a lookahead of 4 of higher (and assuming no
+        /// conflicting stream and ACK data that might take up some quic packet space) this could
+        /// result in coalescing the a-f values into one single QUIC packet containing 6 small
+        /// datagram pieces, so that we send:
+        ///
+        /// [A] [abcdef] [B] [C] [D] [E] [F]
+        ///
+        /// Whereas when this is set to 0, only the packet at the head of the queue will be
+        /// considered.  Note that even with lookahead set to 0, some coalescing is still possible
+        /// without ever including something that isn't at the head of the queue, e.g.
+        ///
+        /// [A] [ab] [B] [C] [cd] [D] [E] [ef] [F]
+        ///
+        /// Note that this lookahead will never cause *complete* packets to be delivered out of
+        /// order: the remote end will always receive complete (i.e. after recombining) packets in
+        /// the same order the application queued them (assuming no reordering outside our control
+        /// happens along the network path).  Effectively what that means is that this option allows
+        /// us to opportunistically send small pieces of split packets ahead of schedule, if we have
+        /// extra space in a QUIC packet being built.
+        ///
+        /// A value of 0 disables lookahead, and a negative value restores the default (which is
+        /// currently 8, but could change in the future).
+        ///
+        /// If setting this to a higher value, take care that the application at the other end of
+        /// the connection is not using too small of a split datagram receive buffer: packets *will*
+        /// be lost if the remote receive buffer is not large enough to handle the gap in
+        /// out-of-order partial packet delivery.  (The default split receive buffer is more than
+        /// sufficient for any feasible lookahead value, but very small receive buffers with very
+        /// large lookaheads might not be).
+        virtual void set_split_datagram_lookahead(int n) = 0;
+        virtual int get_split_datagram_lookahead() const = 0;
+
         /// Obtains the current max datagram size *if* it has changed since the last time this
         /// method was called (or if this method has never been called), otherwise returns nullopt.
         /// This is designed to allow classes to react to changes in the maximum datagram size, if
@@ -241,6 +281,7 @@ namespace oxen::quic
     {
         friend class TestHelper;
         friend struct rotating_buffer;
+        friend struct connection_callbacks;
 
       public:
         // Non-movable/non-copyable; you must always hold a Connection in a shared_ptr
@@ -272,18 +313,19 @@ namespace oxen::quic
                 const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
-                const std::vector<ustring>& alpns,
+                std::span<const std::string> alpns,
                 std::chrono::nanoseconds default_handshake_timeout,
-                std::optional<ustring> remote_pk = std::nullopt,
+                std::optional<std::vector<unsigned char>> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,
                 ngtcp2_cid* ocid = nullptr);
 
         void packet_io_ready();
 
-        TLSSession* get_session() const;
+        TLSSession* get_session() const { return tls_session.get(); }
+        TLSCreds* get_creds() const { return tls_creds.get(); }
 
-        ustring_view remote_key() const override;
+        uspan remote_key() const override;
 
         Direction direction() const override { return dir; }
 
@@ -308,21 +350,31 @@ namespace oxen::quic
         Endpoint& endpoint() override { return _endpoint; }
         const Endpoint& endpoint() const override { return _endpoint; }
 
-        ustring_view selected_alpn() const override;
+        std::string_view selected_alpn() const override;
 
         uint64_t get_streams_available_impl() const override;
+        size_t get_max_datagram_piece();
         size_t get_max_datagram_size_impl() override;
         uint64_t get_max_streams_impl() const override { return _max_streams; }
 
-        bool datagrams_enabled() const override { return _datagrams_enabled; }
+        bool datagrams_enabled() const override { return static_cast<bool>(datagrams); }
         bool packet_splitting_enabled() const override { return _packet_splitting; }
+        void set_split_datagram_lookahead(int n) override
+        {
+            if (datagrams)
+                datagrams->set_split_datagram_lookahead(n);
+        }
+        int get_split_datagram_lookahead() const override
+        {
+            return datagrams ? datagrams->get_split_datagram_lookahead() : -1;
+        }
 
         std::optional<size_t> max_datagram_size_changed() override;
 
         // public debug functions; to be removed with friend test fixture class
         int last_cleared() const override;
 
-        void send_datagram(bstring_view data, std::shared_ptr<void> keep_alive = nullptr) override;
+        void send_datagram(bspan data, std::shared_ptr<void> keep_alive) override;
 
         void close_connection(uint64_t error_code = 0) override;
 
@@ -336,19 +388,25 @@ namespace oxen::quic
         connection_established_callback conn_established_cb;
         connection_closed_callback conn_closed_cb;
 
-        void early_data_rejected();
-
         void set_remote_addr(const ngtcp2_addr& new_remote);
 
         void store_associated_cid(const quic_cid& cid);
+        void delete_associated_cid(const quic_cid& cid);
+        const std::unordered_set<quic_cid>& associated_cids() const { return _associated_cids; }
 
-        std::unordered_set<quic_cid>& associated_cids() { return _associated_cids; }
+        void store_associated_reset(const hashed_reset_token& htoken);
+        void delete_associated_reset(const hashed_reset_token& htoken);
+        const std::unordered_set<hashed_reset_token>& associated_reset_tokens() const { return _associated_resets; }
 
         int client_handshake_completed();
 
         int server_handshake_completed();
 
-        int server_path_validation(const ngtcp2_path* path);
+        int recv_stateless_reset(std::span<const uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> token);
+
+        int client_path_validation(const ngtcp2_path* path, bool res, uint32_t flags);
+
+        int server_path_validation(const ngtcp2_path* path, bool res, uint32_t flags);
 
         void set_new_path(Path new_path);
 
@@ -375,9 +433,9 @@ namespace oxen::quic
                 const quic_cid& dcid,
                 const Path& path,
                 std::shared_ptr<IOContext> ctx,
-                const std::vector<ustring>& alpns,
+                std::span<const std::string> alpns,
                 std::chrono::nanoseconds default_handshake_timeout,
-                std::optional<ustring> remote_pk = std::nullopt,
+                std::optional<std::vector<unsigned char>> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,
                 ngtcp2_cid* ocid = nullptr);
@@ -390,22 +448,28 @@ namespace oxen::quic
         const ConnectionID _ref_id;
 
         std::unordered_set<quic_cid> _associated_cids;
+        std::unordered_set<hashed_reset_token> _associated_resets;
 
         const quic_cid _source_cid;
         quic_cid _dest_cid;
 
         Path _path;
 
+        // True if we are attempting 0-RTT (i.e. enabled it and we found the needed session data)
+        // and are still in the 0-RTT period:
+        bool _early_data{false};
+
         const uint64_t _max_streams{DEFAULT_MAX_BIDI_STREAMS};
-        const bool _datagrams_enabled{false};
         const bool _packet_splitting{false};
-        size_t _last_max_dgram_size{0};
+        size_t _last_max_dgram_piece{0};
         std::atomic<bool> _max_dgram_size_changed{true};
 
         std::atomic<bool> _close_quietly{false};
         std::atomic<bool> _is_validated{false};
 
-        ustring remote_pubkey;
+        std::vector<unsigned char> remote_pubkey{};
+
+        void revert_early_streams();
 
         struct connection_deleter
         {
@@ -466,7 +530,7 @@ namespace oxen::quic
         // streams are added to the back and popped from the front (FIFO)
         std::deque<std::shared_ptr<Stream>> pending_streams;
 
-        int init(
+        void init(
                 ngtcp2_settings& settings,
                 ngtcp2_transport_params& params,
                 ngtcp2_callbacks& callbacks,
@@ -479,7 +543,7 @@ namespace oxen::quic
         /********* TEST SUITE FUNCTIONALITY *********/
         void set_local_addr(Address new_local);
         bool debug_datagram_drop_enabled{false};
-        bool debug_datagram_flip_flop_enabled{false};
+        bool debug_datagram_counter_enabled{false};
         int debug_datagram_counter{0};  // Used for either of the above (only one at a time)
 
       public:
@@ -488,12 +552,12 @@ namespace oxen::quic
         // these are public so ngtcp2 can access them from callbacks
         int stream_opened(int64_t id);
         int stream_ack(int64_t id, size_t size);
-        int stream_receive(int64_t id, bstring_view data, bool fin);
+        int stream_receive(int64_t id, bspan data, bool fin);
         void stream_execute_close(Stream& s, uint64_t app_code);
         void stream_closed(int64_t id, uint64_t app_code);
         void close_all_streams();
         void check_pending_streams(uint64_t available);
-        int recv_datagram(bstring_view data, bool fin);
+        int recv_datagram(bspan data, bool fin);
         int ack_datagram(uint64_t dgram_id);
         int recv_token(const uint8_t* token, size_t tokenlen);
 
@@ -501,13 +565,7 @@ namespace oxen::quic
         // Connection directly to ngtcp2 functions taking a ngtcp2_conn* argument).
         template <typename T>
             requires std::same_as<T, ngtcp2_conn>
-        operator const T*() const
-        {
-            return conn.get();
-        }
-        template <typename T>
-            requires std::same_as<T, ngtcp2_conn>
-        operator T*()
+        operator T*() const
         {
             return conn.get();
         }

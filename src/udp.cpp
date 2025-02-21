@@ -18,10 +18,10 @@ extern "C"
 #endif
 }
 
-#include <system_error>
-
 #include "internal.hpp"
 #include "udp.hpp"
+
+#include <system_error>
 
 #ifdef _WIN32
 
@@ -79,6 +79,22 @@ namespace oxen::quic
         }
 
         return rv;
+    }
+
+    // Same as above, but just logs, doesn't throw.
+    static void log_rv_error(int rv, std::string_view action)
+    {
+        std::optional<std::error_code> ec;
+#ifdef _WIN32
+        if (rv == SOCKET_ERROR)
+            ec.emplace(WSAGetLastError(), std::system_category());
+#else
+        if (rv == -1)
+            ec.emplace(errno, std::system_category());
+
+#endif
+        if (ec)
+            log::error(log_cat, "Got error {} ({}) during {}", ec->value(), ec->message(), action);
     }
 
 #ifdef _WIN32
@@ -237,7 +253,18 @@ namespace oxen::quic
                 ev_,
                 sock_,
                 EV_READ | EV_PERSIST,
-                [](evutil_socket_t, short, void* self) { static_cast<UDPSocket*>(self)->receive(); },
+                [](evutil_socket_t, short, void* self) {
+#ifndef NDEBUG
+                    log_rv_error(
+#endif
+                            static_cast<UDPSocket*>(self)
+                                    ->receive()
+#ifndef NDEBUG
+                                    .error_code,
+                            "udp::receive()")
+#endif
+                            ;
+                },
                 this));
         event_add(rev_.get(), nullptr);
 
@@ -264,7 +291,7 @@ namespace oxen::quic
 #endif
     }
 
-    void UDPSocket::process_packet(bstring_view payload, msghdr& hdr)
+    void UDPSocket::process_packet(bspan payload, msghdr& hdr)
     {
         if (payload.empty())
         {
@@ -341,7 +368,7 @@ namespace oxen::quic
             }
 
             for (int i = 0; i < nread; i++)
-                process_packet(bstring_view{data[i].data(), msgs[i].msg_len}, msgs[i].msg_hdr);
+                process_packet(bspan{data[i].data(), msgs[i].msg_len}, msgs[i].msg_hdr);
 
             count += nread;
 
@@ -413,7 +440,7 @@ namespace oxen::quic
             }
 #endif
 
-            process_packet(bstring_view{data.data(), static_cast<size_t>(nbytes)}, hdr);
+            process_packet(bspan{data.data(), static_cast<size_t>(nbytes)}, hdr);
 
             count++;
 
@@ -693,7 +720,6 @@ namespace oxen::quic
         hdr.msg_name = dest_sa;
         hdr.msg_namelen = remote.socklen();
 #endif
-
         alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(in6_pktinfo))> control{};
 #ifdef _WIN32
         hdr.Control.buf = control.data();
@@ -758,7 +784,7 @@ namespace oxen::quic
         event_add(wev_.get(), nullptr);
     }
 
-    Packet::Packet(const Address& local, bstring_view data, msghdr& hdr) :
+    Packet::Packet(const Address& local, bspan data, msghdr& hdr) :
             path{local,
 #ifdef _WIN32
                  {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
@@ -802,6 +828,12 @@ namespace oxen::quic
             }
         }
         log::trace(log_cat, "incoming packet path is {}", path);
+    }
+
+    void Packet::ensure_owned_data()
+    {
+        if (auto* data_sp = std::get_if<bspan>(&pkt_data))
+            pkt_data = std::vector(data_sp->begin(), data_sp->end());
     }
 
 }  // namespace oxen::quic
