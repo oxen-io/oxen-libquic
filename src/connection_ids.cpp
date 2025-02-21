@@ -1,9 +1,11 @@
 #include "connection_ids.hpp"
 
-#include <oxenc/hex.h>
-
 #include "format.hpp"
 #include "internal.hpp"
+
+#include <oxenc/hex.h>
+
+#include <gnutls/crypto.h>
 
 namespace oxen::quic
 {

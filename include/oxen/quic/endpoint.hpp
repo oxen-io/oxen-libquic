@@ -1,5 +1,6 @@
 #pragma once
 
+#include "oxen/quic/opt.hpp"
 extern "C"
 {
 #ifdef _WIN32
@@ -7,24 +8,7 @@ extern "C"
 #else
 #include <netinet/in.h>
 #endif
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
 }
-
-#include <event2/event.h>
-
-#include <cstddef>
-#include <list>
-#include <memory>
-#include <numeric>
-#include <optional>
-#include <queue>
-#include <random>
-#include <string>
-#include <unordered_map>
 
 #include "connection.hpp"
 #include "context.hpp"
@@ -32,16 +16,15 @@ extern "C"
 #include "udp.hpp"
 #include "utils.hpp"
 
+#include <cstddef>
+#include <list>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+
 namespace oxen::quic
 {
-    template <typename... Opt>
-    static constexpr void check_for_tls_creds()
-    {
-        static_assert(
-                (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
-                "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
-    }
-
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
       public:
@@ -57,8 +40,8 @@ namespace oxen::quic
         template <typename... Opt>
         Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
         {
-            _init_internals();
             ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+            _init_internals();
             if (_static_secret.empty())
                 _static_secret = make_static_secret();
         }
@@ -79,74 +62,44 @@ namespace oxen::quic
             });
         }
 
-        // creates new outbound connection to remote; emplaces conn/interface pair in outbound map
         template <typename... Opt>
         std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
         {
             check_for_tls_creds<Opt...>();
 
-            std::promise<std::shared_ptr<Connection>> p;
-            auto f = p.get_future();
-
-            if (!remote.is_addressable())
-                throw std::invalid_argument("Address must be addressible to connect");
+            if (not _manual_routing and !remote.is_addressable())
+                throw std::invalid_argument("Address must be addressable to connect");
 
             if (_local.is_ipv6() && !remote.is_ipv6())
                 remote.map_ipv4_as_ipv6();
 
-            Path _path = Path{_local, remote};
-
-            net.call([&opts..., &p, path = _path, this, remote_pk = std::move(remote).get_remote_key()]() mutable {
-                quic_cid qcid;
-                auto next_rid = next_reference_id();
-
+            std::promise<std::shared_ptr<Connection>> conn_prom;
+            net.call([this, &opts..., &conn_prom, remote = std::move(remote)]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
                     outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
                     _set_context_globals(outbound_ctx);
-
-                    for (;;)
-                    {
-                        // emplace random CID into lookup keyed to unique reference ID
-                        if (auto [it_a, res_a] = conn_lookup.emplace(quic_cid::random(), next_rid); res_a)
-                        {
-                            qcid = it_a->first;
-
-                            if (auto [it_b, res_b] = conns.emplace(next_rid, nullptr); res_b)
-                            {
-                                it_b->second = Connection::make_conn(
-                                        *this,
-                                        next_rid,
-                                        it_a->first,
-                                        quic_cid::random(),
-                                        std::move(path),
-                                        outbound_ctx,
-                                        outbound_alpns,
-                                        handshake_timeout,
-                                        remote_pk);
-
-                                p.set_value(it_b->second);
-                                return;
-                            }
-                        }
-                    }
+                    conn_prom.set_value(_connect(std::move(remote)));
                 }
                 catch (...)
                 {
-                    conn_lookup.erase(qcid);
-                    conns.erase(next_rid);
-                    p.set_exception(std::current_exception());
+                    conn_prom.set_exception(std::current_exception());
                 }
             });
 
-            return f.get();
+            return conn_prom.get_future().get();
         }
 
         // query a list of all active inbound and outbound connections paired with a conn_interface
         std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
         const Address& local() const { return _local; }
+
+        // Sets the local endpoint address.  This should *only* be used when using manual packet
+        // routing; otherwise the address will be set automatically and this method should not
+        // normally be called.
+        void set_local(Address new_local) { _local = new_local; }
 
         bool is_accepting() const { return _accepting_inbound; }
 
@@ -162,7 +115,7 @@ namespace oxen::quic
 
         void close_conns(std::optional<Direction> d = std::nullopt);
 
-        std::shared_ptr<connection_interface> get_conn(ConnectionID rid);
+        std::shared_ptr<Connection> get_conn(ConnectionID rid);
 
         template <typename... Args>
         void call(Args&&... args)
@@ -196,13 +149,35 @@ namespace oxen::quic
         bool in_event_loop() const;
 
         // Returns a random value suitable for use as the Endpoint static secret value.
-        static ustring make_static_secret();
+        static std::vector<unsigned char> make_static_secret();
+
+        void manually_receive_packet(Packet&& pkt);
+
+        // Wrapper around oxenc::quic::generate_reset_token that prepends the arguments with the
+        // endpoint's static secret, as needed by the free function version.
+        template <typename... Args>
+        auto generate_reset_token(Args&&... args) const
+        {
+            return quic::generate_reset_token(_static_secret, std::forward<Args>(args)...);
+        }
+
+        // Constructs and returns a hashed_reset_token from the given reset token using
+        // NGTCP2_STATELESS_RESET_TOKENLEN bytes at `token` and this endpoint's static secret data.
+        hashed_reset_token hash_reset_token(std::span<const uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> token) const
+        {
+            return hashed_reset_token{token, _static_secret};
+        }
+        hashed_reset_token hash_reset_token(const uint8_t* token) const
+        {
+            return hash_reset_token(
+                    std::span<const uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN>{token, NGTCP2_STATELESS_RESET_TOKENLEN});
+        }
 
       private:
         friend class Network;
         friend class Loop;
         friend class Connection;
-        friend struct Callbacks;
+        friend struct connection_callbacks;
         friend class TestHelper;
 
         Network& net;
@@ -215,27 +190,29 @@ namespace oxen::quic
         Splitting _policy{Splitting::NONE};
         int _rbufsize{4096};
 
+        opt::manual_routing _manual_routing;
+
         uint64_t _next_rid{0};
 
-        ustring _static_secret;
+        std::vector<unsigned char> _static_secret;
 
         std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
 
-        std::vector<ustring> outbound_alpns;
-        std::vector<ustring> inbound_alpns;
+        std::vector<std::string> outbound_alpns;
+        std::vector<std::string> inbound_alpns;
         std::chrono::nanoseconds handshake_timeout{DEFAULT_HANDSHAKE_TIMEOUT};
 
-        std::map<ustring, ustring> anti_replay_db;
-        std::map<ustring, ustring> encoded_transport_params;
-        std::map<ustring, ustring> path_validation_tokens;
+        std::unordered_map<Address, std::vector<unsigned char>> path_validation_tokens;
 
-        const std::shared_ptr<event_base>& get_loop() { return net.loop(); }
+        const std::shared_ptr<event_base>& get_loop() { return net._loop->loop(); }
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 
         // Does the non-templated bit of `listen()`
         void _listen();
+
+        std::shared_ptr<Connection> _connect(RemoteAddress remote);
 
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
@@ -246,6 +223,7 @@ namespace oxen::quic
         void handle_ep_opt(connection_established_callback conn_established_cb);
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
         void handle_ep_opt(opt::static_secret ssecret);
+        void handle_ep_opt(opt::manual_routing mrouting);
 
         // Takes a std::optional-wrapped option that does nothing if the optional is empty,
         // otherwise passes it through to the above.  This is here to allow runtime-dependent
@@ -277,6 +255,11 @@ namespace oxen::quic
         /// `.blocked()` false).
         io_result send_packets(const Path& path, std::byte* buf, size_t* bufsize, uint8_t ecn, size_t& n_pkts);
 
+        // Drops a connection from the endpoint.  This is dangerous to call from *within* methods on
+        // a connection itself, and generally should be deferred via a call_soon.
+        void _drop_connection(Connection& conn, io_error err);
+        // Schedules the connection to be dropped from the endpoint via call_soon; safe to use from
+        // within Connection calls.
         void drop_connection(Connection& conn, io_error err);
 
         dgram_data_callback dgram_recv_cb;
@@ -286,25 +269,27 @@ namespace oxen::quic
 
         void connection_established(connection_interface& conn);
 
-        int validate_anti_replay(ustring key, ustring data, time_t exp);
+        void store_path_validation_token(Address remote, std::vector<unsigned char> token);
 
-        void store_0rtt_transport_params(ustring remote_pk, ustring encoded_params);
-
-        std::optional<ustring> get_0rtt_transport_params(ustring remote_pk);
-
-        void store_path_validation_token(ustring remote_pk, ustring token);
-
-        std::optional<ustring> get_path_validation_token(ustring remote_pk);
+        std::optional<std::vector<unsigned char>> get_path_validation_token(const Address& remote);
 
         void initial_association(Connection& conn);
+
+        void associate_reset(const uint8_t* token, Connection& conn);
+
+        void dissociate_reset(const uint8_t* token, Connection& conn);
+
+        void associate_cid(quic_cid qcid, Connection& conn, bool weakly = false);
 
         void associate_cid(const ngtcp2_cid* cid, Connection& conn);
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        const ustring& static_secret() const { return _static_secret; }
+        void dissociate_cid(quic_cid qcid, Connection& conn);
 
-        Connection* fetch_associated_conn(ngtcp2_cid* cid);
+        const std::vector<unsigned char>& static_secret() const { return _static_secret; }
+
+        Connection* fetch_associated_conn(const quic_cid& cid);
 
         ConnectionID next_reference_id();
 
@@ -327,8 +312,7 @@ namespace oxen::quic
 
         void _execute_close_hooks(Connection& conn, io_error ec = io_error{0});
 
-        // Test methods
-        void set_local(Address new_local) { _local = new_local; }
+        // Test method
         Connection* get_conn(const quic_cid& ID);
 
         /// Connection Containers
@@ -336,12 +320,15 @@ namespace oxen::quic
         ///     When establishing a new connection, the quic client provides its own source CID (scid)
         /// and destination CID (dcid), which it sends to the server. The QUIC standard allows for an
         /// endpoint to be reached at any of `n` (where n >= 2) connection ID's -- this value is currently
-        /// hard-coded to 8 active CID's at once. Specifically, the dcid is entirely random string of <=160 bits
-        /// while the scid can be random or store information.
+        /// hard-coded to 8 active CID's at once.
         ///
         /// When responding, the server will include in its response:
         ///     - dcid equal to client's source CID
-        ///     - New random scid; the client's dcid is not used. This can also store data like the client's scid
+        ///     - New scid generated by the server; the client's dcid is not used beyond the handshake.
+        ///
+        /// Before that response is ACKed by the client (which completes the handshake on the
+        /// server) a client using 0-RTT might still send 0-RTT frames, still using the initial dcid
+        /// that the client generated.
         ///
         /// As a result, we end up with:
         ///     client.scid == server.dcid
@@ -358,9 +345,11 @@ namespace oxen::quic
         /// of time to allow for any lagging packets to be caught. The unique reference ID is keyed to removal time formatted
         /// as a time point
         ///
-        std::map<ConnectionID, std::shared_ptr<Connection>> conns;
+        std::unordered_map<ConnectionID, std::shared_ptr<Connection>> conns;
 
         std::unordered_map<quic_cid, ConnectionID> conn_lookup;
+
+        std::unordered_map<hashed_reset_token, ConnectionID> reset_token_conns;
 
         std::map<std::chrono::steady_clock::time_point, ConnectionID> draining_closing;
 
@@ -376,11 +365,31 @@ namespace oxen::quic
         void send_or_queue_packet(
                 const Path& p, std::vector<std::byte> buf, uint8_t ecn, std::function<void(io_result)> callback = nullptr);
 
-        void send_version_negotiation(const ngtcp2_version_cid& vid, const Path& p);
+        void send_stateless_reset(const Packet& pkt, quic_cid& cid);
+
+        void send_version_negotiation(const ngtcp2_version_cid& vid, Path p);
 
         void check_timeouts();
 
-        Connection* accept_initial_connection(const Packet& pkt);
+        // Attempts to interpret the packet as an initial connection.  If the packet is acceptable,
+        // a new Connection is created and a pointer to it is returned.  The bool indicates whether
+        // the request has been handled:
+        // - always true when a non-nullptr Connection* is returned
+        // - otherwise:
+        //   - true if the packet has been dealt with, such as illiciting a retry.  The caller
+        //     should do nothing else with it.
+        //   - false if the packet did not look like a connection, and the caller can try something
+        //     else.
+        std::pair<Connection*, bool> accept_initial_connection(const Packet& pkt);
+        Connection* check_stateless_reset(const Packet& pkt);
+
+        template <typename... Opt>
+        static constexpr void check_for_tls_creds()
+        {
+            static_assert(
+                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                    "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
+        }
     };
 
 }  // namespace oxen::quic

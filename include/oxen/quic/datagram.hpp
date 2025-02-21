@@ -3,8 +3,9 @@
 #include "connection_ids.hpp"
 #include "iochannel.hpp"
 #include "messages.hpp"
-#include "udp.hpp"
 #include "utils.hpp"
+
+#include <limits>
 
 namespace oxen::quic
 {
@@ -13,6 +14,9 @@ namespace oxen::quic
     class Stream;
     class connection_interface;
     struct quic_cid;
+
+    // The pseudo "stream id" we use to indicate the datagram channel:
+    inline constexpr int64_t DATAGRAM_PSEUDO_STREAM_ID = std::numeric_limits<int64_t>::min();
 
     struct dgram_interface : public std::enable_shared_from_this<dgram_interface>
     {
@@ -27,16 +31,17 @@ namespace oxen::quic
         std::shared_ptr<connection_interface> get_conn_interface();
 
         template <oxenc::basic_char CharType>
-            requires(!std::same_as<CharType, std::byte>)
-        void reply(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive = nullptr)
+        void reply(std::basic_string_view<CharType> data, std::shared_ptr<void> keep_alive)
         {
-            reply(convert_sv<std::byte>(data), std::move(keep_alive));
+            reply(str_to_bspan(data), std::move(keep_alive));
         }
 
         template <oxenc::basic_char Char>
-        void send_datagram(std::vector<Char>&& buf)
+        void reply(std::vector<Char>&& buf)
         {
-            reply(std::basic_string_view<Char>{buf.data(), buf.size()}, std::make_shared<std::vector<Char>>(std::move(buf)));
+            auto keep_alive = std::make_shared<std::vector<Char>>(std::move(buf));
+            auto sp = vec_to_span<std::byte>(*keep_alive);
+            reply(sp, std::move(keep_alive));
         }
 
         template <oxenc::basic_char CharType>
@@ -44,16 +49,16 @@ namespace oxen::quic
         {
             auto keep_alive = std::make_shared<std::basic_string<CharType>>(std::move(data));
             std::basic_string_view<CharType> view{*keep_alive};
-            reply(view, std::move(keep_alive));
+            reply(str_to_bspan(view), std::move(keep_alive));
         }
 
-        void reply(bstring_view data, std::shared_ptr<void> keep_alive = nullptr);
+        void reply(bspan data, std::shared_ptr<void> keep_alive);
     };
 
     // IO callbacks
-    using dgram_data_callback = std::function<void(dgram_interface&, bstring)>;
+    using dgram_data_callback = std::function<void(dgram_interface&, std::vector<std::byte>)>;
 
-    using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bstring_view, std::shared_ptr<void>>>>;
+    using dgram_buffer = std::deque<std::pair<uint16_t, std::pair<bspan, std::shared_ptr<void>>>>;
 
     class DatagramIO : public IOChannel
     {
@@ -138,28 +143,66 @@ namespace oxen::quic
         ///         3               1         3
         ///
         rotating_buffer recv_buffer;
-        // dgram_buffer send_buffer;
-        buffer_que send_buffer;
 
-        prepared_datagram pending_datagram(bool r) override;
+        std::optional<prepared_datagram> pending_datagram(bool prefer_small) override;
+        void confirm_datagram_sent();
 
         bool is_stream() const override { return false; }
 
-        std::optional<bstring> to_buffer(bstring_view data, uint16_t dgid);
+        std::optional<std::vector<std::byte>> to_buffer(bspan data, uint16_t dgid);
 
         int datagrams_stored() const { return recv_buffer.datagrams_stored(); }
 
-        int64_t stream_id() const override;
+        int64_t stream_id() const override { return DATAGRAM_PSEUDO_STREAM_ID; }
 
         std::shared_ptr<Stream> get_stream() override;
 
+        // These methods are called during the constructor of the owning Connection to signal if
+        // 0-RTT is enabled on the connection, to signal that queued datagrams might not make it and
+        // should be stored and retransmitted if 0-RTT is rejected by the server.  The call pattern
+        // for any connection is one of:
+        //
+        // 0-RTT attempted, and succeeded:
+        //   - early_data_begin()
+        //   - ... datagram activity
+        //     - e.g. datagrams delivered by application
+        //     - e.g. datagrams consumed by connection for sending out
+        //   - early_data_end(true) during handshake complete.
+        //
+        // 0-RTT not attempted:
+        //   - no call to early_data_begin()
+        //   - datagrams delivered by application which get queued
+        //   - handshake complete (NO call to early_data_end())
+        //   - connection starts consuming datagrams for sending out
+        //
+        // 0-RTT attempted, but rejected:
+        //   - early_data_begin()
+        //   - ... datagram activity
+        //     - e.g. datagrams delivered by application
+        //     - e.g. datagrams consumed by connection for sending out
+        //   - early_data_end(false) during handshake complete.
+        //   - e.g. datagrams consumed by connection for sending out, expecting to start over from
+        //     the beginning.
+        //
+        // It is also possible to get a Retry during the attempt to establish 0-RTT, which signifies
+        // that any already-send datagrams are lost and so we mark them all as unsent to try sending
+        // them again with the retried 0-RTT connection.
+        void early_data_begin();
+        void early_data_end(bool accepted);
+        void early_data_retry();
+
+        // (See methods of same name in connection_interface for details)
+        void set_split_datagram_lookahead(int n);
+        int get_split_datagram_lookahead() const;
+
       private:
         const bool _packet_splitting{false};
+        datagram_queue _send_buffer{_packet_splitting};
 
       protected:
-        bool is_empty_impl() const override { return send_buffer.empty(); }
+        bool is_empty_impl() const override { return _send_buffer.empty(); }
 
-        void send_impl(bstring_view data, std::shared_ptr<void> keep_alive) override;
+        void send_impl(bspan data, std::shared_ptr<void> keep_alive) override;
 
         bool is_closing_impl() const override;
         bool sent_fin() const override;
