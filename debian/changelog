@@ -1,5 +1,12 @@
 oxen-libquic (1.2.0-1~deb12) bookworm; urgency=medium
 
+  * drop legacy docker name
+  * fix tests linkage to nettle
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Fri, 21 Feb 2025 16:49:39 -0400
+
+oxen-libquic (1.2.0-1~deb12) bookworm; urgency=medium
+
   [ Jason Rhinelander ]
   * Bump version to 1.2.0 for dev branch
 
