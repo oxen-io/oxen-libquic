@@ -1,3 +1,9 @@
+oxen-libquic (1.2.0-1~ubuntu2410+1) oracular; urgency=medium
+
+  * Rebuild
+
+ -- Jason Rhinelander <jason@imaginary.ca>  Sat, 22 Feb 2025 13:34:58 -0400
+
 oxen-libquic (1.2.0-1~ubuntu2410) oracular; urgency=medium
 
   * Revert oxen-logging changes to not always force fmt/spdlog submodules
