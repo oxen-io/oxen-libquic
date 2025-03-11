@@ -7,6 +7,7 @@
 #include <future>
 #include <list>
 #include <memory>
+#include <optional>
 #include <queue>
 #include <thread>
 
