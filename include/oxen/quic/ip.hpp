@@ -12,6 +12,8 @@ extern "C"
 {
 #ifdef _WIN32
 #include <winsock2.h>
+
+#include <in6addr.h>
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -133,7 +135,7 @@ namespace oxen::quic
         }
 
         // Network order in6_addr constructor (calls private constructor)
-        ipv6(const struct in6_addr* addr) : ipv6{addr->s6_addr} {}
+        ipv6(const in6_addr* addr) : ipv6{addr->s6_addr} {}
 
         explicit constexpr ipv6(
                 uint16_t a,
