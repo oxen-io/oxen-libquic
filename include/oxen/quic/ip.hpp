@@ -11,12 +11,17 @@
 extern "C"
 {
 #ifdef _WIN32
-#include <winsock2.h>
 
-#include <in6addr.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <ws2tcpip.h>
+
 #else
+
 #include <netinet/in.h>
 #include <sys/socket.h>
+
 #endif
 }
 
