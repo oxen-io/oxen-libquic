@@ -49,9 +49,7 @@ namespace oxen::quic
         std::span<const Char> data() const
         {
             return std::visit(
-                    [](const auto& d) {
-                        return std::span<const Char>{reinterpret_cast<const Char*>(d.data()), d.size()};
-                    },
+                    [](const auto& d) { return std::span<const Char>{reinterpret_cast<const Char*>(d.data()), d.size()}; },
                     pkt_data);
         }
 

@@ -9,9 +9,7 @@ namespace oxen::quic
     // static constexpr bool to_string_formattable = true.
     template <typename T>
     concept ToStringFormattable = T::to_string_formattable && requires(T a) {
-        {
-            a.to_string()
-        } -> std::convertible_to<std::string_view>;
+        { a.to_string() } -> std::convertible_to<std::string_view>;
     };
 
 }  // namespace oxen::quic

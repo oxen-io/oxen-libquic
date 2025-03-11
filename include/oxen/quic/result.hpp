@@ -123,7 +123,6 @@ namespace oxen::quic
 
         // returns the error message string describing error_code
         std::conditional_t<IN_HELL, std::string, std::string_view> str_error() const;
-        
     };
 
     struct io_error
