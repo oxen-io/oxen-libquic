@@ -78,7 +78,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         ]
         + (if tests then [
              'cd build',
-             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success -T --log-level debug --no-ipv6 --colour-mode ansi' + (if test_0rtt then '' else ' --disable-0rtt'),
+             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success -T --no-ipv6 --colour-mode ansi' + (if test_0rtt then '' else ' --disable-0rtt'),
              'cd ..',
            ] else []);
 
