@@ -1,8 +1,17 @@
 #include "btstream.hpp"
 
 #include "internal.hpp"
+#include "result.hpp"
 
+#include <oxenc/bt_producer.h>
+
+#include <algorithm>
+#include <cassert>
+#include <charconv>
+#include <cstring>
 #include <stdexcept>
+#include <system_error>
+#include <type_traits>
 
 namespace oxen::quic
 {

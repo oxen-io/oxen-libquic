@@ -4,6 +4,8 @@
 
 #include "utils.hpp"
 
+#include <span>
+
 using namespace oxen::quic;
 
 int main(int argc, char* argv[])
@@ -118,15 +120,11 @@ int main(int argc, char* argv[])
 
     Address client_local{};
     if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = Address{a, p};
-    }
+        client_local = Address::parse(local_addr);
 
     auto client_established = callback_waiter{[](connection_interface&) {}};
 
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    RemoteAddress server_addr{remote_pubkey, server_a, server_p};
+    RemoteAddress server_addr{remote_pubkey, Address::parse(remote_addr, DEFAULT_DGRAM_SPEED_ADDR.port())};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
 
     log::critical(test_cat, "Calling 'client_connect'...");

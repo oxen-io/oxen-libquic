@@ -1,23 +1,43 @@
 #include "connection.hpp"
 
+#include "context.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
-#include "error.hpp"
-#include "format.hpp"
-#include "gnutls_crypto.hpp"
 #include "internal.hpp"
+#include "iochannel.hpp"
+#include "result.hpp"
 #include "stream.hpp"
+#include "udp.hpp"
 #include "utils.hpp"
+
+#include <oxenc/endian.h>
+#include <oxenc/hex.h>
+
+#include <event2/event.h>
+
+#include <gnutls/crypto.h>
 
 #include <cassert>
 #include <chrono>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
+#include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <random>
 #include <ranges>
 #include <stdexcept>
+#include <unordered_map>
+
+#ifndef _WIN32
+extern "C"
+{
+#include <sys/time.h>
+}
+#endif
 
 namespace oxen::quic
 {
@@ -1652,6 +1672,19 @@ namespace oxen::quic
     size_t Connection::get_max_datagram_size_impl()
     {
         return get_max_datagram_piece() * (_packet_splitting ? 2 : 1);
+    }
+    bool Connection::datagrams_enabled() const
+    {
+        return static_cast<bool>(datagrams);
+    }
+    void Connection::set_split_datagram_lookahead(int n)
+    {
+        if (datagrams)
+            datagrams->set_split_datagram_lookahead(n);
+    }
+    int Connection::get_split_datagram_lookahead() const
+    {
+        return datagrams ? datagrams->get_split_datagram_lookahead() : -1;
     }
 
     std::optional<size_t> Connection::max_datagram_size_changed()

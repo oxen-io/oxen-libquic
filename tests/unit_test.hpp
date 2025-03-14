@@ -1,5 +1,7 @@
 #pragma once
 
+// IWYU pragma: begin_exports
+
 #include "utils.hpp"
 
 #include <oxenc/span.h>
@@ -14,6 +16,8 @@ using namespace oxenc::operators;
 #include <catch2/matchers/catch_matchers_templated.hpp>
 #include <catch2/reporters/catch_reporter_event_listener.hpp>
 #include <catch2/reporters/catch_reporter_registrars.hpp>
+
+// IWYU pragma: end_exports
 
 namespace oxen::quic
 {

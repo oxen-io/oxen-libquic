@@ -1,26 +1,44 @@
 #pragma once
 
+// IWYU pragma: begin_exports
 #include <oxen/log.hpp>
 #include <oxen/log/format.hpp>
 #include <oxen/quic.hpp>
 #include <oxen/quic/format.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <oxenc/base64.h>
 #include <oxenc/hex.h>
+#include <oxenc/span.h>
 
 #include <CLI/CLI.hpp>
 #include <CLI/Error.hpp>
 
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <cassert>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <future>
+#include <list>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 extern "C"
 {
 #include <unistd.h>
 }
+// IWYU pragma: end_exports
 
 namespace oxen::quic
 {
@@ -35,6 +53,7 @@ namespace oxen::quic
     inline auto log_cat = log::Cat("quic");
 
     using namespace oxenc::literals;
+    using namespace oxenc::operators;
 
     inline const std::string LOCALHOST = "127.0.0.1"s;
     inline const std::string TEST_ENDPOINT = "test_endpoint"s;

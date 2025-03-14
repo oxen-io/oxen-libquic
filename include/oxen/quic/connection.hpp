@@ -1,25 +1,43 @@
 #pragma once
 
+#include "address.hpp"
 #include "connection_ids.hpp"
-#include "context.hpp"
-#include "format.hpp"
-#include "types.hpp"
+#include "crypto.hpp"
+#include "result.hpp"
+#include "stream.hpp"
+#include "utils.hpp"
 
+#include <oxenc/common.h>
+
+#include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace oxen::quic
 {
     struct dgram_interface;
-    class Network;
+    struct IOContext;
+    class DatagramIO;
+    struct Packet;
+    class Endpoint;
 
     inline constexpr uint64_t MAX_ACTIVE_CIDS{4};
     inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
@@ -41,7 +59,7 @@ namespace oxen::quic
         /// ID; it will be made ready once the associated stream id is seen from the remote
         /// connection.  Note that this constructor bypasses the stream constructor callback for the
         /// applicable stream id.
-        template <concepts::stream_derived_type StreamT, typename... Args, typename EndpointDeferred = Endpoint>
+        template <std::derived_from<Stream> StreamT, typename... Args, typename EndpointDeferred = Endpoint>
         std::shared_ptr<StreamT> queue_incoming_stream(Args&&... args)
         {
             // We defer resolution of `Endpoint` here via `EndpointDeferred` because the header only
@@ -66,7 +84,7 @@ namespace oxen::quic
         /// such as from an increase in available stream ids resulting from the closure of an
         /// existing stream.  Note that this constructor bypasses the stream constructor callback
         /// for the applicable stream id.
-        template <concepts::stream_derived_type StreamT, typename... Args, typename EndpointDeferred = Endpoint>
+        template <std::derived_from<Stream> StreamT, typename... Args, typename EndpointDeferred = Endpoint>
             requires std::derived_from<StreamT, Stream>
         std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
@@ -86,7 +104,7 @@ namespace oxen::quic
         /// StreamT is specified, is of the given Stream subclass).  Returns nullptr if the id is
         /// not currently an open stream; throws std::invalid_argument if the stream exists but is
         /// not an instance of the given StreamT type.
-        template <concepts::stream_derived_type StreamT = Stream>
+        template <std::derived_from<Stream> StreamT = Stream>
         std::shared_ptr<StreamT> maybe_stream(int64_t id)
         {
             auto s = get_stream_impl(id);
@@ -107,7 +125,7 @@ namespace oxen::quic
         /// StreamT is specified, is of the given Stream subclass).  Otherwise throws
         /// std::out_of_range if the stream was not found, and std::invalid_argument if the stream
         /// was found, but is not an instance of StreamT.
-        template <concepts::stream_derived_type StreamT = Stream>
+        template <std::derived_from<Stream> StreamT = Stream>
         std::shared_ptr<StreamT> get_stream(int64_t id)
         {
             if (auto s = maybe_stream<StreamT>(id))
@@ -357,17 +375,10 @@ namespace oxen::quic
         size_t get_max_datagram_size_impl() override;
         uint64_t get_max_streams_impl() const override { return _max_streams; }
 
-        bool datagrams_enabled() const override { return static_cast<bool>(datagrams); }
+        bool datagrams_enabled() const override;
         bool packet_splitting_enabled() const override { return _packet_splitting; }
-        void set_split_datagram_lookahead(int n) override
-        {
-            if (datagrams)
-                datagrams->set_split_datagram_lookahead(n);
-        }
-        int get_split_datagram_lookahead() const override
-        {
-            return datagrams ? datagrams->get_split_datagram_lookahead() : -1;
-        }
+        void set_split_datagram_lookahead(int n) override;
+        int get_split_datagram_lookahead() const override;
 
         std::optional<size_t> max_datagram_size_changed() override;
 

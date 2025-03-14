@@ -45,8 +45,7 @@ int main(int argc, char* argv[])
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_DGRAM_SPEED_ADDR.port());
-    Address server_local{listen_addr, listen_port};
+    auto server_local = Address::parse(server_addr, DEFAULT_DGRAM_SPEED_ADDR.port());
 
     stream_open_callback stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id());

@@ -12,7 +12,6 @@
 
 #include <fmt/format.h>
 
-#include <iostream>
 #include <version>
 
 namespace oxen::quic
@@ -56,7 +55,7 @@ namespace oxen::quic
 
 namespace fmt
 {
-    template <oxen::quic::concepts::ToStringFormattable T>
+    template <oxen::quic::ToStringFormattable T>
     struct formatter<T, char> : formatter<std::string_view>
     {
         template <typename FormatContext>

@@ -1,21 +1,17 @@
 #pragma once
 
-extern "C"
-{
-#include <event2/event.h>
-#include <event2/thread.h>
-}
-
-#include "context.hpp"
-#include "crypto.hpp"
 #include "utils.hpp"
 
 #include <atomic>
 #include <cstdint>
-#include <forward_list>
 #include <future>
+#include <list>
 #include <memory>
+#include <optional>
+#include <queue>
 #include <thread>
+
+struct event_base;
 
 namespace oxen::quic
 {
@@ -247,6 +243,8 @@ namespace oxen::quic
             }
         }
 
+        static void activate(::event& evt);
+
         template <std::invocable Callable>
         void call_soon(Callable f)
         {
@@ -255,7 +253,7 @@ namespace oxen::quic
                 job_queue.emplace(std::move(f));
             }
 
-            event_active(job_waker.get(), 0, 0);
+            activate(*job_waker);
         }
 
       private:

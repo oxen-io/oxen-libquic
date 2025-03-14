@@ -4,6 +4,12 @@
 
 #include "utils.hpp"
 
+#include <gnutls/crypto.h>
+
+#include <random>
+#include <span>
+#include <vector>
+
 using namespace oxen::quic;
 
 int main(int argc, char* argv[])
@@ -178,13 +184,9 @@ int main(int argc, char* argv[])
 
     Address client_local{};
     if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = Address{a, p};
-    }
+        client_local = Address::parse(local_addr);
 
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    RemoteAddress server_addr{remote_pubkey, server_a, server_p};
+    RemoteAddress server_addr{remote_pubkey, Address::parse(remote_addr, DEFAULT_SPEEDTEST_ADDR.port())};
 
     log::debug(test_cat, "Constructing endpoint on {}", client_local);
     auto client = client_net.endpoint(client_local, generate_static_secret(seed_string), opt::alpns{"speedtest"});

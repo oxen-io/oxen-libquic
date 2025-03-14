@@ -4,6 +4,13 @@
 
 #include <oxenc/endian.h>
 
+#ifndef _WIN32
+extern "C"
+{
+#include <arpa/inet.h>
+}
+#endif
+
 namespace oxen::quic
 {
     Address::Address(const std::string& addr, uint16_t port)
@@ -233,6 +240,39 @@ namespace oxen::quic
     std::string Path::to_string() const
     {
         return "{{{} ➙ {}}}"_format(local, remote);
+    }
+
+    Address Address::parse(std::string_view addr, std::optional<uint16_t> default_port)
+    {
+        std::string final_addr;
+        uint16_t final_port = default_port.value_or(0);
+        if (auto p = addr.find_last_not_of("0123456789");
+            p != std::string_view::npos && p + 2 <= addr.size() && addr[p] == ':')
+        {
+            if (!parse_int(addr.substr(p + 1), final_port))
+                throw std::invalid_argument{"Invalid address: could not parse port"};
+            addr.remove_suffix(addr.size() - p);
+        }
+        else if (!default_port)
+            throw std::invalid_argument{"Invalid address: no port was specified and there is no default"};
+
+        bool had_sq_brackets = false;
+        if (!addr.empty() && addr.front() == '[' && addr.back() == ']')
+        {
+            addr.remove_prefix(1);
+            addr.remove_suffix(1);
+            had_sq_brackets = true;
+        }
+
+        if (auto p = addr.find_first_not_of("0123456789."); p != std::string_view::npos)
+        {
+            if (auto q = addr.find_first_not_of("0123456789abcdef:."); q != std::string_view::npos)
+                throw std::invalid_argument{"Invalid address: does not look like IPv4 or IPv6!"};
+            else if (!had_sq_brackets)
+                throw std::invalid_argument{"Invalid address: IPv6 addresses require [...] square brackets"};
+        }
+
+        return Address{final_addr, final_port};
     }
 
 }  // namespace oxen::quic

@@ -2,17 +2,17 @@
 
 #include "loop.hpp"
 
-#include <event2/event.h>
-
 #include <atomic>
-#include <cstdint>
-#include <future>
+#include <chrono>
+#include <functional>
 #include <memory>
-#include <thread>
+#include <unordered_set>
+#include <utility>
 
 namespace oxen::quic
 {
     class Endpoint;
+    struct Address;
 
     /** Network:
             This object is the entry point to libquic, providing functionalities like job scheduling and endpoint creation

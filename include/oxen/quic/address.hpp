@@ -1,12 +1,34 @@
 #pragma once
 
-#include "formattable.hpp"
 #include "ip.hpp"
-#include "types.hpp"
+#include "utils.hpp"
 
 #include <oxenc/endian.h>
 
+#include <ngtcp2/ngtcp2.h>
+
+#include <array>
+#include <cassert>
 #include <compare>
+#include <concepts>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#ifndef _WIN32
+extern "C"
+{
+#include <netinet/in.h>
+#include <sys/socket.h>
+}
+#endif
 
 #if defined(__OpenBSD__) || defined(__DragonFly__)
 // These systems are known to disallow dual stack binding, and so on such systems when
@@ -25,17 +47,8 @@ namespace oxen::quic
 {
     inline constexpr std::array<uint8_t, 16> _ipv6_any_addr = {0};
 
-    struct Address;
-
-    inline namespace concepts
-    {
-        template <typename T>
-        concept raw_sockaddr_type =
-                std::same_as<T, sockaddr> || std::same_as<T, sockaddr_in> || std::same_as<T, sockaddr_in6>;
-
-        template <typename T>
-        concept quic_address_type = std::derived_from<T, Address>;
-    }  // namespace concepts
+    template <typename T>
+    concept raw_sockaddr = std::same_as<T, sockaddr> || std::same_as<T, sockaddr_in> || std::same_as<T, sockaddr_in6>;
 
     // Holds an address, with a ngtcp2_addr held for easier passing into ngtcp2 functions
     struct Address
@@ -80,7 +93,7 @@ namespace oxen::quic
         explicit Address(const ipv6& v6, uint16_t port = 0);
 
         // Assignment from a sockaddr pointer; we copy the sockaddr's contents
-        template <concepts::raw_sockaddr_type T>
+        template <raw_sockaddr T>
         Address& operator=(const T* s)
         {
             _addr.addrlen = std::is_same_v<T, sockaddr>
@@ -96,6 +109,13 @@ namespace oxen::quic
             _copy_internals(obj);
             return *this;
         }
+
+        // Convenience function to parse a user-supplied IP address which might contain a port
+        // and/or have a []-deliminated ipv6 address.  If no port is found then the provided default
+        // is used, if provided; if no default is provided then a port must be included in the addr
+        // string.  Throws std::invalid_argument if the result is not parseable or is missing a
+        // required port.
+        static Address parse(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
 
         // If true and this Address is IPv6 then QUIC will set the IPV6_V6ONLY socket option when
         // binding the socket.  This will default to true *only* for default-constructed any
@@ -224,12 +244,12 @@ namespace oxen::quic
         // pointer to other things (like bool) won't occur.
         //
         // If the given pointer is mutated you *must* call update_socklen() afterwards.
-        template <concepts::raw_sockaddr_type T>
+        template <raw_sockaddr T>
         operator T*()
         {
             return reinterpret_cast<T*>(&_sock_addr);
         }
-        template <concepts::raw_sockaddr_type T>
+        template <raw_sockaddr T>
         operator const T*() const
         {
             return reinterpret_cast<const T*>(&_sock_addr);
@@ -380,6 +400,10 @@ namespace oxen::quic
         std::string to_string() const;
         constexpr static bool to_string_formattable = true;
     };
+
+    // Used for hash combining, below
+    inline constexpr size_t inverse_golden_ratio = sizeof(size_t) >= 8 ? 0x9e37'79b9'7f4a'7c15 : 0x9e37'79b9;
+
 }  // namespace oxen::quic
 
 namespace std

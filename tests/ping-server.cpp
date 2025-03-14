@@ -53,8 +53,7 @@ int main(int argc, char* argv[])
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_PING_ADDR.port());
-    Address server_local{listen_addr, listen_port};
+    auto server_local = Address::parse(server_addr, DEFAULT_PING_ADDR.port());
 
     std::shared_ptr<Endpoint> server;
 

@@ -1,12 +1,22 @@
 #include "utils.hpp"
 
+#include <oxen/quic/connection.hpp>
+#include <oxen/quic/endpoint.hpp>
+#include <oxen/quic/loop.hpp>
 #include <oxen/quic/opt.hpp>
+#include <oxenc/bt_serialize.h>
 
+#include <ngtcp2/ngtcp2.h>
+
+#include <gnutls/crypto.h>
 #include <nettle/eddsa.h>
 #include <nettle/sha3.h>
 
+#include <array>
 #include <chrono>
+#include <cstring>
 #include <fstream>
+#include <stdexcept>
 
 namespace oxen::quic
 {

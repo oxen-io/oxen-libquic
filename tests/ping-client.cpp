@@ -154,10 +154,7 @@ ping_stats run_client(
 
     Address client_local{};
     if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = Address{a, p};
-    }
+        client_local = Address::parse(local_addr);
 
     std::optional<std::promise<void>> all_done;
     std::shared_ptr<Ticker> ticker;
@@ -174,8 +171,7 @@ ping_stats run_client(
         all_done->set_value();
     };
 
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    Address server_addr{server_a, server_p};
+    auto server_addr = Address::parse(remote_addr, DEFAULT_PING_ADDR.port());
 
     log::info(test_cat, "Constructing endpoint on {}", client_local);
 
