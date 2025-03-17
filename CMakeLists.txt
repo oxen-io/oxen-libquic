@@ -119,6 +119,16 @@ endif()
 target_compile_options(libquic_internal-warnings INTERFACE "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:C>>:${warning_flags}>")
 target_link_libraries(libquic_internal INTERFACE libquic_internal-warnings)
 
+
+# GCC's stringop overflow and overread warnings are very buggy, producing false positives for all
+# sorts of valid things, so make sure we don't have -Werror for them.  We cap this check for now at
+# 15 (where these still occur in the latest gcc snapshot) with the vain hope that maybe they'll get
+# fixed for gcc 16.
+if(WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 12.0.0 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.0.0)
+    target_compile_options(libquic_external INTERFACE -Wno-error=stringop-overflow -Wno-error=stringop-overread)
+endif()
+
 add_subdirectory(external)
 add_subdirectory(src)
 
