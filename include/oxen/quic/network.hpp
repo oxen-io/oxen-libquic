@@ -52,9 +52,9 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Endpoint> endpoint(const Address& local_addr, Opt&&... opts)
         {
-            auto [it, added] = endpoints.emplace(std::make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...));
-
-            return *it;
+            auto ep = _loop->make_shared<Endpoint>(*this, local_addr, std::forward<Opt>(opts)...);
+            endpoints.insert(ep);
+            return ep;
         }
 
         // Shuts down an endpoint, closing all connections and sockets in the process, and blocks
