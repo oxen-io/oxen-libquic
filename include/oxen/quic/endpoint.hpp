@@ -38,15 +38,6 @@ namespace oxen::quic
         connection_closed_callback connection_close_cb;
 
         template <typename... Opt>
-        Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
-        {
-            ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
-            _init_internals();
-            if (_static_secret.empty())
-                _static_secret = make_static_secret();
-        }
-
-        template <typename... Opt>
         void listen(Opt&&... opts)
         {
             check_for_tls_creds<Opt...>();
@@ -179,6 +170,15 @@ namespace oxen::quic
         friend class Connection;
         friend struct connection_callbacks;
         friend class TestHelper;
+
+        template <typename... Opt>
+        Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
+        {
+            ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
+            _init_internals();
+            if (_static_secret.empty())
+                _static_secret = make_static_secret();
+        }
 
         Network& net;
         Address _local;
