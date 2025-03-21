@@ -96,8 +96,9 @@ namespace oxen::quic::test
                 // Restart the server listener with the same tls creds, which should be fine.
                 expected_rtt = 1;
 
+                std::weak_ptr weak_ep{server_endpoint};
                 net.close(std::move(server_endpoint));
-                REQUIRE(server_endpoint.use_count() == 0);
+                REQUIRE(weak_ep.expired());
 
                 server_endpoint = net.endpoint(
                         server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});

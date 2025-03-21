@@ -215,7 +215,7 @@ namespace oxen::quic::test
         std::promise<void> p;
         std::future<void> f = p.get_future();
 
-        client_endpoint->call([&]() {
+        client_endpoint->loop.call([&]() {
             REQUIRE(conn->num_pending() == 1);
             p.set_value();
         });
@@ -314,11 +314,11 @@ namespace oxen::quic::test
         std::future<void> server_future = server_promise.get_future();
 
         stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return e.make_shared<ServerStream>(c, e, std::move(client_promise));
+            return e.loop.make_shared<ServerStream>(c, e, std::move(client_promise));
         };
 
         stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return e.make_shared<ClientStream>(c, e, std::move(server_promise));
+            return e.loop.make_shared<ClientStream>(c, e, std::move(server_promise));
         };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
@@ -448,13 +448,13 @@ namespace oxen::quic::test
                     {
                         case 0:
                             log::info(test_cat, "Server opening Custom Stream A!");
-                            return e.make_shared<CustomStreamA>(c, e, std::move(sp1));
+                            return e.loop.make_shared<CustomStreamA>(c, e, std::move(sp1));
                         case 4:
                             log::info(test_cat, "Server opening Custom Stream B!");
-                            return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
+                            return e.loop.make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
                             log::info(test_cat, "Server opening Custom Stream C!");
-                            return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
+                            return e.loop.make_shared<CustomStreamC>(c, e, std::move(sp3));
                     }
                 }
                 return nullptr;
@@ -491,10 +491,10 @@ namespace oxen::quic::test
                     {
                         case 4:
                             log::info(test_cat, "Server opening Custom Stream B!");
-                            return e.make_shared<CustomStreamB>(c, e, std::move(sp2));
+                            return e.loop.make_shared<CustomStreamB>(c, e, std::move(sp2));
                         case 8:
                             log::info(test_cat, "Server opening Custom Stream C!");
-                            return e.make_shared<CustomStreamC>(c, e, std::move(sp3));
+                            return e.loop.make_shared<CustomStreamC>(c, e, std::move(sp3));
                     }
                 }
                 log::info(test_cat, "Server returning nullptr!");
@@ -643,10 +643,10 @@ namespace oxen::quic::test
             {
                 case 1:
                     log::info(test_cat, "Server opening Custom Stream A!");
-                    return e.make_shared<CustomStreamA>(c, e, std::move(cp1));
+                    return e.loop.make_shared<CustomStreamA>(c, e, std::move(cp1));
                 case 2:
                     log::info(test_cat, "Server opening Custom Stream C!");
-                    return e.make_shared<CustomStreamC>(c, e, std::move(cp3));
+                    return e.loop.make_shared<CustomStreamC>(c, e, std::move(cp3));
             }
             return nullptr;
         };
@@ -734,14 +734,14 @@ namespace oxen::quic::test
                 if (*id == 0)
                 {
                     log::trace(test_cat, "Server constructing BTRequestStream!");
-                    server_extracted = e.make_shared<BTRequestStream>(c, e);
+                    server_extracted = e.loop.make_shared<BTRequestStream>(c, e);
                     server_extracted->register_handler(TEST_ENDPOINT, server_handler);
                     return server_extracted;
                 }
                 else
                 {
                     log::trace(test_cat, "Server constructing default bullshit!");
-                    return e.make_shared<Stream>(c, e);
+                    return e.loop.make_shared<Stream>(c, e);
                 }
             }
 

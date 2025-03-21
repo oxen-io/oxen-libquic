@@ -488,7 +488,7 @@ namespace oxen::quic
 
     void Connection::set_new_path(Path new_path)
     {
-        _endpoint.call([this, new_path]() { _path = new_path; });
+        _loop.call([this, new_path]() { _path = new_path; });
     }
 
     int Connection::recv_token(const uint8_t* token, size_t tokenlen)
@@ -592,12 +592,12 @@ namespace oxen::quic
 
     void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
     {
-        _endpoint.call([this, new_remote]() { _path.set_new_remote(new_remote); });
+        _loop.call([this, new_remote]() { _path.set_new_remote(new_remote); });
     }
 
     void Connection::set_local_addr(Address new_local)
     {
-        _endpoint.call([this, new_local]() {
+        _loop.call([this, new_local]() {
             Path new_path{new_local, _path.remote};
             _path = new_path;
         });
@@ -633,7 +633,7 @@ namespace oxen::quic
     void Connection::halt_events()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        assert(endpoint().in_event_loop());
+        assert(_loop.inside());
         packet_io_trigger.reset();
         packet_retransmit_timer.reset();
         log::debug(log_cat, "Connection ({}) io trigger/retransmit timer events halted", reference_id());
@@ -641,7 +641,7 @@ namespace oxen::quic
 
     void Connection::packet_io_ready()
     {
-        assert(endpoint().in_event_loop());
+        assert(_loop.inside());
         if (packet_io_trigger)
             event_active(packet_io_trigger.get(), 0, 0);
         // else we've reset the trigger (via halt_events), which means the connection is closing/draining/etc.
@@ -654,7 +654,7 @@ namespace oxen::quic
 
     void Connection::revert_early_streams()
     {
-        assert(endpoint().in_event_loop());
+        assert(_loop.inside());
         log::debug(log_cat, "Client reverting early stream data");
 
         // We need to re-open any opened streams because the remote rejected early data, and when
@@ -721,7 +721,7 @@ namespace oxen::quic
                 break;
             case NGTCP2_ERR_DRAINING:
                 log::trace(log_cat, "Note: {} is draining; signaling endpoint to drain connection", reference_id());
-                _endpoint.call_soon([this]() {
+                _loop.call_soon([this]() {
                     log::debug(log_cat, "Endpoint draining connection {}", reference_id());
                     _endpoint.drain_connection(*this);
                 });
@@ -808,7 +808,7 @@ namespace oxen::quic
         if (!stream && default_stream)
             stream = default_stream(*this, _endpoint);
         if (!stream)
-            stream = _endpoint.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+            stream = _loop.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
 
         return stream;
     }
@@ -816,7 +816,7 @@ namespace oxen::quic
     std::shared_ptr<Stream> Connection::queue_incoming_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
-        return _endpoint.call_get([this, &make_stream]() {
+        return _loop.call_get([this, &make_stream]() {
             std::shared_ptr<Stream> stream;
             if (make_stream)
                 stream = make_stream(*this, _endpoint);
@@ -858,7 +858,7 @@ namespace oxen::quic
     std::shared_ptr<Stream> Connection::open_stream_impl(
             std::function<std::shared_ptr<Stream>(Connection& c, Endpoint& e)> make_stream)
     {
-        return _endpoint.call_get([this, &make_stream]() {
+        return _loop.call_get([this, &make_stream]() {
             std::shared_ptr<Stream> stream;
             if (make_stream)
                 stream = make_stream(*this, _endpoint);
@@ -902,7 +902,7 @@ namespace oxen::quic
 
     std::shared_ptr<Stream> Connection::get_stream_impl(int64_t id)
     {
-        return _endpoint.call_get([this, id]() -> std::shared_ptr<Stream> {
+        return _loop.call_get([this, id]() -> std::shared_ptr<Stream> {
             if (auto it = _streams.find(id); it != _streams.end())
                 return it->second;
 
@@ -1360,7 +1360,7 @@ namespace oxen::quic
         if (uint64_t app_err_code = context->stream_open_cb ? context->stream_open_cb(*stream) : 0; app_err_code != 0)
         {
             log::info(log_cat, "stream_open_callback returned error code {}, closing stream {}", app_err_code, id);
-            assert(endpoint().in_event_loop());
+            assert(_loop.inside());
             stream->close(app_err_code);
             return 0;
         }
@@ -1632,7 +1632,7 @@ namespace oxen::quic
 
     std::string_view Connection::selected_alpn() const
     {
-        return _endpoint.call_get([this]() { return get_session()->selected_alpn(); });
+        return _loop.call_get([this]() { return get_session()->selected_alpn(); });
     }
 
     void Connection::send_datagram(bspan data, std::shared_ptr<void> keep_alive)
@@ -1691,7 +1691,7 @@ namespace oxen::quic
     {
         if (!_max_dgram_size_changed)
             return std::nullopt;
-        return _endpoint.call_get([this]() -> std::optional<size_t> {
+        return _loop.call_get([this]() -> std::optional<size_t> {
             // Check it again via an exchange, in case someone raced us here
             if (_max_dgram_size_changed.exchange(false))
                 return _last_max_dgram_piece * (_packet_splitting ? 2 : 1);
@@ -1780,7 +1780,7 @@ namespace oxen::quic
             callbacks.ack_datagram = connection_callbacks::on_ack_datagram;
 #endif
 
-            di = _endpoint.make_shared<dgram_interface>(*this);
+            di = _loop.make_shared<dgram_interface>(*this);
         }
         else
         {
@@ -1805,6 +1805,7 @@ namespace oxen::quic
             ngtcp2_cid* ocid,
             bool disable_mtu_discovery) :
             _endpoint{ep},
+            _loop{_endpoint.loop},
             context{std::move(ctx)},
             dir{context->dir},
             _is_outbound{dir == Direction::OUTBOUND},
@@ -1829,9 +1830,9 @@ namespace oxen::quic
                                : nullptr;
 
         if (context->config.datagram_support)
-            datagrams = _endpoint.make_shared<DatagramIO>(
+            datagrams = _loop.make_shared<DatagramIO>(
                     *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
-        pseudo_stream = _endpoint.make_shared<Stream>(*this, _endpoint);
+        pseudo_stream = _loop.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 
         const auto d_str = is_outbound() ? "outbound" : "inbound";
@@ -1982,7 +1983,7 @@ namespace oxen::quic
                 log::debug(log_cat, "no transport param data for this connection; 0-RTT will not engage");
         }
 
-        auto* ev_base = endpoint().get_loop().get();
+        auto* ev_base = _loop.get_event_base();
 
         packet_io_trigger.reset(event_new(
                 ev_base,
@@ -2061,35 +2062,35 @@ namespace oxen::quic
 
     size_t connection_interface::num_streams_active()
     {
-        return endpoint().call_get([this] { return num_streams_active_impl(); });
+        return endpoint().loop.call_get([this] { return num_streams_active_impl(); });
     }
     size_t connection_interface::num_streams_pending()
     {
-        return endpoint().call_get([this] { return num_streams_pending_impl(); });
+        return endpoint().loop.call_get([this] { return num_streams_pending_impl(); });
     }
     uint64_t connection_interface::get_max_streams()
     {
-        return endpoint().call_get([this] { return get_max_streams_impl(); });
+        return endpoint().loop.call_get([this] { return get_max_streams_impl(); });
     }
     uint64_t connection_interface::get_streams_available()
     {
-        return endpoint().call_get([this] { return get_streams_available_impl(); });
+        return endpoint().loop.call_get([this] { return get_streams_available_impl(); });
     }
     Path connection_interface::path()
     {
-        return endpoint().call_get([this]() -> Path { return path_impl(); });
+        return endpoint().loop.call_get([this]() -> Path { return path_impl(); });
     }
     Address connection_interface::local()
     {
-        return endpoint().call_get([this]() -> Address { return local_impl(); });
+        return endpoint().loop.call_get([this]() -> Address { return local_impl(); });
     }
     Address connection_interface::remote()
     {
-        return endpoint().call_get([this]() -> Address { return remote_impl(); });
+        return endpoint().loop.call_get([this]() -> Address { return remote_impl(); });
     }
     size_t connection_interface::get_max_datagram_size()
     {
-        return endpoint().call_get([this]() { return get_max_datagram_size_impl(); });
+        return endpoint().loop.call_get([this]() { return get_max_datagram_size_impl(); });
     }
 
     connection_interface::~connection_interface()

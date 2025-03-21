@@ -7,7 +7,8 @@
 namespace oxen::quic
 {
 
-    IOChannel::IOChannel(Connection& c, Endpoint& e) : endpoint{e}, reference_id{c.reference_id()}, _conn{&c}
+    IOChannel::IOChannel(Connection& c, Endpoint& e) :
+            endpoint{e}, loop{endpoint.loop}, reference_id{c.reference_id()}, _conn{&c}
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }

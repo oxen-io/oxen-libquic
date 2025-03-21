@@ -306,7 +306,7 @@ ping_stats run_client(
         send_ping();
         if (ticker)
             ticker->stop();
-        ticker = client_net.call_every(ping_wait, send_ping);
+        ticker = client_net.loop()->call_every(ping_wait, send_ping);
 
         all_done->get_future().wait();
     } while (reconnect);

@@ -17,7 +17,7 @@ namespace oxen::quic::test
         {
             // Standard ownership
             auto standard_neta = std::make_unique<Network>();
-            auto standard_netb = std::make_unique<Network>(standard_neta->create_linked_network());
+            auto standard_netb = std::make_unique<Network>(standard_neta->loop());
             REQUIRE_FALSE(standard_neta == standard_netb);
 
             // Application ownership

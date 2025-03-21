@@ -70,7 +70,7 @@ namespace oxen::quic::test
         };
 
         stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return e.make_shared<BTRequestStream>(c, e);
+            return e.loop.make_shared<BTRequestStream>(c, e);
         };
 
         auto server_endpoint = test_net.endpoint(server_local);
@@ -164,7 +164,7 @@ namespace oxen::quic::test
         };
 
         stream_constructor_callback outbound_stream_ctor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            return e.make_shared<BTRequestStream>(c, e);
+            return e.loop.make_shared<BTRequestStream>(c, e);
         };
 
         auto node_a = test_net.endpoint(node_a_local);

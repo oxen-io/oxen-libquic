@@ -38,6 +38,8 @@ namespace oxen::quic
     class DatagramIO;
     struct Packet;
     class Endpoint;
+    class Network;
+    class Loop;
 
     inline constexpr uint64_t MAX_ACTIVE_CIDS{4};
     inline constexpr size_t NGTCP2_RETRY_SCIDLEN{18};
@@ -66,7 +68,7 @@ namespace oxen::quic
             // has a forward declaration; the user of this method needs to have the full definition
             // available to call this.
             return std::static_pointer_cast<StreamT>(queue_incoming_stream_impl([&](Connection& c, EndpointDeferred& e) {
-                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+                return e.loop.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
         }
 
@@ -89,7 +91,7 @@ namespace oxen::quic
         std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
             return std::static_pointer_cast<StreamT>(open_stream_impl([&](Connection& c, EndpointDeferred& e) {
-                return e.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
+                return e.loop.template make_shared<StreamT>(c, e, std::forward<Args>(args)...);
             }));
         }
 
@@ -454,6 +456,7 @@ namespace oxen::quic
                 bool disable_mtu_discovery = false);
 
         Endpoint& _endpoint;
+        Loop& _loop;
         std::shared_ptr<IOContext> context;
         Direction dir;
         bool _is_outbound;

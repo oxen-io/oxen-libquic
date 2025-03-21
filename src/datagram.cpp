@@ -73,14 +73,14 @@ namespace oxen::quic
 
     void DatagramIO::set_split_datagram_lookahead(int n)
     {
-        endpoint.call([this, val = n >= 0 ? static_cast<size_t>(n) : datagram_queue::DEFAULT_SPLIT_LOOKAHEAD] {
+        loop.call([this, val = n >= 0 ? static_cast<size_t>(n) : datagram_queue::DEFAULT_SPLIT_LOOKAHEAD] {
             log::debug(log_cat, "Changing split datagram lookahead from {} to {}", _send_buffer.split_lookahead, val);
             _send_buffer.split_lookahead = val;
         });
     }
     int DatagramIO::get_split_datagram_lookahead() const
     {
-        return endpoint.call_get([this] { return static_cast<int>(_send_buffer.split_lookahead); });
+        return loop.call_get([this] { return static_cast<int>(_send_buffer.split_lookahead); });
     }
 
     dgram_interface::dgram_interface(Connection& c) : ci{c}, reference_id{ci.reference_id()} {}
@@ -97,7 +97,7 @@ namespace oxen::quic
 
     void DatagramIO::send_impl(bspan data, std::shared_ptr<void> keep_alive)
     {
-        endpoint.call([this, data, keep_alive = std::move(keep_alive)]() mutable {
+        loop.call([this, data, keep_alive = std::move(keep_alive)]() mutable {
             if (!_conn)
             {
                 log::warning(log_cat, "Unable to send datagram: connection has gone away");

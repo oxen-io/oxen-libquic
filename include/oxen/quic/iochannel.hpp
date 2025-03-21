@@ -27,6 +27,7 @@ namespace oxen::quic
 
     class Connection;
     class Endpoint;
+    class Loop;
     class Stream;
 
     class IOChannel
@@ -38,6 +39,7 @@ namespace oxen::quic
         virtual ~IOChannel() = default;
 
         Endpoint& endpoint;
+        Loop& loop;
         const ConnectionID reference_id;
 
         // no copy, no move. always hold in a shared pointer
@@ -125,7 +127,7 @@ namespace oxen::quic
             requires std::derived_from<Class, IOChannel>
         Ret call_get_accessor(T (Class::*getter)() const) const
         {
-            return static_cast<EP&>(endpoint).call_get(
+            return static_cast<EP&>(endpoint).loop.call_get(
                     [this, &getter]() -> Ret { return (static_cast<const Class*>(this)->*getter)(); });
         }
 
@@ -138,7 +140,7 @@ namespace oxen::quic
             // This do-nothing static cast to force deferred instantiation until later on (when the
             // Endpoint class will be available).  Otherwise this won't compile because Endpoint
             // is only forward declared here.
-            return static_cast<EP&>(endpoint).call_get([this, &getter]() -> Ret {
+            return static_cast<EP&>(endpoint).loop.call_get([this, &getter]() -> Ret {
                 if (!_conn)
                     throw std::runtime_error{"Connection has gone away"};
                 return (_conn->*getter)();

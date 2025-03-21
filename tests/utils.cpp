@@ -24,7 +24,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -42,7 +42,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -60,7 +60,7 @@ namespace oxen::quic
     void TestHelper::nat_rebinding(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._endpoint.get_loop().get(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -88,7 +88,7 @@ namespace oxen::quic
     void TestHelper::enable_dgram_drop(connection_interface& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
-        conn._endpoint.call_get([&conn] {
+        conn._loop.call_get([&conn] {
             conn.debug_datagram_counter_enabled = false;
             conn.debug_datagram_drop_enabled = true;
             conn.debug_datagram_counter = 0;
@@ -97,7 +97,7 @@ namespace oxen::quic
     int TestHelper::disable_dgram_drop(connection_interface& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
-        return conn._endpoint.call_get([&conn] {
+        return conn._loop.call_get([&conn] {
             conn.debug_datagram_drop_enabled = false;
             int count = 0;
             std::swap(count, conn.debug_datagram_counter);
@@ -107,7 +107,7 @@ namespace oxen::quic
     void TestHelper::enable_dgram_counter(connection_interface& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
-        conn._endpoint.call_get([&conn] {
+        conn._loop.call_get([&conn] {
             conn.debug_datagram_drop_enabled = false;
             conn.debug_datagram_counter_enabled = true;
             conn.debug_datagram_counter = 0;
@@ -116,7 +116,7 @@ namespace oxen::quic
     int TestHelper::disable_dgram_counter(connection_interface& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
-        return conn._endpoint.call_get([&conn] {
+        return conn._loop.call_get([&conn] {
             conn.debug_datagram_counter_enabled = false;
             int count = 0;
             std::swap(count, conn.debug_datagram_counter);
@@ -126,7 +126,7 @@ namespace oxen::quic
     int TestHelper::get_dgram_debug_counter(connection_interface& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
-        return conn._endpoint.call_get([&conn] { return conn.debug_datagram_counter; });
+        return conn._loop.call_get([&conn] { return conn.debug_datagram_counter; });
     }
 
     void TestHelper::increment_ref_id(Endpoint& ep, uint64_t by)
@@ -558,7 +558,7 @@ namespace oxen::quic
         if (!ep || !loop)
             throw std::logic_error{"packet_delayer::init called with nullptr endpoint and/or loop"};
 
-        sock = std::make_unique<UDPSocket>(loop->loop().get(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
+        sock = std::make_unique<UDPSocket>(loop->get_event_base(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
             log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
             auto self = wself.lock();
             if (!self)

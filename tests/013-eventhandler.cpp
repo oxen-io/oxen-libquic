@@ -46,7 +46,7 @@ namespace oxen::quic::test
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->open_stream();
 
-        handler = test_net.call_every(INTERVAL, [&]() {
+        handler = test_net.loop()->call_every(INTERVAL, [&]() {
             if (send_counter <= NUM_ITERATIONS)
             {
                 send_counter += 1;
@@ -57,7 +57,7 @@ namespace oxen::quic::test
         handler->start();
 
         REQUIRE(handler->is_running());
-        test_net.call_later(DELAY, [&]() { prom_a.set_value(); });
+        test_net.loop()->call_later(DELAY, [&]() { prom_a.set_value(); });
 
         require_future(fut_a, 5s);
         REQUIRE(recv_counter == send_counter);
@@ -68,7 +68,7 @@ namespace oxen::quic::test
 
         REQUIRE(handler->start());
 
-        test_net.call_later(DELAY, [&]() { prom_b.set_value(); });
+        test_net.loop()->call_later(DELAY, [&]() { prom_b.set_value(); });
 
         require_future(fut_b, 5s);
         REQUIRE(recv_counter == send_counter);

@@ -50,7 +50,7 @@ namespace oxen::quic
         if (not low_cb and not high_cb)
             throw std::invalid_argument{"Must pass at least one callback in call to ::set_watermark()!"};
 
-        endpoint.call_soon([this, low, high, low_hook = std::move(low_cb), high_hook = std::move(high_cb)]() {
+        loop.call_soon([this, low, high, low_hook = std::move(low_cb), high_hook = std::move(high_cb)]() {
             if (_is_closing || _is_shutdown || _sent_fin)
             {
                 log::warning(log_cat, "Failed to set watermarks; stream is not active!");
@@ -78,7 +78,7 @@ namespace oxen::quic
 
     void Stream::clear_watermarks()
     {
-        endpoint.call_soon([this]() {
+        loop.call_soon([this]() {
             if (not _is_watermarked and not _low_water and not _high_water)
             {
                 log::warning(log_cat, "Failed to clear watermarks; stream has none set!");
@@ -98,7 +98,7 @@ namespace oxen::quic
 
     void Stream::pause()
     {
-        endpoint.call([this]() {
+        loop.call([this]() {
             if (not _paused)
             {
                 log::debug(log_cat, "Pausing stream ID:{}", _stream_id);
@@ -112,7 +112,7 @@ namespace oxen::quic
 
     void Stream::resume()
     {
-        endpoint.call([this]() {
+        loop.call([this]() {
             if (_paused)
             {
                 log::debug(log_cat, "Resuming stream ID:{}", _stream_id);
@@ -131,22 +131,22 @@ namespace oxen::quic
 
     bool Stream::is_paused() const
     {
-        return endpoint.call_get([this]() { return _paused; });
+        return loop.call_get([this]() { return _paused; });
     }
 
     bool Stream::available() const
     {
-        return endpoint.call_get([this] { return !(_is_closing || _is_shutdown || _sent_fin); });
+        return loop.call_get([this] { return !(_is_closing || _is_shutdown || _sent_fin); });
     }
 
     bool Stream::is_ready() const
     {
-        return endpoint.call_get([this] { return _ready; });
+        return loop.call_get([this] { return _ready; });
     }
 
     bool Stream::has_watermarks() const
     {
-        return endpoint.call_get([this]() { return _is_watermarked and _low_water and _high_water; });
+        return loop.call_get([this]() { return _is_watermarked and _low_water and _high_water; });
     }
 
     std::shared_ptr<Stream> Stream::get_stream()
@@ -161,7 +161,7 @@ namespace oxen::quic
 
         // NB: this *must* be a call (not a call_soon) because Connection calls on a short-lived
         // Stream that won't survive a return to the event loop.
-        endpoint.call([this, app_err_code]() {
+        loop.call([this, app_err_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
             if (_is_shutdown)
@@ -212,7 +212,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         user_buffers.emplace_back(buffer, std::move(keep_alive));
-        assert(endpoint.in_event_loop());
+        assert(loop.inside());
         assert(_conn);
         if (_ready)
             _conn->packet_io_ready();
@@ -310,7 +310,7 @@ namespace oxen::quic
 
     void Stream::revert_stream()
     {
-        assert(endpoint.in_event_loop());
+        assert(loop.inside());
         log::trace(log_cat, "Stream (ID:{}) reverting after early data rejected...", _stream_id);
         _unacked_size = 0;
         log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
@@ -352,7 +352,7 @@ namespace oxen::quic
         // still actually alive.  (But if we're already in the event loop the lambda fires
         // immediately and we don't want to have to do an extra refcount increment/decrement).
         std::optional<std::weak_ptr<Stream>> wself;
-        if (!endpoint.in_event_loop())
+        if (!loop.inside())
             wself = weak_from_this();
 
         // In theory, `endpoint` that we use here might be inaccessible as well, but unlike conn
@@ -360,7 +360,7 @@ namespace oxen::quic
         // events) the application has control and responsibility for keeping the network/endpoint
         // alive at least as long as all the Connections/Streams that instances that were attached
         // to it.
-        endpoint.call([this, wself = std::move(wself), data, ka = std::move(keep_alive)]() {
+        loop.call([this, wself = std::move(wself), data, ka = std::move(keep_alive)]() {
             std::shared_ptr<Stream> sself;
             if (wself)
             {

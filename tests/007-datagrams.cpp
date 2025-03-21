@@ -598,7 +598,7 @@ namespace oxen::quic::test
 
         std::promise<void> pr;
 
-        client->call([&]() {
+        test_net.loop()->call([&]() {
             for (int i = 0; i < n; i++)
                 conn_interface->send_datagram(big, nullptr);
 

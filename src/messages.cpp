@@ -24,7 +24,7 @@ namespace oxen::quic
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        assert(datagram.endpoint.in_event_loop());
+        assert(datagram.loop.inside());
         assert(datagram._conn);
 
         auto idx = dgid >> 2;

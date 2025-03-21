@@ -6,7 +6,6 @@
 #include "crypto.hpp"
 #include "datagram.hpp"
 #include "loop.hpp"
-#include "network.hpp"
 #include "opt.hpp"
 #include "result.hpp"
 #include "udp.hpp"
@@ -50,12 +49,14 @@ namespace oxen::quic
         connection_established_callback connection_established_cb;
         connection_closed_callback connection_close_cb;
 
+        Loop& loop;
+
         template <typename... Opt>
         void listen(Opt&&... opts)
         {
             check_for_tls_creds<Opt...>();
 
-            net.call_get([&opts..., this]() mutable {
+            loop.call_get([&opts..., this]() {
                 if (inbound_ctx)
                     throw std::logic_error{"Cannot call listen() more than once"};
 
@@ -78,7 +79,7 @@ namespace oxen::quic
                 remote.map_ipv4_as_ipv6();
 
             std::promise<std::shared_ptr<Connection>> conn_prom;
-            net.call([this, &opts..., &conn_prom, remote = std::move(remote)]() mutable {
+            loop.call([this, &opts..., &conn_prom, remote = std::move(remote)]() mutable {
                 try
                 {
                     // initialize client context and client tls context simultaneously
@@ -121,37 +122,6 @@ namespace oxen::quic
 
         std::shared_ptr<Connection> get_conn(ConnectionID rid);
 
-        template <typename... Args>
-        void call(Args&&... args)
-        {
-            net.call(std::forward<Args>(args)...);
-        }
-
-        template <typename... Args>
-        auto call_get(Args&&... args)
-        {
-            return net.call_get(std::forward<Args>(args)...);
-        }
-
-        template <typename... Args>
-        void call_soon(Args&&... args)
-        {
-            net.call_soon(std::forward<Args>(args)...);
-        }
-
-        // Defers destruction of a shared_ptr to a future (but not current) event loop tick.
-        void reset_soon(std::shared_ptr<void> ptr) { net.reset_soon(std::move(ptr)); }
-
-        // Shortcut for calling net.make_shared<T> to make a std::shared_ptr<T> that has destruction
-        // synchronized to the network event loop.
-        template <typename T, typename... Args>
-        std::shared_ptr<T> make_shared(Args&&... args)
-        {
-            return net.make_shared<T>(std::forward<Args>(args)...);
-        }
-
-        bool in_event_loop() const;
-
         // Returns a random value suitable for use as the Endpoint static secret value.
         static std::vector<unsigned char> make_static_secret();
 
@@ -177,6 +147,15 @@ namespace oxen::quic
                     std::span<const uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN>{token, NGTCP2_STATELESS_RESET_TOKENLEN});
         }
 
+        // Endpoint factory function.  Take a Loop to manage the endpoint, the address to bind to,
+        // and various connection options and event callbacks.  The event loop must be kept alive
+        // for the lifetime of the Endpoint (the Endpoint does *not* keep it alive).
+        template <typename... Opt>
+        [[nodiscard]] static std::shared_ptr<Endpoint> endpoint(Loop& loop, const Address& local_addr, Opt&&... opts)
+        {
+            return loop.make_shared<Endpoint>(loop, local_addr, std::forward<Opt>(opts)...);
+        }
+
       private:
         friend class Network;
         friend class Loop;
@@ -185,7 +164,7 @@ namespace oxen::quic
         friend class TestHelper;
 
         template <typename... Opt>
-        Endpoint(Network& n, const Address& listen_addr, Opt&&... opts) : net{n}, _local{listen_addr}
+        Endpoint(Loop& loop, const Address& listen_addr, Opt&&... opts) : loop{loop}, _local{listen_addr}
         {
             ((void)handle_ep_opt(std::forward<Opt>(opts)), ...);
             _init_internals();
@@ -193,7 +172,6 @@ namespace oxen::quic
                 _static_secret = make_static_secret();
         }
 
-        Network& net;
         Address _local;
         event_ptr expiry_timer;
         std::unique_ptr<UDPSocket> socket;
@@ -218,8 +196,6 @@ namespace oxen::quic
         std::chrono::nanoseconds handshake_timeout{DEFAULT_HANDSHAKE_TIMEOUT};
 
         std::unordered_map<Address, std::vector<unsigned char>> path_validation_tokens;
-
-        const std::shared_ptr<event_base>& get_loop() { return net._loop->loop(); }
 
         const std::unique_ptr<UDPSocket>& get_socket() { return socket; }
 
