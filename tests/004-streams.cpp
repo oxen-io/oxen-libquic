@@ -959,9 +959,8 @@ namespace oxen::quic::test
         }
 
         require_future(got_closed.get_future(), 2s);
-        std::this_thread::sleep_for(1000ms);
-
-        REQUIRE_FALSE(client_endpoint->get_conn(stream->reference_id));
+        bool connection_gone = wait_for([&] { return !client_endpoint->get_conn(stream->reference_id); });
+        REQUIRE(connection_gone);
 
         // Connection has gone away, but we still have the pointer; this call should do nothing:
         stream->send("But wait, there's more!"s);

@@ -10,7 +10,7 @@ namespace oxen::quic::test
 
         Address server_local{};
         Address client_local{};
-        opt::handshake_timeout timeout{500ms};
+        opt::handshake_timeout timeout{100ms};
 
         auto client_established = callback_waiter{[](connection_interface&) {}};
         auto client_established2 = callback_waiter{[](connection_interface&) {}};

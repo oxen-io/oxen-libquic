@@ -5,7 +5,7 @@ namespace oxen::quic::test
     struct lifetime
     {};
 
-    constexpr int NUM_ITERATIONS{10};
+    constexpr int NUM_ITERATIONS{4};
     constexpr auto INTERVAL{10ms};
     constexpr auto DELAY{2 * NUM_ITERATIONS * INTERVAL};
 

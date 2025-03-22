@@ -417,7 +417,7 @@ namespace oxen::quic::test
             auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
             client_bp->command("test"s, "hello"s, client_bp_cb);
-            client_bp->command("test"s, "I need a reply crypto-soon"s, client_bp_cb, 250ms);
+            client_bp->command("test"s, "I need a reply crypto-soon"s, client_bp_cb, 100ms);
             client_bp->command("test"s, "I hate you"s, client_bp_cb);
 
             auto fut = done.get_future();
@@ -719,7 +719,7 @@ namespace oxen::quic::test
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler("sleep"s, [&](message m) {
                 slow_response = std::thread{[m = std::move(m)] {
-                    std::this_thread::sleep_for(1s);
+                    std::this_thread::sleep_for(100ms);
                     m.respond("I'm slow");
                 }};
             });

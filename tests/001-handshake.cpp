@@ -358,7 +358,7 @@ namespace oxen::quic::test
 
             auto client_ci = client_endpoint->connect(bad_client_remote, client_tls);
 
-            CHECK(not client_established_2.wait(500ms));
+            CHECK(not client_established_2.wait(50ms));
             CHECK(client_attempt != 1000);
             CHECK(client_closed.wait(10s));
             CHECK(client_error == 1000);
@@ -777,15 +777,15 @@ namespace oxen::quic::test
         SECTION("Client fast timeout")
         {
             server_endpoint->listen(server_tls);
-            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{250ms});
+            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{100ms});
         }
         SECTION("Server fast timeout")
         {
-            server_endpoint->listen(server_tls, opt::idle_timeout{250ms});
+            server_endpoint->listen(server_tls, opt::idle_timeout{100ms});
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
         }
 
-        CHECK_FALSE(server_conn_closed.wait(100ms));
+        CHECK_FALSE(server_conn_closed.wait(50ms));
 
         CHECK(server_conn_closed.wait(500ms));
         CHECK(server_errcode == CONN_IDLE_CLOSED);

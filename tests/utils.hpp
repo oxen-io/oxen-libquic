@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -261,6 +262,23 @@ namespace oxen::quic
             };
         }
     };
+
+    /// Waits for some condition to be satisfied, sleeping between checks.  Returns the result of
+    /// the last f() call as soon as f() returns success or the timeout is reached.  Typically f()
+    /// is a bool-returning function, but anything where `if (val)` can be invoked will be accepted
+    /// (e.g. std::optional or pointer types).
+    template <std::invocable<> Callback>
+    auto wait_for(Callback f, std::chrono::milliseconds timeout = 1s, std::chrono::milliseconds check_interval = 25ms)
+    {
+        auto end = std::chrono::steady_clock::now() + timeout;
+        for (;;)
+        {
+            auto val = f();
+            if (val || std::chrono::steady_clock::now() >= end)
+                return val;
+            std::this_thread::sleep_for(check_interval);
+        }
+    }
 
     // Helper class for persistent zerortt storage.  This loads from disk on construction, and
     // replaces the content on disk whenever a new entry is added.
