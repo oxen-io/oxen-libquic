@@ -226,7 +226,10 @@ namespace oxen::quic
     {
         // We need to defer this because we aren't allowed to close connections during some other
         // callback, and can't guarantee we aren't in such a callback.
-        loop.call_soon([this, d] { _close_conns(d); });
+        loop.call_soon([wself = weak_from_this(), d] {
+            if (auto self = wself.lock())
+                self->_close_conns(d);
+        });
     }
 
     void Endpoint::_close_conns(std::optional<Direction> d)
@@ -335,16 +338,23 @@ namespace oxen::quic
     void Endpoint::drop_connection(Connection& conn, io_error err)
     {
         log::debug(log_cat, "Scheduling drop connection ({}) with errcode {}", conn.reference_id(), err.code());
-        loop.call_soon([this, &conn, err] { _drop_connection(conn, err); });
+        loop.call_soon([wself = weak_from_this(), &conn, err] {
+            if (auto self = wself.lock())
+                self->_drop_connection(conn, err);
+        });
     }
 
     void Endpoint::close_connection(Connection& conn, io_error ec, std::optional<std::string> msg)
     {
         if (!msg)
             msg = ec.strerror();
-        loop.call_soon([this, connid = conn.reference_id(), ec = std::move(ec), msg = std::move(*msg)]() mutable {
-            if (auto it = conns.find(connid); it != conns.end() && it->second)
-                _close_connection(*it->second, std::move(ec), std::move(msg));
+        loop.call_soon([wself = weak_from_this(),
+                        connid = conn.reference_id(),
+                        ec = std::move(ec),
+                        msg = std::move(*msg)]() mutable {
+            if (auto self = wself.lock())
+                if (auto it = self->conns.find(connid); it != self->conns.end() && it->second)
+                    self->_close_connection(*it->second, std::move(ec), std::move(msg));
         });
     }
 
