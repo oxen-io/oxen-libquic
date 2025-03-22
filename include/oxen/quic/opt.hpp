@@ -182,35 +182,5 @@ namespace oxen::quic
             explicit operator bool() const { return send_hook != nullptr; }
         };
 
-        // Used to provide callbacks for stream buffer watermarking. Application can pass an optional second parameter to
-        // indicate that the logic should be executed once before the callback is cleared. The default behavior is for the
-        // callback to persist and execute repeatedly
-        struct watermark
-        {
-            using buffer_hook_t = std::function<void(Stream&)>;
-
-          private:
-            buffer_hook_t _hook{nullptr};
-            bool _persist{true};
-
-          public:
-            watermark() = default;
-            explicit watermark(buffer_hook_t hook, bool persist = true) : _hook{std::move(hook)}, _persist{persist} {}
-
-            bool persist() const { return _persist; }
-
-            void clear() { _hook = nullptr; }
-
-            explicit operator bool() const { return _hook != nullptr; }
-
-            void operator()(Stream& s)
-            {
-                _hook(s);
-
-                if (not _persist)
-                    _hook = nullptr;
-            }
-        };
-
     }  //  namespace opt
 }  // namespace oxen::quic

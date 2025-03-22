@@ -44,61 +44,55 @@ namespace oxen::quic
         log::trace(log_cat, "Destroying stream {}", _stream_id);
     }
 
-    void Stream::set_watermark(
-            size_t low, size_t high, std::optional<opt::watermark> low_cb, std::optional<opt::watermark> high_cb)
+    void Stream::enable_watermarks(
+            size_t alarm, std::function<void(Stream&)> on_alarm, size_t clear, std::function<void(Stream&)> on_clear)
     {
-        if (not low_cb and not high_cb)
-            throw std::invalid_argument{"Must pass at least one callback in call to ::set_watermark()!"};
-
-        loop.call_soon([this, low, high, low_hook = std::move(low_cb), high_hook = std::move(high_cb)]() {
+        if (clear >= alarm)
+            throw std::logic_error{
+                    "Invalid enable_watermarks() call: alarm watermark ({}) must be > clear watermark ({})"_format(
+                            alarm, clear)};
+        loop.call_get([&] {
             if (_is_closing || _is_shutdown || _sent_fin)
             {
                 log::warning(log_cat, "Failed to set watermarks; stream is not active!");
                 return;
             }
 
-            _low_mark = low;
-            _high_mark = high;
+            if (!_watermarking)
+                _watermark_alarm = false;
+            // else leave it as-is
+            _watermarking.emplace(alarm, clear);
+            _watermark_on_alarm = std::move(on_alarm);
+            _watermark_on_clear = std::move(on_clear);
 
-            if (low_hook.has_value())
-                _low_water = std::move(*low_hook);
-            else
-                _low_water.clear();
+            log::debug(
+                    log_cat,
+                    "Stream {} watermarks enabled ([{}, {}])",
+                    _stream_id,
+                    _watermarking->first,
+                    _watermarking->second);
 
-            if (high_hook.has_value())
-                _high_water = std::move(*high_hook);
-            else
-                _high_water.clear();
-
-            _is_watermarked = true;
-
-            log::trace(log_cat, "Stream set watermarks!");
+            // Invoke the check because the new limits might induce an immediate transition
+            check_watermark();
         });
     }
 
-    void Stream::clear_watermarks()
+    void Stream::disable_watermarks()
     {
-        loop.call_soon([this]() {
-            if (not _is_watermarked and not _low_water and not _high_water)
-            {
-                log::warning(log_cat, "Failed to clear watermarks; stream has none set!");
+        loop.call_get([this] {
+            if (!_watermarking)
                 return;
-            }
-
-            _low_mark = 0;
-            _high_mark = 0;
-            if (_low_water)
-                _low_water.clear();
-            if (_high_water)
-                _high_water.clear();
-            _is_watermarked = false;
-            log::trace(log_cat, "Stream cleared currently set watermarks!");
+            _watermarking.reset();
+            _watermark_alarm = false;
+            _watermark_on_alarm = nullptr;
+            _watermark_on_clear = nullptr;
+            log::debug(log_cat, "Stream {} watermarking disabled", _stream_id);
         });
     }
 
     void Stream::pause()
     {
-        loop.call([this]() {
+        loop.call_get([this]() {
             if (not _paused)
             {
                 log::debug(log_cat, "Pausing stream ID:{}", _stream_id);
@@ -112,7 +106,7 @@ namespace oxen::quic
 
     void Stream::resume()
     {
-        loop.call([this]() {
+        loop.call_get([this]() {
             if (_paused)
             {
                 log::debug(log_cat, "Resuming stream ID:{}", _stream_id);
@@ -144,9 +138,13 @@ namespace oxen::quic
         return loop.call_get([this] { return _ready; });
     }
 
-    bool Stream::has_watermarks() const
+    std::optional<bool> Stream::watermark_status() const
     {
-        return loop.call_get([this]() { return _is_watermarked and _low_water and _high_water; });
+        return loop.call_get([this]() -> std::optional<bool> {
+            if (!_watermarking)
+                return std::nullopt;
+            return _watermark_alarm;
+        });
     }
 
     std::shared_ptr<Stream> Stream::get_stream()
@@ -208,12 +206,46 @@ namespace oxen::quic
         _is_closing = _is_shutdown = true;
     }
 
+    void Stream::check_watermark()
+    {
+        log::trace(log_cat, "{} called, watermarking {}abled", __PRETTY_FUNCTION__, _watermarking ? "en" : "dis");
+        if (!_watermarking)
+            return;
+
+        const auto& [alarm_thresh, clear_thresh] = *_watermarking;
+        const size_t threshold = _unacked_size + (_watermark_alarm ? clear_thresh + 1 : alarm_thresh);
+        size_t sum = 0;
+        for (auto it = user_buffers.begin(); sum < threshold && it != user_buffers.end(); ++it)
+            sum += it->first.size();
+        if (_watermark_alarm)
+        {
+            if (sum < threshold)
+            {
+                log::debug(log_cat, "Watermark ({} unsent) dropped <= clear threshold ({})", sum, clear_thresh);
+                _watermark_alarm = false;
+                if (_watermark_on_clear)
+                    _watermark_on_clear(*this);
+            }
+        }
+        else if (sum >= threshold)
+        {
+            // "at least" because the sum above terminates early if we met the threshold
+            log::debug(log_cat, "Watermark triggered alarm threshold ({}+ unsent >= alarm threshold {})", sum, alarm_thresh);
+            _watermark_alarm = true;
+            if (_watermark_on_alarm)
+                _watermark_on_alarm(*this);
+        }
+    }
+
     void Stream::append_buffer(bspan buffer, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        user_buffers.emplace_back(buffer, std::move(keep_alive));
         assert(loop.inside());
         assert(_conn);
+
+        user_buffers.emplace_back(buffer, std::move(keep_alive));
+        check_watermark();
+
         if (_ready)
             _conn->packet_io_ready();
         else
@@ -228,7 +260,7 @@ namespace oxen::quic
         assert(bytes <= _unacked_size);
         _unacked_size -= bytes;
 
-        // drop all acked user_buffers, as they are unneeded
+        // Drop all fully-acked buffers that are no longer needed
         while (bytes >= user_buffers.front().first.size() && bytes)
         {
             bytes -= user_buffers.front().first.size();
@@ -236,55 +268,16 @@ namespace oxen::quic
             log::trace(log_cat, "bytes: {}", bytes);
         }
 
-        // advance bsv pointer to cover any remaining acked data
+        // Any remaining acked bytes are the leading bytes of the first buffer, so chop them off:
         if (bytes)
         {
             auto& front = user_buffers.front().first;
             front = front.subspan(bytes);
         }
 
-        auto sz = size();
-
-        // Do not bother with this block of logic if no watermarks are set
-        if (_is_watermarked)
-        {
-            auto unsent = sz - _unacked_size;
-
-            // We are above the high watermark. We prime the low water hook to be fired the next time we drop below the low
-            // watermark. If the high water hook exists and is primed, execute it
-            if (unsent >= _high_mark)
-            {
-                _low_primed = true;
-                log::trace(log_cat, "Low water hook primed!");
-
-                if (_high_water and _high_primed)
-                {
-                    log::debug(log_cat, "Executing high watermark hook!");
-                    _high_primed = false;
-                    return _high_water(*this);
-                }
-            }
-            // We are below the low watermark. We prime the high water hook to be fired the next time we rise above the high
-            // watermark. If the low water hook exists and is primed, execute it
-            else if (unsent <= _low_mark)
-            {
-                _high_primed = true;
-                log::trace(log_cat, "High water hook primed!");
-
-                if (_low_water and _low_primed)
-                {
-                    log::debug(log_cat, "Executing low watermark hook!");
-                    _low_primed = false;
-                    return _low_water(*this);
-                }
-            }
-
-            // Low/high watermarks were executed and self-cleared, so clean up
-            if (not _high_water and not _low_water)
-                return clear_watermarks();
-        }
-
-        log::trace(log_cat, "{} bytes acked, {} unacked remaining", bytes, sz);
+#ifndef NDEBUG
+        log::trace(log_cat, "{} bytes acked, {} unacked remaining", bytes, size());
+#endif
     }
 
     void Stream::wrote(size_t bytes)
@@ -292,6 +285,7 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::trace(log_cat, "Increasing _unacked_size by {}B", bytes);
         _unacked_size += bytes;
+        check_watermark();
     }
 
     static auto get_buffer_it(std::deque<std::pair<bspan, std::shared_ptr<void>>>& bufs, size_t offset)

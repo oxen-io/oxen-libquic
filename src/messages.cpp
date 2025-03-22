@@ -2,8 +2,8 @@
 
 #include "connection.hpp"
 #include "datagram.hpp"
-#include "endpoint.hpp"
 #include "internal.hpp"
+#include "loop.hpp"
 
 #include <oxenc/endian.h>
 
