@@ -358,17 +358,19 @@ namespace oxen::quic
     // - construct this object via `auto delayer = packet_delayer::make(10ms);`
     // - construct the endpoint, passing `*delayer` to the `endpoint(...)` call (this object
     //   auto-converts into the appropriate manual routing option).
-    // - call `delayer->init(loop, ep)`, providing a loop and the endpoint (it does not have to be
-    //   the endpoint's loop), which starts the actual underlying socket.
+    // - call `delayer->init(ep)`, providing the endpoint which starts the actual underlying socket,
+    //   using the endpoint's loop for operations.
     class packet_delayer : public std::enable_shared_from_this<packet_delayer>
     {
       public:
         std::atomic<std::chrono::milliseconds> delay;
 
       private:
-        std::shared_ptr<Loop> loop;
         std::shared_ptr<Endpoint> ep;
         std::unique_ptr<UDPSocket> sock;
+        std::deque<std::tuple<int64_t, Path, std::vector<std::byte>>> outgoing;
+        std::deque<std::pair<int64_t, Packet>> incoming;
+        int64_t out_id = 0, in_id = 0;
 
         explicit packet_delayer(std::chrono::milliseconds delay) : delay{delay} {}
 
@@ -383,7 +385,7 @@ namespace oxen::quic
 
         operator opt::manual_routing();
 
-        void init(std::shared_ptr<Loop>, std::shared_ptr<Endpoint> ep);
+        void init(std::shared_ptr<Endpoint> ep);
     };
 
 }  // namespace oxen::quic

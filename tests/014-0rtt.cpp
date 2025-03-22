@@ -19,7 +19,7 @@ namespace oxen::quic::test
         std::promise<void> client_established_prom;
         auto client_established = [&client_established_prom](connection_interface&) { client_established_prom.set_value(); };
 
-        Network net{};
+        Loop loop;
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
         server_tls->enable_inbound_0rtt();
@@ -29,15 +29,15 @@ namespace oxen::quic::test
         Address client_local{LOCALHOST, 0};
 
         auto delayer = packet_delayer::make(0ms);  // no delay initially, but we'll ramp it up later
-        auto client_endpoint = net.endpoint(client_local, opt::enable_datagrams{}, *delayer);
-        delayer->init(std::make_shared<Loop>(), client_endpoint);
+        auto client_endpoint = Endpoint::endpoint(loop, client_local, opt::enable_datagrams{}, *delayer);
+        delayer->init(client_endpoint);
 
         std::vector<unsigned char> server_secret;
         server_secret.resize(32);
         gnutls_rnd(GNUTLS_RND_RANDOM, server_secret.data(), server_secret.size());
 
-        auto server_endpoint =
-                net.endpoint(server_local, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
+        auto server_endpoint = Endpoint::endpoint(
+                loop, server_local, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
 
         auto server_stream_cb = [](Stream& s, std::span<const std::byte> data) {
             log::debug(log_cat, "server stream got {} stream bytes", data.size());
@@ -56,13 +56,12 @@ namespace oxen::quic::test
         // How many latency we expect until we get a response to our stream/datagram.  1 for 0-RTT
         // (i.e. 0-RTT means no additional establishing latency), 2 for 1-RTT (i.e. 1-RTT to
         // establish and then one to send and receive).
-        int expected_rtt = 1;
+        int expected_rtt = 2;
 
         SECTION("0-RTT not available")
         {
             // Without a prior connection there will be no 0-RTT data for us to try with, so we
             // should just do a plain 1-RTT without even trying early data.
-            expected_rtt = 2;
         }
         SECTION("0-RTT attempted")
         {
@@ -96,12 +95,11 @@ namespace oxen::quic::test
                 // Restart the server listener with the same tls creds, which should be fine.
                 expected_rtt = 1;
 
-                std::weak_ptr weak_ep{server_endpoint};
-                net.close(std::move(server_endpoint));
-                REQUIRE(weak_ep.expired());
+                REQUIRE(server_endpoint.use_count() == 1);
+                server_endpoint.reset();
 
-                server_endpoint = net.endpoint(
-                        server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
+                server_endpoint = Endpoint::endpoint(
+                        loop, server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
                 server_endpoint->listen(server_tls, server_stream_cb, server_dgram_cb);
             }
 
@@ -119,11 +117,11 @@ namespace oxen::quic::test
                 // validation tokens.
                 expected_rtt = 2;
 
-                net.close(std::move(server_endpoint));
-                REQUIRE(server_endpoint.use_count() == 0);
+                REQUIRE(server_endpoint.use_count() == 1);
+                server_endpoint.reset();
 
-                server_endpoint =
-                        net.endpoint(server_addr, server_established, opt::enable_datagrams{} /*, no static secret!*/);
+                server_endpoint = Endpoint::endpoint(
+                        loop, server_addr, server_established, opt::enable_datagrams{} /*, no static secret!*/);
                 server_endpoint->listen(server_tls, server_stream_cb, server_dgram_cb);
             }
 
@@ -134,14 +132,14 @@ namespace oxen::quic::test
                 // restarted.
                 expected_rtt = 2;
 
-                net.close(std::move(server_endpoint));
-                REQUIRE(server_endpoint.use_count() == 0);
+                REQUIRE(server_endpoint.use_count() == 1);
+                server_endpoint.reset();
 
                 server_tls = defaults::tls_creds_from_ed_keys().second;
                 server_tls->enable_inbound_0rtt();
 
-                server_endpoint = net.endpoint(
-                        server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
+                server_endpoint = Endpoint::endpoint(
+                        loop, server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});
                 server_endpoint->listen(server_tls, server_stream_cb, server_dgram_cb);
             }
 
@@ -158,14 +156,14 @@ namespace oxen::quic::test
                 // validation tokens.
                 expected_rtt = 3;
 
-                net.close(std::move(server_endpoint));
-                REQUIRE(server_endpoint.use_count() == 0);
+                REQUIRE(server_endpoint.use_count() == 1);
+                server_endpoint.reset();
 
                 server_tls = defaults::tls_creds_from_ed_keys().second;
                 server_tls->enable_inbound_0rtt();
 
-                server_endpoint =
-                        net.endpoint(server_addr, server_established, opt::enable_datagrams{} /*, no static secret!*/);
+                server_endpoint = Endpoint::endpoint(
+                        loop, server_addr, server_established, opt::enable_datagrams{} /*, no static secret!*/);
                 server_endpoint->listen(server_tls, server_stream_cb, server_dgram_cb);
             }
 
@@ -181,8 +179,8 @@ namespace oxen::quic::test
                 // restarted.
                 expected_rtt = 2;
 
-                net.close(std::move(server_endpoint));
-                REQUIRE(server_endpoint.use_count() == 0);
+                REQUIRE(server_endpoint.use_count() == 1);
+                server_endpoint.reset();
 
                 server_endpoint = net.endpoint(
                         server_addr, server_established, opt::enable_datagrams{}, opt::static_secret{server_secret});

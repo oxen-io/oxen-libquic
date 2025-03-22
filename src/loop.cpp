@@ -91,7 +91,7 @@ namespace oxen::quic
             bool start_immediately,
             bool task_rescheduling)
     {
-        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)]() {
+        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)] {
             func();
             event_del(ev.get());
             event_add(ev.get(), &interval);
@@ -122,8 +122,9 @@ namespace oxen::quic
                 },
                 this));
 
-        if ((one_off or start_immediately) and not start())
-            log::warning(log_cat, "Failed to immediately start one-off event!");
+        if (one_off or start_immediately)
+            if (not start())
+                log::warning(log_cat, "Failed to immediately start one-off event!");
     }
 
     Ticker::~Ticker()

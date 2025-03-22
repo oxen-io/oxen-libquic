@@ -549,26 +549,41 @@ namespace oxen::quic
         return std::shared_ptr<packet_delayer>{new packet_delayer{delay}};
     }
 
-    void packet_delayer::init(std::shared_ptr<Loop> loop_, std::shared_ptr<Endpoint> ep_)
+    void packet_delayer::init(std::shared_ptr<Endpoint> ep_)
     {
         if (ep)
             throw std::logic_error{"Cannot call packet_delayer::init more than once"};
         ep = std::move(ep_);
-        loop = std::move(loop_);
-        if (!ep || !loop)
-            throw std::logic_error{"packet_delayer::init called with nullptr endpoint and/or loop"};
+        if (!ep)
+            throw std::logic_error{"packet_delayer::init called with nullptr endpoint"};
 
-        sock = std::make_unique<UDPSocket>(loop->get_event_base(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
+        sock = std::make_unique<UDPSocket>(ep->loop.get_event_base(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
             log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
-            auto self = wself.lock();
-            if (!self)
+            auto sself = wself.lock();
+            if (!sself)
                 return;
+            auto& self = *sself;
 
             pkt.ensure_owned_data();
-            self->loop->call_later(self->delay.load(), [wself, pkt = std::move(pkt)]() mutable {
-                log::debug(log_cat, "completing incoming delayed delivery of {}B packet on path {}", pkt.size(), pkt.path);
-                if (auto self = wself.lock())
-                    self->ep->manually_receive_packet(std::move(pkt));
+            self.incoming.emplace_back(++self.in_id, std::move(pkt));
+
+            self.ep->loop.call_later(self.delay.load(), [wself, id = self.in_id] {
+                auto sself = wself.lock();
+                if (!sself)
+                    return;
+                auto& self = *sself;
+
+                // Process all packets <= out id to ensure delivery order (see extended comment below)
+                while (!self.incoming.empty())
+                {
+                    auto& [pktid, pkt] = self.incoming.front();
+                    if (pktid > id)
+                        break;
+                    log::debug(
+                            log_cat, "completing incoming delayed delivery of {}B packet on path {}", pkt.size(), pkt.path);
+                    self.ep->manually_receive_packet(std::move(pkt));
+                    self.incoming.pop_front();
+                }
             });
         });
         ep->set_local(sock->address());
@@ -577,28 +592,39 @@ namespace oxen::quic
     packet_delayer::operator opt::manual_routing()
     {
         return opt::manual_routing{[wself = weak_from_this()](const Path& p, std::span<const std::byte> pkt) {
-            log::debug(log_cat, "outgoing {}B packet along {}; delaying delivery", pkt.size(), p);
-            auto self = wself.lock();
-            if (!self)
+            auto sself = wself.lock();
+            if (!sself)
                 return;
-            if (!self->loop || !self->ep)
+            auto& self = *sself;
+            if (!self.ep)
             {
                 log::critical(log_cat, "Error: packet_delayer received packet without a call to init()");
                 return;
             }
-            self->loop->call_later(self->delay.load(), [wself, path = p, data = std::vector(pkt.begin(), pkt.end())] {
-                log::debug(log_cat, "completing outgoing delayed delivery of {}B packet along {}", data.size(), path);
-                if (auto self = wself.lock())
+            self.outgoing.emplace_back(++self.out_id, p, std::vector(pkt.begin(), pkt.end()));
+            self.ep->loop.call_later(self.delay.load(), [wself, id = self.out_id] {
+                auto sself = wself.lock();
+                if (!sself)
+                    return;
+                auto& self = *sself;
+
+                // Process anything in the outgoing queue up to the one we queued, so that if these
+                // fire out of order we still deliver packets in the right order (the out-of-order
+                // firing can happen with libevent's microsecond precision if we queue multiple
+                // packets in the same microsecond).
+                while (!self.outgoing.empty())
                 {
+                    auto& [pktid, path, data] = self.outgoing.front();
+                    if (pktid > id)
+                        break;
+                    log::debug(log_cat, "completing outgoing delayed delivery of {}B packet along {}", data.size(), path);
                     size_t sz = data.size();
-                    auto [res, sent] = self->sock->send(path, data.data(), &sz, 0, 1);
+                    auto [res, sent] = self.sock->send(path, data.data(), &sz, 0, 1);
                     if (sent != 1)
                         log::critical(
                                 log_cat,
                                 "Error: packet_delayer failed to send, and no retry queue is implemented; dropping packet");
-                }
-                else
-                {
+                    self.outgoing.pop_front();
                 }
             });
         }};
