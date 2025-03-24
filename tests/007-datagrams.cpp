@@ -53,7 +53,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query param info from datagram-disabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -79,7 +79,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query param info from default datagram-enabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -109,7 +109,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Query params from split-datagram enabled endpoint", "[007][datagrams][types]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -137,22 +137,21 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Execute, No Splitting Policy", "[007][datagrams][execute][nosplit]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
-        auto msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto msg = to_span<std::byte>(msg_str);
+        constexpr auto msg = "hello from the other siiiii-iiiiide"sv;
 
         std::promise<void> data_promise;
         std::future<void> data_future = data_promise.get_future();
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte>) {
+        dgram_data_callback recv_dgram_cb = [&](datagram) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
             data_promise.set_value();
         };
         std::atomic<bool> bad_call = false;
-        dgram_data_callback overridden_dgram_cb = [&](dgram_interface&, std::vector<std::byte>) {
+        dgram_data_callback overridden_dgram_cb = [&](datagram) {
             log::critical(test_cat, "Wrong dgram callback invoked!");
             bad_call = true;
         };
@@ -182,7 +181,7 @@ namespace oxen::quic::test
         std::this_thread::sleep_for(5ms);
         REQUIRE(conn_interface->get_max_datagram_size() < MAX_GREEDY_PMTUD_UDP_PAYLOAD);
 
-        conn_interface->send_datagram(msg, nullptr);
+        conn_interface->datagrams()->send(msg, nullptr);
 
         require_future(data_future);
         CHECK_FALSE(bad_call);
@@ -190,7 +189,7 @@ namespace oxen::quic::test
 
     TEST_CASE("007 - Datagram support: Execute, Packet Splitting Enabled", "[007][datagrams][execute][split][simple]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -198,10 +197,10 @@ namespace oxen::quic::test
 
         std::promise<void> data_promise;
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
+        dgram_data_callback recv_dgram_cb = [&](datagram d) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
             ++data_counter;
-            if (view(data) == view(to_span<std::byte>("final")))
+            if (view(d.data) == "final"sv)
                 data_promise.set_value();
         };
 
@@ -254,9 +253,10 @@ namespace oxen::quic::test
         CHECK(good_msg.size() <= max_size2);
         CHECK(oversize_msg.size() > max_size2);
 
-        conn_interface->send_datagram(std::move(good_msg));
-        conn_interface->send_datagram(std::move(oversize_msg));
-        conn_interface->send_datagram("final"s);
+        auto dg = conn_interface->datagrams();
+        dg->send(std::move(good_msg));
+        dg->send(std::move(oversize_msg));
+        dg->send("final"s);
 
         require_future(data_promise.get_future());
         CHECK(data_counter == 2);
@@ -269,7 +269,7 @@ namespace oxen::quic::test
             SKIP("Rotating buffer testing not enabled for this test iteration!");
 
         log::trace(test_cat, "Beginning the unit test from hell");
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -278,7 +278,7 @@ namespace oxen::quic::test
 
         std::promise<void> data_promise;
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte>) {
+        dgram_data_callback recv_dgram_cb = [&](datagram) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
             if (++data_counter == n)
@@ -317,8 +317,9 @@ namespace oxen::quic::test
         while (good_msg.size() < max_size)
             good_msg.push_back(static_cast<std::byte>(v++));
 
+        auto dgram = conn_interface->datagrams();
         for (int i = 0; i < n; ++i)
-            conn_interface->send_datagram(good_msg, nullptr);
+            dgram->send(good_msg, nullptr);
 
         require_future(data_promise.get_future());
 
@@ -326,7 +327,7 @@ namespace oxen::quic::test
 
         auto server_ci = server_endpoint->get_all_conns(Direction::INBOUND).front();
 
-        REQUIRE(server_ci->last_cleared() == 0);
+        REQUIRE(TestHelper::get_datagram_last_cleared(*server_ci->datagrams()) == 0);
     }
 
     TEST_CASE(
@@ -336,7 +337,7 @@ namespace oxen::quic::test
             SKIP("Rotating buffer testing not enabled for this test iteration!");
 
         log::trace(test_cat, "Beginning the unit test from hell");
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -345,7 +346,7 @@ namespace oxen::quic::test
 
         std::promise<void> data_promise;
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte>) {
+        dgram_data_callback recv_dgram_cb = [&](datagram) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
             if (++data_counter == n)
@@ -387,11 +388,12 @@ namespace oxen::quic::test
         while (small_msg.size() < 500)
             small_msg.push_back(std::byte{v++});
 
-        conn_interface->send_datagram(big_msg, nullptr);
-        conn_interface->send_datagram(big_msg, nullptr);
-        conn_interface->send_datagram(small_msg, nullptr);
-        conn_interface->send_datagram(big_msg, nullptr);
-        conn_interface->send_datagram(small_msg, nullptr);
+        auto dgram = conn_interface->datagrams();
+        dgram->send(big_msg, nullptr);
+        dgram->send(big_msg, nullptr);
+        dgram->send(small_msg, nullptr);
+        dgram->send(big_msg, nullptr);
+        dgram->send(small_msg, nullptr);
 
         require_future(data_promise.get_future());
 
@@ -404,7 +406,7 @@ namespace oxen::quic::test
             SKIP("Rotating buffer testing not enabled for this test iteration!");
 
         log::trace(test_cat, "Beginning the unit test from hell");
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -416,10 +418,10 @@ namespace oxen::quic::test
 
         std::vector<std::byte> received;
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
+        dgram_data_callback recv_dgram_cb = [&](datagram d) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
-            received = std::move(data);
+            received = std::move(d).extract();
 
             if (++counter == bufsize)
                 data_promise.set_value();
@@ -449,8 +451,9 @@ namespace oxen::quic::test
 
         TestHelper::enable_dgram_drop(static_cast<Connection&>(*server_ci));
 
+        auto dgram = conn_interface->datagrams();
         for (int i = 0; i < quarter; ++i)
-            conn_interface->send_datagram(dropped_msg, nullptr);
+            dgram->send(dropped_msg, nullptr);
 
         while (TestHelper::get_dgram_debug_counter(*server_ci) < quarter)
             std::this_thread::sleep_for(10ms);
@@ -458,7 +461,7 @@ namespace oxen::quic::test
         TestHelper::disable_dgram_drop(*server_ci);
 
         for (int i = 0; i < bufsize; ++i)
-            conn_interface->send_datagram(successful_msg, nullptr);
+            dgram->send(successful_msg, nullptr);
 
         require_future(data_promise.get_future());
 
@@ -488,7 +491,7 @@ namespace oxen::quic::test
     */
     TEST_CASE("007 - Datagram support: Rotating Buffer, packet coalescing", "[007][datagrams][split][coalesce]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -498,7 +501,7 @@ namespace oxen::quic::test
 
         std::promise<void> data_promise;
 
-        dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte>) {
+        dgram_data_callback recv_dgram_cb = [&](datagram) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
 
             int count = ++data_counter;
@@ -581,7 +584,7 @@ namespace oxen::quic::test
             // then we also want to calculate how many small pieces we can coalesce together (with a
             // cap at lookahead + 2).
             auto packable = std::min<size_t>(
-                    2 + (lookahead < 0 ? datagram_queue::DEFAULT_SPLIT_LOOKAHEAD : lookahead),
+                    2 + (lookahead < 0 ? dgram::queue::DEFAULT_SPLIT_LOOKAHEAD : lookahead),
                     (max_unsplit + 3 + 5) / (dgram_size - max_unsplit + 5));
             log::warning(log_cat, "packable: {}", packable);
             target_dgrams = n + (n + packable - 1) / packable;
@@ -598,9 +601,9 @@ namespace oxen::quic::test
 
         std::promise<void> pr;
 
-        test_net.loop()->call([&]() {
+        test_net.loop()->call([&, dgram=conn_interface->datagrams()]() {
             for (int i = 0; i < n; i++)
-                conn_interface->send_datagram(big, nullptr);
+                dgram->send(big, nullptr);
 
             pr.set_value();
         });

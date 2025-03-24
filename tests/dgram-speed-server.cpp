@@ -75,37 +75,35 @@ int main(int argc, char* argv[])
     for (size_t i = 0; i < dgram_rainbow.size(); i++)
         dgram_rainbow[i] = static_cast<std::byte>(i % 256);
 
-    dgram_data_callback recv_dgram_cb = [&](dgram_interface& di, std::span<const std::byte> data) {
-        auto& dgram_data = conn_dgram_data[di.reference_id];
+    dgram_data_callback recv_dgram_cb = [&](datagram&& dg) {
+        auto& dgram_data = conn_dgram_data[dg.conn.reference_id()];
 
-        if (data.size() != dgram_data.last_dgram_size)
+        const auto size = dg.data.size();
+        if (size != dgram_data.last_dgram_size)
         {
             log::warning(
-                    test_cat,
-                    "Received a changed datagram size {}; last datagram was {}",
-                    data.size(),
-                    dgram_data.last_dgram_size);
-            dgram_data.last_dgram_size = data.size();
+                    test_cat, "Received a changed datagram size {}; last datagram was {}", size, dgram_data.last_dgram_size);
+            dgram_data.last_dgram_size = size;
         }
 
         if (dgram_data.n_expected == 0)
         {
             // The very first packet should be 8 bytes containing the uint64_t count of total
             // packets being sent, not including this initial one.
-            if (data.size() != 8)
-                log::error(test_cat, "Invalid initial packet: expected 8-byte test size, got {} bytes", data.size());
-            auto count = oxenc::load_little_to_host<uint64_t>(data.data());
+            if (size != 8)
+                log::error(test_cat, "Invalid initial packet: expected 8-byte test size, got {} bytes", size);
+            auto count = oxenc::load_little_to_host<uint64_t>(dg.data.data());
             dgram_data.n_expected = count;
             log::warning(
                     test_cat,
                     "First data from new connection {} datagram channel, expecting {} datagrams!",
-                    di.get_conn_interface()->remote(),
+                    dg.conn.remote(),
                     dgram_data.n_expected);
             return;
         }
 
         // The final packet starts with a \x00; up until then we get starts from 1,2,...250,1,2,...,250,1,2,...
-        const bool done = data[0] == std::byte{0};
+        const bool done = dg.data[0] == std::byte{0};
 
         auto& info = dgram_data;
 
@@ -113,14 +111,14 @@ int main(int argc, char* argv[])
         {
             // The first byte value is itself the rainbow offset, and goes 1->250 repeatedly until
             // the final packet, which has initial byte 0:
-            size_t offset = static_cast<uint8_t>(data[0]);
+            size_t offset = static_cast<uint8_t>(dg.data[0]);
             bool bad = false;
             if (offset > 250)
             {
                 bad = true;
                 log::error(log_cat, "Datagram {} verification found invalid first byte value {}", info.n_received, offset);
             }
-            else if (view(data) != view(std::span{dgram_rainbow}.subspan(offset, data.size())))
+            else if (view(dg.data) != view(std::span{dgram_rainbow}.subspan(offset, size)))
             {
                 bad = true;
             }
@@ -130,7 +128,7 @@ int main(int argc, char* argv[])
                         test_cat,
                         "Datagram {} verification failed: expected byte rainbow, received {}",
                         info.n_received,
-                        buffer_printer{data});
+                        buffer_printer{dg.data});
                 if (shutdown_on_error)
                     shutdown = true;
             }
@@ -154,7 +152,7 @@ int main(int argc, char* argv[])
             log::critical(
                     test_cat,
                     "Datagram test complete for {}. Fidelity: {}\% ({} received of {} expected)",
-                    di.get_conn_interface()->remote(),
+                    dg.conn.remote(),
                     reception_rate,
                     info.n_received,
                     info.n_expected);
@@ -162,7 +160,7 @@ int main(int argc, char* argv[])
             if (shutdown_on_error && info.n_received < info.n_expected)
                 shutdown = true;
 
-            di.reply("DONE!"s);
+            dg.datagrams.send("DONE!"s);
         }
     };
 

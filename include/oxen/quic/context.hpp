@@ -3,6 +3,7 @@
 #include "datagram.hpp"
 #include "opt.hpp"  // IWYU pragma: keep
 #include "stream.hpp"
+#include "connection.hpp"
 #include "utils.hpp"
 
 #include <chrono>

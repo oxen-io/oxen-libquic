@@ -13,6 +13,18 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
+    std::shared_ptr<Connection> IOChannel::get_conn()
+    {
+        return loop.call_get([this] { return _conn ? _conn->shared_from_this() : nullptr; });
+    }
+
+    void IOChannel::send(std::string&& data)
+    {
+        auto keep_alive = std::make_shared<std::string>(std::move(data));
+        std::string_view view{*keep_alive};
+        send_impl(reinterpret_span<const std::byte>(view), std::move(keep_alive));
+    }
+
     bool IOChannel::is_empty() const
     {
         return call_get_accessor(&IOChannel::is_empty_impl);
@@ -31,21 +43,6 @@ namespace oxen::quic
     bool IOChannel::is_closing() const
     {
         return call_get_accessor(&IOChannel::is_closing_impl);
-    }
-
-    Path IOChannel::path() const
-    {
-        return call_get_accessor(&Connection::path_impl);
-    }
-
-    Address IOChannel::local() const
-    {
-        return call_get_accessor(&Connection::local_impl);
-    }
-
-    Address IOChannel::remote() const
-    {
-        return call_get_accessor(&Connection::remote_impl);
     }
 
 }  // namespace oxen::quic

@@ -68,7 +68,7 @@ namespace oxen::quic
         }
 
         template <typename... Opt>
-        std::shared_ptr<connection_interface> connect(RemoteAddress remote, Opt&&... opts)
+        std::shared_ptr<Connection> connect(RemoteAddress remote, Opt&&... opts)
         {
             check_for_tls_creds<Opt...>();
 
@@ -78,26 +78,16 @@ namespace oxen::quic
             if (_local.is_ipv6() && !remote.is_ipv6())
                 remote.map_ipv4_as_ipv6();
 
-            std::promise<std::shared_ptr<Connection>> conn_prom;
-            loop.call([this, &opts..., &conn_prom, remote = std::move(remote)]() mutable {
-                try
-                {
-                    // initialize client context and client tls context simultaneously
-                    outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
-                    _set_context_globals(outbound_ctx);
-                    conn_prom.set_value(_connect(std::move(remote)));
-                }
-                catch (...)
-                {
-                    conn_prom.set_exception(std::current_exception());
-                }
+            return loop.call_get([this, &opts..., remote = std::move(remote)]() mutable {
+                // initialize client context and client tls context simultaneously
+                outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
+                _set_context_globals(outbound_ctx);
+                return _connect(std::move(remote));
             });
-
-            return std::static_pointer_cast<connection_interface>(conn_prom.get_future().get());
         }
 
         // query a list of all active inbound and outbound connections paired with a conn_interface
-        std::list<std::shared_ptr<connection_interface>> get_all_conns(std::optional<Direction> d = std::nullopt);
+        std::list<std::shared_ptr<Connection>> get_all_conns(std::optional<Direction> d = std::nullopt);
 
         const Address& local() const { return _local; }
 
@@ -258,7 +248,7 @@ namespace oxen::quic
         void delete_connection(Connection& conn);
         void drain_connection(Connection& conn);
 
-        void connection_established(connection_interface& conn);
+        void connection_established(Connection& conn);
 
         void store_path_validation_token(Address remote, std::vector<unsigned char> token);
 

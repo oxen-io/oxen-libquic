@@ -54,17 +54,17 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_bp_cb = callback_waiter{[&](message msg) {
-            log::debug(test_cat, "Server bparser received: {}", msg.span());
+            log::debug(test_cat, "Server bparser received: {}", msg.body());
             CHECK(bt_decode(msg.body()));
             msg.respond(msg.body());
         }};
 
         auto client_bp_cb = callback_waiter{[&](message msg) {
-            log::debug(test_cat, "Client bparser received: {}", msg.span());
+            log::debug(test_cat, "Client bparser received: {}", msg.body());
             CHECK(bt_decode(msg.body()));
         }};
 
-        auto server_conn_established = [&](connection_interface& c) {
+        auto server_conn_established = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler(TEST_ENDPOINT, server_bp_cb);
         };
@@ -114,51 +114,51 @@ namespace oxen::quic::test
         std::shared_ptr<BTRequestStream> node_a_bp, node_b_bp, node_c_bp;
 
         auto node_a_response_cb = callback_waiter{[&](message msg) {
-            log::debug(test_cat, "Node A received response from Node B: {}", msg.span());
+            log::debug(test_cat, "Node A received response from Node B: {}", msg.body());
             CHECK(bt_decode(msg.body()));
         }};
 
         auto node_a_bp_cb = [&](message msg) {
-            log::debug(test_cat, "Node A received request from Node C: {}", msg.span());
+            log::debug(test_cat, "Node A received request from Node C: {}", msg.body());
             CHECK(bt_decode(msg.body()));
             msg.respond(msg.body());
         };
 
         auto node_b_bp_cb = [&](message msg) {
-            log::debug(test_cat, "Node B received request from Node A: {}", msg.span());
+            log::debug(test_cat, "Node B received request from Node A: {}", msg.body());
             CHECK(bt_decode(msg.body()));
 
-            log::debug(test_cat, "Node B chaining request to Node C", msg.span());
-            auto body = msg.body_str();
+            log::debug(test_cat, "Node B chaining request to Node C", msg.body());
+            std::string body{msg.body()};
             node_b_bp->command(TEST_ENDPOINT, std::move(body), [prev = std::move(msg)](message msg) mutable {
-                log::debug(test_cat, "Node B received response from Node C: {}", msg.span());
+                log::debug(test_cat, "Node B received response from Node C: {}", msg.body());
                 prev.respond(msg.body());
             });
         };
 
         auto node_c_bp_cb = [&](message msg) {
-            log::debug(test_cat, "Node C received request from Node B: {}", msg.span());
+            log::debug(test_cat, "Node C received request from Node B: {}", msg.body());
             CHECK(bt_decode(msg.body()));
 
-            log::debug(test_cat, "Node C chaining request to Node A", msg.span());
-            auto body = msg.body_str();
+            log::debug(test_cat, "Node C chaining request to Node A", msg.body());
+            std::string body{msg.body()};
             node_c_bp->command(TEST_ENDPOINT, std::move(body), [prev = std::move(msg)](message msg) mutable {
-                log::debug(test_cat, "Node C received response from Node A: {}", msg.span());
+                log::debug(test_cat, "Node C received response from Node A: {}", msg.body());
                 prev.respond(msg.body());
             });
         };
 
-        auto inbound_conn_established_a = [&](connection_interface& c) {
+        auto inbound_conn_established_a = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler(TEST_ENDPOINT, node_a_bp_cb);
         };
 
-        auto inbound_conn_established_b = [&](connection_interface& c) {
+        auto inbound_conn_established_b = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler(TEST_ENDPOINT, node_b_bp_cb);
         };
 
-        auto inbound_conn_established_c = [&](connection_interface& c) {
+        auto inbound_conn_established_c = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler(TEST_ENDPOINT, node_c_bp_cb);
         };

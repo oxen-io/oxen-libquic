@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -27,7 +28,7 @@ namespace oxen::quic
     class Connection;
 
     // Stream callbacks
-    using stream_data_callback = std::function<void(Stream&, bspan)>;
+    using stream_data_callback = std::function<void(Stream&, std::span<const std::byte>)>;
     using stream_close_callback = std::function<void(Stream&, uint64_t error_code)>;
     using stream_constructor_callback =
             std::function<std::shared_ptr<Stream>(Connection&, Endpoint&, std::optional<int64_t>)>;
@@ -35,7 +36,7 @@ namespace oxen::quic
     using stream_open_callback = std::function<uint64_t(Stream&)>;
     using stream_unblocked_callback = std::function<bool(Stream&)>;
 
-    using stream_buffer = std::deque<std::pair<bspan, std::shared_ptr<void>>>;
+    using stream_buffer = std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>;
 
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
@@ -159,7 +160,7 @@ namespace oxen::quic
         stream_close_callback close_callback;
 
       protected:
-        virtual void receive(bspan data)
+        virtual void receive(std::span<const std::byte> data)
         {
             if (data_callback)
                 data_callback(*this, data);
@@ -188,7 +189,7 @@ namespace oxen::quic
         /// ain't not good enough isn't false.
         virtual void check_timeouts() {}
 
-        void send_impl(bspan data, std::shared_ptr<void> keep_alive) override;
+        void send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive) override;
 
         stream_buffer user_buffers;
 
@@ -223,7 +224,7 @@ namespace oxen::quic
 
         void wrote(size_t bytes) override;
 
-        void append_buffer(bspan buffer, std::shared_ptr<void> keep_alive);
+        void append_buffer(std::span<const std::byte> buffer, std::shared_ptr<void> keep_alive);
 
         void check_watermark();
         void acknowledge(size_t bytes);
@@ -280,7 +281,7 @@ namespace oxen::quic
                 single_chunk(chunk_sender& cs, Container&& d) : _chunks{cs.shared_from_this()}, _data{std::move(d)} {}
                 ~single_chunk() { _chunks->queue_next_chunk(); }
 
-                bspan view() const
+                std::span<const std::byte> view() const
                 {
                     if constexpr (is_pointer)
                     {
@@ -340,7 +341,7 @@ namespace oxen::quic
             }
         };
 
-        std::optional<prepared_datagram> pending_datagram(bool) override;
+        std::optional<dgram::prepared> pending_datagram(bool) override;
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called

@@ -15,9 +15,9 @@ namespace oxen::quic::test
         // we fall back to the expected 1-RTT.
 
         std::promise<void> server_established_prom;
-        auto server_established = [&server_established_prom](connection_interface&) { server_established_prom.set_value(); };
+        auto server_established = [&server_established_prom](Connection&) { server_established_prom.set_value(); };
         std::promise<void> client_established_prom;
-        auto client_established = [&client_established_prom](connection_interface&) { client_established_prom.set_value(); };
+        auto client_established = [&client_established_prom](Connection&) { client_established_prom.set_value(); };
 
         Loop loop;
 
@@ -43,9 +43,9 @@ namespace oxen::quic::test
             log::debug(log_cat, "server stream got {} stream bytes", data.size());
             s.send("OK"s);
         };
-        auto server_dgram_cb = [](dgram_interface& d, std::span<const std::byte> data) {
-            log::debug(log_cat, "server received {}B datagram", data.size());
-            d.reply("OK"s);
+        auto server_dgram_cb = [](datagram dg) {
+            log::debug(log_cat, "server received {}B datagram", dg.data.size());
+            dg.datagrams.send("OK"s);
         };
         server_endpoint->listen(server_tls, server_stream_cb, server_dgram_cb);
 
@@ -219,13 +219,13 @@ namespace oxen::quic::test
                 [&](Stream&, std::span<const std::byte>) {
                     stream_response_time.set_value(std::chrono::steady_clock::now() - started);
                 },
-                [&](dgram_interface&, std::span<const std::byte>) {
+                [&](datagram) {
                     dgram_response_time.set_value(std::chrono::steady_clock::now() - started);
                 });
 
         auto s = client_ci->open_stream<Stream>();
         s->send("hello"s);
-        client_ci->send_datagram("42"s);
+        client_ci->datagrams()->send("42"s);
 
         require_future(client_established_prom.get_future());
         require_future(server_established_prom.get_future());

@@ -98,25 +98,25 @@ int main(int argc, char* argv[])
         log::critical(test_cat, "Stream {} (rawid={}) closed (error={})", i, s.stream_id(), errcode);
     };
 
-    dgram_data_callback recv_dgram_cb = [&](dgram_interface, std::span<const std::byte> data) {
+    dgram_data_callback recv_dgram_cb = [&](datagram dg) {
         log::critical(test_cat, "Calling endpoint receive datagram callback... data received...");
 
         if (dgram_data->is_sending)
         {
-            log::error(test_cat, "Got a datagram response ({}B) before we were done sending data!", data.size());
+            log::error(test_cat, "Got a datagram response ({}B) before we were done sending data!", dg.data.size());
             dgram_data->failed = true;
         }
-        else if (data.size() != 5)
+        else if (dg.data.size() != 5)
         {
-            log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
+            log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", dg.data.size());
             dgram_data->failed = true;
         }
-        else if (view(data) != view(to_span<std::byte>("DONE!")))
+        else if (view(dg.data) != "DONE!"sv)
         {
             log::error(
                     test_cat,
                     "Got unexpected data: expected 'DONE!', got (hex): '{}'",
-                    oxenc::to_hex(data.begin(), data.end()));
+                    oxenc::to_hex(dg.data.begin(), dg.data.end()));
             dgram_data->failed = true;
         }
         else
@@ -133,7 +133,7 @@ int main(int argc, char* argv[])
     if (!local_addr.empty())
         client_local = Address::parse(local_addr);
 
-    auto client_established = callback_waiter{[](connection_interface&) {}};
+    auto client_established = callback_waiter{[](Connection&) {}};
 
     RemoteAddress server_addr{remote_pubkey, Address::parse(remote_addr, DEFAULT_DGRAM_SPEED_ADDR.port())};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
@@ -169,7 +169,7 @@ int main(int argc, char* argv[])
     remaining_str.resize(8);
     oxenc::write_host_as_little(dgram_data->n_iter, remaining_str.data());
     log::warning(test_cat, "Sending datagram count to remote...");
-    client_ci->send_datagram(remaining_str, nullptr);
+    client_ci->datagrams()->send(remaining_str, nullptr);
 
     std::chrono::steady_clock::time_point started_at;
 
@@ -178,14 +178,15 @@ int main(int argc, char* argv[])
 
     started_at = std::chrono::steady_clock::now();
 
+    auto client_dg = client_ci->datagrams();
     for (uint64_t i = 0; i < dgram_data->n_iter - 1; ++i)
     {
         // Just send these with the 0 at the beginning
-        client_ci->send_datagram(dgram_data->data(i), nullptr);
+        client_dg->send(dgram_data->data(i), nullptr);
     }
     // Send a final one always using i = 0 so that we get the bit of the data starting with the
     // terminal 0 byte value.
-    client_ci->send_datagram(dgram_data->final_data(), nullptr);
+    client_dg->send(dgram_data->final_data(), nullptr);
 
     log::warning(test_cat, "Client done sending payload to remote!");
     dgram_data->is_sending = false;

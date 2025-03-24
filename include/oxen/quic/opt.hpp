@@ -96,11 +96,12 @@ namespace oxen::quic
         /// default) that the other side of the connection is using, but it is up to the application
         /// to ensure it uses a compatible value on each side as this is not enforced.
         ///
-        /// The max size of a transmittable datagram can be queried directly from connection_interface::
-        /// get_max_datagram_size(). At connection initialization, ngtcp2 will default this value to 1200.
-        /// The actual value is negotiated upwards via path discovery, reaching a theoretical maximum of
-        /// NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE (1452), or near it, per datagram. Please note that enabling
-        /// datagram splitting will double whatever value is returned.
+        /// The max size of a transmittable datagram can be queried directly from
+        /// Connection::get_max_datagram_size(). At connection initialization, ngtcp2 will default
+        /// this value to 1200.  The actual value is negotiated upwards via path discovery, reaching
+        /// a theoretical maximum of NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE (1452), or near it, per
+        /// datagram. Please note that enabling datagram splitting will double whatever value is
+        /// returned.
         ///
         /// Note: this setting CANNOT be changed for an endpoint after creation, it must be
         /// destroyed and re-initialized with the desired settings.
@@ -161,7 +162,7 @@ namespace oxen::quic
         // take responsibility for passing packets into the Endpoint via Endpoint::manually_receive_packet(...)
         struct manual_routing
         {
-            using send_handler_t = std::function<void(const Path&, bspan)>;
+            using send_handler_t = std::function<void(const Path&, std::span<const std::byte>)>;
 
           private:
             friend Endpoint;
@@ -177,7 +178,7 @@ namespace oxen::quic
                     throw std::runtime_error{"opt::manual_routing must be constructed with a send handler hook!"};
             }
 
-            void operator()(const Path& p, bspan data) { send_hook(p, data); }
+            void operator()(const Path& p, std::span<const std::byte> data) { send_hook(p, data); }
 
             explicit operator bool() const { return send_hook != nullptr; }
         };

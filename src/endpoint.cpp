@@ -120,7 +120,11 @@ namespace oxen::quic
 
     void Endpoint::manually_receive_packet(Packet&& pkt)
     {
-        loop.call([this, packet = std::move(pkt)]() mutable { handle_packet(std::move(packet)); });
+        if (loop.inside())
+            return handle_packet(std::move(pkt));
+
+        pkt.ensure_owned_data();
+        loop.call_soon([this, packet = std::move(pkt)]() mutable { handle_packet(std::move(packet)); });
     }
 
     void Endpoint::_init_internals()
@@ -204,9 +208,9 @@ namespace oxen::quic
         ctx->config.policy = _policy;
     }
 
-    std::list<std::shared_ptr<connection_interface>> Endpoint::get_all_conns(std::optional<Direction> d)
+    std::list<std::shared_ptr<Connection>> Endpoint::get_all_conns(std::optional<Direction> d)
     {
-        std::list<std::shared_ptr<connection_interface>> ret{};
+        std::list<std::shared_ptr<Connection>> ret{};
 
         for (const auto& c : conns)
         {
@@ -378,6 +382,12 @@ namespace oxen::quic
         }
     }
 
+    // ngtcp2 buffer converter helper:
+    static uint8_t* u8data(std::span<std::byte> c)
+    {
+        return reinterpret_cast<uint8_t*>(c.data());
+    }
+
     void Endpoint::_close_connection(Connection& conn, io_error ec, std::string msg)
     {
         log::debug(log_cat, "Closing connection ({})", conn.reference_id());
@@ -446,7 +456,7 @@ namespace oxen::quic
 
         draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
-        send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
+        send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
                 log::warning(
@@ -800,7 +810,7 @@ namespace oxen::quic
         return std::nullopt;
     }
 
-    void Endpoint::connection_established(connection_interface& conn)
+    void Endpoint::connection_established(Connection& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback ({})", conn.reference_id());
 
@@ -970,7 +980,7 @@ namespace oxen::quic
             {
                 for (size_t i = 0; i < n_pkts; i++)
                 {
-                    _manual_routing(path, bspan{buf, *bufsize});
+                    _manual_routing(path, std::span{buf, *bufsize});
                     buf += *bufsize++;
                 }
             }

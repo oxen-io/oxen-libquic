@@ -11,8 +11,8 @@ namespace oxen::quic::test
         std::vector<std::byte> huge_msg(100'000, std::byte{'a'});
         auto trigger_msg = std::span{huge_msg}.first(2000);
 
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -21,7 +21,7 @@ namespace oxen::quic::test
 
         std::atomic<size_t> server_received = 0;
         auto server_endpoint = Endpoint::endpoint(loop, server_local, server_established);
-        server_endpoint->listen(server_tls, [&](Stream&, bspan dat) {
+        server_endpoint->listen(server_tls, [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
             server_received += dat.size();
         });

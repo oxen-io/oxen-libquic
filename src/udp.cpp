@@ -312,7 +312,7 @@ namespace oxen::quic
 #endif
     }
 
-    void UDPSocket::process_packet(bspan payload, msghdr& hdr)
+    void UDPSocket::process_packet(std::span<const std::byte> payload, msghdr& hdr)
     {
         if (payload.empty())
         {
@@ -389,7 +389,7 @@ namespace oxen::quic
             }
 
             for (int i = 0; i < nread; i++)
-                process_packet(bspan{data[i].data(), msgs[i].msg_len}, msgs[i].msg_hdr);
+                process_packet(std::span{data[i].data(), msgs[i].msg_len}, msgs[i].msg_hdr);
 
             count += nread;
 
@@ -461,7 +461,7 @@ namespace oxen::quic
             }
 #endif
 
-            process_packet(bspan{data.data(), static_cast<size_t>(nbytes)}, hdr);
+            process_packet(std::span{data.data(), static_cast<size_t>(nbytes)}, hdr);
 
             count++;
 
@@ -805,7 +805,7 @@ namespace oxen::quic
         event_add(wev_.get(), nullptr);
     }
 
-    Packet::Packet(const Address& local, bspan data, msghdr& hdr) :
+    Packet::Packet(const Address& local, std::span<const std::byte> data, msghdr& hdr) :
             path{local,
 #ifdef _WIN32
                  {static_cast<const sockaddr*>(hdr.name), hdr.namelen}
@@ -853,7 +853,7 @@ namespace oxen::quic
 
     void Packet::ensure_owned_data()
     {
-        if (auto* data_sp = std::get_if<bspan>(&pkt_data))
+        if (auto* data_sp = std::get_if<std::span<const std::byte>>(&pkt_data))
             pkt_data = std::vector(data_sp->begin(), data_sp->end());
     }
 

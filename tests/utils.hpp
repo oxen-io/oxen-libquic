@@ -73,17 +73,19 @@ namespace oxen::quic
 
         static void set_endpoint_local_addr(Endpoint& ep, Address new_local);
 
-        static void enable_dgram_drop(connection_interface& conn);
-        static int disable_dgram_drop(connection_interface& conn);
-        static void enable_dgram_counter(connection_interface& conn);
-        static int disable_dgram_counter(connection_interface& conn);
-        static int get_dgram_debug_counter(connection_interface& conn);
+        static void enable_dgram_drop(Connection& conn);
+        static int disable_dgram_drop(Connection& conn);
+        static void enable_dgram_counter(Connection& conn);
+        static int disable_dgram_counter(Connection& conn);
+        static int get_dgram_debug_counter(Connection& conn);
+
+        static int get_datagram_last_cleared(Datagrams& dg);
 
         // Bumps the connection's next reference id to make it easier to tell which connection is
         // which in log output.
         static void increment_ref_id(Endpoint& ep, uint64_t by = 1);
 
-        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& conn);
+        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<Connection>& conn);
 
         static UDPSocket::socket_t get_sock(Endpoint& ep);
     };
@@ -115,8 +117,11 @@ namespace oxen::quic
     // of the given seed, if non-empty, and otherwise will generate a random value.
     opt::static_secret generate_static_secret(std::string_view seed_string = ""sv);
 
-    template <typename InChar>
-    inline std::string_view sp_to_sv(std::span<const InChar> sp)
+    inline std::string_view view(std::span<const std::byte> sp)
+    {
+        return {reinterpret_cast<const char*>(sp.data()), sp.size()};
+    }
+    inline std::string_view view(std::span<const unsigned char> sp)
     {
         return {reinterpret_cast<const char*>(sp.data()), sp.size()};
     }

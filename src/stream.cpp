@@ -3,7 +3,6 @@
 #include "connection.hpp"
 #include "endpoint.hpp"
 #include "internal.hpp"
-#include "messages.hpp"
 #include "result.hpp"
 
 #include <ngtcp2/ngtcp2.h>
@@ -237,7 +236,7 @@ namespace oxen::quic
         }
     }
 
-    void Stream::append_buffer(bspan buffer, std::shared_ptr<void> keep_alive)
+    void Stream::append_buffer(std::span<const std::byte> buffer, std::shared_ptr<void> keep_alive)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         assert(loop.inside());
@@ -288,7 +287,7 @@ namespace oxen::quic
         check_watermark();
     }
 
-    static auto get_buffer_it(std::deque<std::pair<bspan, std::shared_ptr<void>>>& bufs, size_t offset)
+    static auto get_buffer_it(std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>& bufs, size_t offset)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         auto it = bufs.begin();
@@ -336,7 +335,7 @@ namespace oxen::quic
         return nbufs;
     }
 
-    void Stream::send_impl(bspan data, std::shared_ptr<void> keep_alive)
+    void Stream::send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive)
     {
         if (data.empty())
             return;
@@ -412,7 +411,7 @@ namespace oxen::quic
         log::trace(log_cat, "{}:{} -- {}{}", file, lineno, message, val);
     }
 
-    std::optional<prepared_datagram> Stream::pending_datagram(bool)
+    std::optional<dgram::prepared> Stream::pending_datagram(bool)
     {
         log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
         return std::nullopt;

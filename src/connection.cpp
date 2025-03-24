@@ -352,9 +352,7 @@ namespace oxen::quic
             {
                 conn._early_data = false;
                 log::debug(log_cat, "Server rejected attempt to use 0-RTT; resetting early streams/datagrams");
-                conn.revert_early_streams();
-                if (conn.datagrams)
-                    conn.datagrams->early_data_end(false);
+                conn.revert_early_channels();
             }
             else
                 log::trace(log_cat, "Early data rejected (but this connection was not using early data)");
@@ -374,11 +372,7 @@ namespace oxen::quic
 
                 // ngtcp2 automatically resends lost stream data on a retry, but we also want to
                 // allow our known-lost initial datagrams to be resent:
-                if (conn._early_data && conn.datagrams)
-                {
-                    log::debug(log_cat, "Client received a Retry during early data; resetting datagrams");
-                    conn.datagrams->early_data_retry();
-                }
+                conn.reset_early_datagrams();
             }
 
             return rv;
@@ -507,8 +501,8 @@ namespace oxen::quic
 
             if (accepted)
             {
-                if (datagrams)
-                    datagrams->early_data_end(true);
+                if (dgrams)
+                    dgrams->early_data_end(true);
             }
             else
             {
@@ -585,11 +579,6 @@ namespace oxen::quic
         }
     }
 
-    int Connection::last_cleared() const
-    {
-        return datagrams ? datagrams->recv_buffer.last_cleared : -1;
-    }
-
     void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
     {
         _loop.call([this, new_remote]() { _path.set_new_remote(new_remote); });
@@ -625,7 +614,7 @@ namespace oxen::quic
         _associated_resets.erase(htoken);
     }
 
-    uspan Connection::remote_key() const
+    std::span<const unsigned char> Connection::remote_key() const
     {
         return remote_pubkey;
     }
@@ -652,7 +641,12 @@ namespace oxen::quic
         _endpoint.close_connection(*this, io_error{error_code});
     }
 
-    void Connection::revert_early_streams()
+    std::shared_ptr<Datagrams> Connection::datagrams()
+    {
+        return _loop.call_get([this] { return dgrams; });
+    }
+
+    void Connection::revert_early_channels()
     {
         assert(_loop.inside());
         log::debug(log_cat, "Client reverting early stream data");
@@ -681,6 +675,18 @@ namespace oxen::quic
         _streams.clear();
         if (auto remaining = ngtcp2_conn_get_streams_bidi_left(*this); remaining > 0)
             check_pending_streams(remaining);
+
+        if (dgrams)
+            dgrams->early_data_end(false);
+    }
+
+    void Connection::reset_early_datagrams()
+    {
+        if (_early_data && dgrams)
+        {
+            log::debug(log_cat, "Client received a Retry during early data; resetting datagrams");
+            dgrams->early_data_retry();
+        }
     }
 
     void Connection::handle_conn_packet(const Packet& pkt)
@@ -721,9 +727,12 @@ namespace oxen::quic
                 break;
             case NGTCP2_ERR_DRAINING:
                 log::trace(log_cat, "Note: {} is draining; signaling endpoint to drain connection", reference_id());
-                _loop.call_soon([this]() {
-                    log::debug(log_cat, "Endpoint draining connection {}", reference_id());
-                    _endpoint.drain_connection(*this);
+                _loop.call_soon([wself = weak_from_this()]() {
+                    if (auto self = wself.lock())
+                    {
+                        log::debug(log_cat, "Endpoint draining connection {}", self->reference_id());
+                        self->endpoint().drain_connection(*self);
+                    }
                 });
                 break;
             case NGTCP2_ERR_PROTO:
@@ -850,7 +859,7 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> connection_interface::queue_incoming_stream()
+    std::shared_ptr<Stream> Connection::queue_incoming_stream()
     {
         return queue_incoming_stream_impl(nullptr);
     }
@@ -895,7 +904,7 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> connection_interface::open_stream()
+    std::shared_ptr<Stream> Connection::open_stream()
     {
         return open_stream_impl(nullptr);
     }
@@ -1051,10 +1060,10 @@ namespace oxen::quic
             }
 
             // if we have datagrams to send, then mix them into the streams
-            if (datagrams && !datagrams->is_empty())
+            if (dgrams && !dgrams->is_empty())
             {
                 log::trace(log_cat, "Datagram channel has things to send");
-                channels.push_back(datagrams.get());
+                channels.push_back(dgrams.get());
             }
 
             for (auto it = _streams.begin(); it != mid; ++it)
@@ -1064,11 +1073,11 @@ namespace oxen::quic
                     channels.push_back(stream_ptr.get());
             }
         }
-        else if (datagrams && !datagrams->is_empty())
+        else if (dgrams && !dgrams->is_empty())
         {
             // if we have only datagrams to send, then we should probably do that
             log::trace(log_cat, "Datagram channel has things to send");
-            channels.push_back(datagrams.get());
+            channels.push_back(dgrams.get());
         }
 
         // This is our non-stream value (i.e. we give stream id -1 to ngtcp2 when we hit this).  We
@@ -1149,7 +1158,7 @@ namespace oxen::quic
                                           // but accept none of them into the packet.
                 for (;;)
                 {
-                    auto dgram = datagrams->pending_datagram(partially_filled);
+                    auto dgram = dgrams->pending_datagram(partially_filled);
                     if (!dgram)
                     {
                         datagram_waiting = false;
@@ -1175,7 +1184,7 @@ namespace oxen::quic
                     if (accepted != 0)
                     {
                         log::trace(log_cat, "ngtcp2 accepted datagram ID: {} for transmission", dgram->id);
-                        datagrams->confirm_datagram_sent();
+                        dgrams->confirm_datagram_sent();
                         datagram_waiting = false;
                     }
                     if (nwrite != NGTCP2_ERR_WRITE_MORE)
@@ -1227,7 +1236,7 @@ namespace oxen::quic
                     else
                     {
                         if (source->has_unsent())
-                            channels.push_front(datagrams.get());
+                            channels.push_front(dgrams.get());
                     }
                 }
                 else
@@ -1274,7 +1283,7 @@ namespace oxen::quic
             // data).
             if (datagram_waiting && nwrite > 0)
             {
-                channels.push_front(datagrams.get());
+                channels.push_front(dgrams.get());
                 continue;
             }
 
@@ -1436,10 +1445,10 @@ namespace oxen::quic
         for (auto& stream : pending_streams)
             stream->_conn = nullptr;
         pending_streams.clear();
-        if (datagrams)
+        if (dgrams)
         {
-            datagrams->_conn = nullptr;
-            datagrams.reset();
+            dgrams->_conn = nullptr;
+            dgrams.reset();
         }
         if (pseudo_stream)
         {
@@ -1458,7 +1467,7 @@ namespace oxen::quic
         return NGTCP2_ERR_CALLBACK_FAILURE;
     }
 
-    int Connection::stream_receive(int64_t id, bspan data, bool fin)
+    int Connection::stream_receive(int64_t id, std::span<const std::byte> data, bool fin)
     {
         auto str = get_stream(id);
 
@@ -1537,11 +1546,11 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::recv_datagram(bspan data, bool fin)
+    int Connection::recv_datagram(std::span<const std::byte> data, bool fin)
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
 
-        assert(datagrams);  // This callback shouldn't have been set up if we don't have datagrams
+        assert(dgrams);  // This callback shouldn't have been set up if we don't have datagrams
 
         std::optional<std::vector<std::byte>> maybe_data;
 
@@ -1561,7 +1570,7 @@ namespace oxen::quic
             else
             {
                 // send received datagram to rotating_buffer if packet_splitting is enabled
-                maybe_data = datagrams->to_buffer(data, dgid);
+                maybe_data = dgrams->to_buffer(data, dgid);
 
                 // split datagram did not have a match
                 if (not maybe_data)
@@ -1572,7 +1581,7 @@ namespace oxen::quic
             }
         }
 
-        if (!datagrams->dgram_data_cb)
+        if (!dgrams->dgram_data_cb)
             log::trace(log_cat, "Connection (CID: {}) has no endpoint-supplied datagram data callback", _source_cid);
         else
         {
@@ -1580,19 +1589,8 @@ namespace oxen::quic
 
             try
             {
-                // FIXME TODO: this is performing an allocation and copy for *every* small datagram
-                // (every datagram when splitting disabled), to optimize the case where a split
-                // datagram recipient wants to transfer an owned buffer of a recombined split
-                // packet.  This is *only* going to be preferable in a case where the callback
-                // always wants to make a copy anyway, and is going to be *always* worse for
-                // non-storing callbacks.
-                //
-                // We should ideally perhaps have *two* datagram callbacks: one that always copies
-                // (i.e. this one) and one that takes a span for cases where the span callback
-                // doesn't need to copy.
-
-                datagrams->dgram_data_cb(
-                        *di, (maybe_data ? std::move(*maybe_data) : std::vector<std::byte>{data.begin(), data.end()}));
+                dgrams->dgram_data_cb(
+                        maybe_data ? datagram{*this, *dgrams, std::move(*maybe_data)} : datagram{*this, *dgrams, data});
                 good = true;
             }
             catch (const std::exception& e)
@@ -1634,25 +1632,15 @@ namespace oxen::quic
         return _loop.call_get([this]() { return get_session()->selected_alpn(); });
     }
 
-    void Connection::send_datagram(bspan data, std::shared_ptr<void> keep_alive)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        if (!datagrams)
-            throw std::runtime_error{"Connection not configured for datagram IO"};
-
-        datagrams->send(data, std::move(keep_alive));
-    }
-
     uint64_t Connection::get_streams_available_impl() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return ngtcp2_conn_get_streams_bidi_left(*this);
     }
 
-    size_t Connection::get_max_datagram_piece()
+    size_t Connection::get_max_datagram_piece() const
     {
-        if (!datagrams)
+        if (!dgrams)
             return 0;
 
         // We have general quic packet overhead, plus packet splitting adds another 2 bytes of
@@ -1668,22 +1656,14 @@ namespace oxen::quic
 
         return max_dgram_piece;
     }
-    size_t Connection::get_max_datagram_size_impl()
-    {
-        return get_max_datagram_piece() * (_packet_splitting ? 2 : 1);
-    }
-    bool Connection::datagrams_enabled() const
-    {
-        return static_cast<bool>(datagrams);
-    }
     void Connection::set_split_datagram_lookahead(int n)
     {
-        if (datagrams)
-            datagrams->set_split_datagram_lookahead(n);
+        if (dgrams)
+            dgrams->set_split_datagram_lookahead(n);
     }
     int Connection::get_split_datagram_lookahead() const
     {
-        return datagrams ? datagrams->get_split_datagram_lookahead() : -1;
+        return dgrams ? dgrams->get_split_datagram_lookahead() : -1;
     }
 
     std::optional<size_t> Connection::max_datagram_size_changed()
@@ -1764,7 +1744,7 @@ namespace oxen::quic
         // config values
         params.initial_max_streams_bidi = _max_streams;
 
-        if (datagrams)
+        if (dgrams)
         {
             log::trace(log_cat, "Enabling datagram support for connection");
             // This is effectively an "unlimited" value, which lets us accept any size that fits into a QUIC packet
@@ -1778,8 +1758,6 @@ namespace oxen::quic
 #ifndef NDEBUG
             callbacks.ack_datagram = connection_callbacks::on_ack_datagram;
 #endif
-
-            di = _loop.make_shared<dgram_interface>(*this);
         }
         else
         {
@@ -1829,7 +1807,7 @@ namespace oxen::quic
                                : nullptr;
 
         if (context->config.datagram_support)
-            datagrams = _loop.make_shared<DatagramIO>(
+            dgrams = _loop.make_shared<Datagrams>(
                     *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
         pseudo_stream = _loop.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
@@ -1968,8 +1946,8 @@ namespace oxen::quic
                 {
                     log::debug(log_cat, "transport parameters successfully loaded for 0-RTT connection support");
                     _early_data = true;
-                    if (datagrams)
-                        datagrams->early_data_begin();
+                    if (dgrams)
+                        dgrams->early_data_begin();
                 }
                 else
                     log::warning(
@@ -2059,42 +2037,37 @@ namespace oxen::quic
             s->check_timeouts();
     }
 
-    size_t connection_interface::num_streams_active()
+    size_t Connection::num_streams_active() const
     {
-        return endpoint().loop.call_get([this] { return num_streams_active_impl(); });
+        return _loop.call_get([this] { return _streams.size(); });
     }
-    size_t connection_interface::num_streams_pending()
+    size_t Connection::num_streams_pending() const
     {
-        return endpoint().loop.call_get([this] { return num_streams_pending_impl(); });
+        return _loop.call_get([this] { return pending_streams.size(); });
     }
-    uint64_t connection_interface::get_max_streams()
+    uint64_t Connection::get_max_streams() const
     {
-        return endpoint().loop.call_get([this] { return get_max_streams_impl(); });
+        return _loop.call_get([this] { return _max_streams; });
     }
-    uint64_t connection_interface::get_streams_available()
+    uint64_t Connection::get_streams_available() const
     {
-        return endpoint().loop.call_get([this] { return get_streams_available_impl(); });
+        return _loop.call_get([this] { return ngtcp2_conn_get_streams_bidi_left(*this); });
     }
-    Path connection_interface::path()
+    Path Connection::path() const
     {
-        return endpoint().loop.call_get([this]() -> Path { return path_impl(); });
+        return _loop.call_get([this] { return _path; });
     }
-    Address connection_interface::local()
+    Address Connection::local() const
     {
-        return endpoint().loop.call_get([this]() -> Address { return local_impl(); });
+        return _loop.call_get([this] { return _path.local; });
     }
-    Address connection_interface::remote()
+    Address Connection::remote() const
     {
-        return endpoint().loop.call_get([this]() -> Address { return remote_impl(); });
+        return _loop.call_get([this] { return _path.remote; });
     }
-    size_t connection_interface::get_max_datagram_size()
+    size_t Connection::get_max_datagram_size() const
     {
-        return endpoint().loop.call_get([this]() { return get_max_datagram_size_impl(); });
-    }
-
-    connection_interface::~connection_interface()
-    {
-        log::trace(log_cat, "connection_interface @{} destroyed", (void*)this);
+        return _loop.call_get([this] { return get_max_datagram_piece() * (_packet_splitting ? 2 : 1); });
     }
 
     Connection::~Connection()

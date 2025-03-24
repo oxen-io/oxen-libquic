@@ -74,7 +74,7 @@ namespace oxen::quic
         ngtcp2_conn_set_local_addr(conn, &new_addr._addr);
     }
 
-    Connection* TestHelper::get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& _conn)
+    Connection* TestHelper::get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<Connection>& _conn)
     {
         auto* conn = static_cast<Connection*>(_conn.get());
         return ep->get_conn(conn->_source_cid);
@@ -85,7 +85,7 @@ namespace oxen::quic
         return ep.get_socket()->sock_;
     }
 
-    void TestHelper::enable_dgram_drop(connection_interface& ci)
+    void TestHelper::enable_dgram_drop(Connection& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
         conn._loop.call_get([&conn] {
@@ -94,7 +94,7 @@ namespace oxen::quic
             conn.debug_datagram_counter = 0;
         });
     }
-    int TestHelper::disable_dgram_drop(connection_interface& ci)
+    int TestHelper::disable_dgram_drop(Connection& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
         return conn._loop.call_get([&conn] {
@@ -104,7 +104,7 @@ namespace oxen::quic
             return count;
         });
     }
-    void TestHelper::enable_dgram_counter(connection_interface& ci)
+    void TestHelper::enable_dgram_counter(Connection& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
         conn._loop.call_get([&conn] {
@@ -113,7 +113,7 @@ namespace oxen::quic
             conn.debug_datagram_counter = 0;
         });
     }
-    int TestHelper::disable_dgram_counter(connection_interface& ci)
+    int TestHelper::disable_dgram_counter(Connection& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
         return conn._loop.call_get([&conn] {
@@ -123,10 +123,15 @@ namespace oxen::quic
             return count;
         });
     }
-    int TestHelper::get_dgram_debug_counter(connection_interface& ci)
+    int TestHelper::get_dgram_debug_counter(Connection& ci)
     {
         auto& conn = static_cast<Connection&>(ci);
         return conn._loop.call_get([&conn] { return conn.debug_datagram_counter; });
+    }
+
+    int TestHelper::get_datagram_last_cleared(Datagrams& dg)
+    {
+        return dg.recv_buffer.last_cleared;
     }
 
     void TestHelper::increment_ref_id(Endpoint& ep, uint64_t by)
