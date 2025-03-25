@@ -2,9 +2,10 @@
 
 #include "internal.hpp"
 
-#include <fmt/ranges.h>
 #include <event2/event.h>
 #include <event2/thread.h>
+
+#include <fmt/ranges.h>
 
 namespace oxen::quic
 {
