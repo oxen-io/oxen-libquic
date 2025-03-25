@@ -244,7 +244,6 @@ namespace oxen::quic
 
     Address Address::parse(std::string_view addr, std::optional<uint16_t> default_port)
     {
-        std::string final_addr;
         uint16_t final_port = default_port.value_or(0);
         if (auto p = addr.find_last_not_of("0123456789");
             p != std::string_view::npos && p + 2 <= addr.size() && addr[p] == ':')
@@ -272,7 +271,7 @@ namespace oxen::quic
                 throw std::invalid_argument{"Invalid address: IPv6 addresses require [...] square brackets"};
         }
 
-        return Address{final_addr, final_port};
+        return Address{std::string{addr}, final_port};
     }
 
 }  // namespace oxen::quic
