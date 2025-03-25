@@ -125,8 +125,11 @@ target_link_libraries(libquic_internal INTERFACE libquic_internal-warnings)
 # 15 (where these still occur in the latest gcc snapshot) with the vain hope that maybe they'll get
 # fixed for gcc 16.
 if(WARNINGS_AS_ERRORS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
-        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 12.0.0 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.0.0)
-    target_compile_options(libquic_external INTERFACE -Wno-error=stringop-overflow -Wno-error=stringop-overread)
+        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 10.0.0 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.0.0)
+    target_compile_options(libquic_external INTERFACE -Wno-error=stringop-overflow)
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 12.0.0)
+        target_compile_options(libquic_external INTERFACE -Wno-error=stringop-overread)
+    endif()
 endif()
 
 add_subdirectory(external)
