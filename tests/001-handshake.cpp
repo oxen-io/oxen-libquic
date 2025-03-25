@@ -773,14 +773,21 @@ namespace oxen::quic::test
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
+        opt::idle_timeout timeout{
+#ifdef __APLE__
+                250ms
+#else
+                100ms
+#endif
+        };
         SECTION("Client fast timeout")
         {
             server_endpoint->listen(server_tls);
-            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{100ms});
+            auto client_ci = client_endpoint->connect(client_remote, client_tls, timeout);
         }
         SECTION("Server fast timeout")
         {
-            server_endpoint->listen(server_tls, opt::idle_timeout{100ms});
+            server_endpoint->listen(server_tls, timeout);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
         }
 
