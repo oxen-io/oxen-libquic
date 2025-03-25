@@ -6,6 +6,7 @@
 
 #include <oxen/quic/opt.hpp>
 
+#include <fmt/ranges.h>
 #include <gnutls/crypto.h>
 
 using namespace oxen::quic;
