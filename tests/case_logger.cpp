@@ -36,18 +36,9 @@ namespace oxen::quic::test
     {
 
         std::string_view filename{sli.file};
-        for (const auto& prefix : oxen::log::detail::source_prefixes)
-        {
-            if (filename.starts_with(prefix))
-            {
-                filename.remove_prefix(prefix.size());
-                if (!filename.empty() && filename[0] == '/')
-                    filename.remove_prefix(1);
-            }
-        }
-        while (filename.starts_with("../"))
-            filename.remove_prefix(3);
-
+        if (auto pos = filename.rfind('/'); pos != std::string_view::npos)
+            filename.remove_prefix(pos + 1);
+        
         spdlog::source_loc sloc{filename.data(), static_cast<int>(sli.line), /*function name=*/""};
 
         cat->log(sloc, log::Level::trace, fmt, std::forward<T>(args)...);
