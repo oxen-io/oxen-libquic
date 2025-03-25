@@ -219,9 +219,7 @@ namespace oxen::quic::test
                 [&](Stream&, std::span<const std::byte>) {
                     stream_response_time.set_value(std::chrono::steady_clock::now() - started);
                 },
-                [&](datagram) {
-                    dgram_response_time.set_value(std::chrono::steady_clock::now() - started);
-                });
+                [&](datagram) { dgram_response_time.set_value(std::chrono::steady_clock::now() - started); });
 
         auto s = client_ci->open_stream<Stream>();
         s->send("hello"s);

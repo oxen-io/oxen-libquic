@@ -601,7 +601,7 @@ namespace oxen::quic::test
 
         std::promise<void> pr;
 
-        test_net.loop()->call([&, dgram=conn_interface->datagrams()]() {
+        test_net.loop()->call([&, dgram = conn_interface->datagrams()]() {
             for (int i = 0; i < n; i++)
                 dgram->send(big, nullptr);
 
