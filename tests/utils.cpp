@@ -8,6 +8,7 @@
 
 #include <ngtcp2/ngtcp2.h>
 
+#include <fmt/ranges.h>
 #include <gnutls/crypto.h>
 #include <nettle/eddsa.h>
 #include <nettle/sha3.h>
