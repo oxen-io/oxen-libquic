@@ -230,7 +230,8 @@ local clang(version) = debian_pipeline(
   'Debian sid/clang-' + version,
   docker_base + 'debian-sid-clang',
   deps=['clang-' + version] + default_deps_base + ['libngtcp2-dev'],
-  cmake_extra='-DCMAKE_C_COMPILER=clang-' + version + ' -DCMAKE_CXX_COMPILER=clang++-' + version + ' '
+  cmake_extra='-DCMAKE_C_COMPILER=clang-' + version + ' -DCMAKE_CXX_COMPILER=clang++-' + version +
+              ' -DUSE_LTO=OFF '  // Enabling LTO in oxen-logging makes clang unhappy
 );
 
 local full_llvm(version, _allow_fail=false) = debian_pipeline(
