@@ -12,6 +12,11 @@
 
 using namespace oxen::quic;
 
+inline std::string_view view(std::span<const std::byte> x)
+{
+    return {reinterpret_cast<const char*>(x.data()), x.size()};
+}
+
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC stream speedtest client"};
@@ -154,7 +159,7 @@ int main(int argc, char* argv[])
             log::error(test_cat, "Got unexpected data from the other side: {}B != 32B", data.size());
             sd.failed = true;
         }
-        else if (auto first = data.first(32); first != sd.hash)
+        else if (auto first = data.first(32); view(first) != view(sd.hash))
         {
             log::critical(
                     test_cat,

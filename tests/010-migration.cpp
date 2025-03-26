@@ -5,7 +5,8 @@ namespace oxen::quic::test
     TEST_CASE("010 - Migration", "[010][migration]")
     {
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto good_msg = to_span<std::byte>(good_msg_str);
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -27,7 +28,7 @@ namespace oxen::quic::test
 
         stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(good_msg));
+            REQUIRE(view(dat) == view(good_msg));
             d_promise.set_value();
         };
 

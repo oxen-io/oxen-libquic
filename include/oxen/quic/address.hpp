@@ -341,7 +341,29 @@ namespace oxen::quic
 
         auto operator<=>(const RemoteAddress& other) const
         {
+#if defined(__ANDROID__) && __NDK_MAJOR__ < 27
+            auto ret = std::strong_ordering::equal;
+
+            if (_remote_pubkey.size() != other._remote_pubkey.size())
+            {
+                ret = _remote_pubkey.size() < other._remote_pubkey.size() ? std::strong_ordering::less
+                                                                          : std::strong_ordering::greater;
+            }
+            else
+            {
+                for (size_t i = 0; i < _remote_pubkey.size(); ++i)
+                {
+                    if (_remote_pubkey[i] != other._remote_pubkey[i])
+                    {
+                        ret = _remote_pubkey[i] < other._remote_pubkey[i] ? std::strong_ordering::less
+                                                                          : std::strong_ordering::greater;
+                        break;
+                    }
+                }
+            }
+#else
             auto ret = _remote_pubkey <=> other._remote_pubkey;
+#endif
             if (ret == 0)
                 ret = Address::operator<=>(other);
             return ret;

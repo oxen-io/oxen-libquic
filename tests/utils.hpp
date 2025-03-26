@@ -8,7 +8,6 @@
 #include <oxen/quic/gnutls_crypto.hpp>
 #include <oxenc/base64.h>
 #include <oxenc/hex.h>
-#include <oxenc/span.h>
 
 #include <CLI/CLI.hpp>
 #include <CLI/Error.hpp>
@@ -53,7 +52,6 @@ namespace oxen::quic
     inline auto log_cat = log::Cat("quic");
 
     using namespace oxenc::literals;
-    using namespace oxenc::operators;
 
     inline const std::string LOCALHOST = "127.0.0.1"s;
     inline const std::string TEST_ENDPOINT = "test_endpoint"s;
@@ -116,8 +114,8 @@ namespace oxen::quic
     // of the given seed, if non-empty, and otherwise will generate a random value.
     opt::static_secret generate_static_secret(std::string_view seed_string = ""sv);
 
-    template <oxenc::const_span_type T>
-    inline std::string_view sp_to_sv(const T& sp)
+    template <typename InChar>
+    inline std::string_view sp_to_sv(std::span<const InChar> sp)
     {
         return {reinterpret_cast<const char*>(sp.data()), sp.size()};
     }
