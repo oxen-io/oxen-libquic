@@ -339,36 +339,10 @@ namespace oxen::quic
         RemoteAddress(RemoteAddress&& other) = default;
         RemoteAddress& operator=(RemoteAddress&& other) = default;
 
-        auto operator<=>(const RemoteAddress& other) const
-        {
-#if defined(__ANDROID__) && __NDK_MAJOR__ < 27
-            auto ret = std::strong_ordering::equal;
-
-            if (_remote_pubkey.size() != other._remote_pubkey.size())
-            {
-                ret = _remote_pubkey.size() < other._remote_pubkey.size() ? std::strong_ordering::less
-                                                                          : std::strong_ordering::greater;
-            }
-            else
-            {
-                for (size_t i = 0; i < _remote_pubkey.size(); ++i)
-                {
-                    if (_remote_pubkey[i] != other._remote_pubkey[i])
-                    {
-                        ret = _remote_pubkey[i] < other._remote_pubkey[i] ? std::strong_ordering::less
-                                                                          : std::strong_ordering::greater;
-                        break;
-                    }
-                }
-            }
-#else
-            auto ret = _remote_pubkey <=> other._remote_pubkey;
-#endif
-            if (ret == 0)
-                ret = Address::operator<=>(other);
-            return ret;
+        auto operator<=>(const RemoteAddress& other) const = delete;
+        auto operator==(const RemoteAddress& other) const {
+            return Address::operator==(other) && _remote_pubkey == other._remote_pubkey;
         }
-        auto operator==(const RemoteAddress& other) const { return (*this <=> other) == 0; }
     };
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible
