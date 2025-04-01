@@ -4,10 +4,9 @@
 
 #include "utils.hpp"
 
-#include <oxenc/span.h>
+#include <oxenc/common.h>
 
 // keep above Catch2 includes to get comparators
-using namespace oxenc::operators;
 
 #include <catch2/catch_test_case_info.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -21,24 +20,21 @@ using namespace oxenc::operators;
 
 namespace oxen::quic
 {
-    template <oxenc::const_span_type SpanT>
-    struct SpanEqualsMatcher : Catch::Matchers::MatcherGenericBase
+    template <oxenc::basic_char Char>
+    std::span<const Char> to_span(std::string_view x)
     {
-      private:
-        const SpanT& s;
-
-      public:
-        SpanEqualsMatcher(const SpanT& _s) : s{_s} {}
-
-        bool match(const SpanT& other) const { return std::ranges::equal(s, other); }
-
-        std::string describe() const override { return "Equals: {}"_format(sp_to_sv(s)); }
-    };
-
-    template <oxenc::const_span_type SpanT>
-    auto EqualsSpan(const SpanT& T) -> SpanEqualsMatcher<SpanT>
-    {
-        return SpanEqualsMatcher<SpanT>{T};
+        return {reinterpret_cast<const Char*>(x.data()), x.size()};
     }
-
+    inline std::string_view view(std::span<const unsigned char> x)
+    {
+        return {reinterpret_cast<const char*>(x.data()), x.size()};
+    }
+    inline std::string_view view(std::span<const std::byte> x)
+    {
+        return {reinterpret_cast<const char*>(x.data()), x.size()};
+    }
+    inline std::string_view view(std::span<const char> x)
+    {
+        return {x.data(), x.size()};
+    }
 }  // namespace oxen::quic

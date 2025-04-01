@@ -140,7 +140,8 @@ namespace oxen::quic::test
         auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> data_promise;
         std::future<void> data_future = data_promise.get_future();
@@ -200,7 +201,7 @@ namespace oxen::quic::test
         dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
             ++data_counter;
-            if (data == "final"_bsp)
+            if (view(data) == view(to_span<std::byte>("final")))
                 data_promise.set_value();
         };
 

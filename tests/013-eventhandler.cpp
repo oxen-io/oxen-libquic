@@ -12,7 +12,8 @@ namespace oxen::quic::test
     TEST_CASE("013 - EventHandler event repeater: EventHandler managed lifetime", "[013][repeater][managed]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> prom_a, prom_b;
         std::future<void> fut_a = prom_a.get_future(), fut_b = prom_b.get_future();

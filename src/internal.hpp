@@ -19,7 +19,6 @@ namespace oxen::quic
     namespace log = oxen::log;
 
     using namespace log::literals;
-    using namespace oxenc::literals;
 
     inline constexpr size_t MAX_BATCH =
 #if defined(OXEN_LIBQUIC_UDP_SENDMMSG) || defined(OXEN_LIBQUIC_UDP_GSO)

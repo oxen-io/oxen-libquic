@@ -6,6 +6,11 @@
 
 using namespace oxen::quic;
 
+inline std::string_view view(std::span<const std::byte> x)
+{
+    return {reinterpret_cast<const char*>(x.data()), x.size()};
+}
+
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC datagram speedtest server"};
@@ -115,7 +120,7 @@ int main(int argc, char* argv[])
                 bad = true;
                 log::error(log_cat, "Datagram {} verification found invalid first byte value {}", info.n_received, offset);
             }
-            else if (data != std::span{dgram_rainbow}.subspan(offset, data.size()))
+            else if (view(data) != view(std::span{dgram_rainbow}.subspan(offset, data.size())))
             {
                 bad = true;
             }

@@ -8,8 +8,6 @@
 #include "formattable.hpp"
 #include "utils.hpp"
 
-#include <oxenc/span.h>
-
 #include <fmt/format.h>
 
 #include <version>
@@ -44,7 +42,7 @@ namespace oxen::quic
         explicit buffer_printer(std::basic_string<T>&& buf) = delete;
 
         // Constructed from any type of span
-        template <oxenc::const_span_type T>
+        template <oxenc::bt_input_string T>
         explicit buffer_printer(const T& data) : buffer_printer{data.data(), data.size()}
         {}
 

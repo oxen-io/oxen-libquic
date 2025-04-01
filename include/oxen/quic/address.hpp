@@ -339,14 +339,11 @@ namespace oxen::quic
         RemoteAddress(RemoteAddress&& other) = default;
         RemoteAddress& operator=(RemoteAddress&& other) = default;
 
-        auto operator<=>(const RemoteAddress& other) const
+        auto operator<=>(const RemoteAddress& other) const = delete;
+        auto operator==(const RemoteAddress& other) const
         {
-            auto ret = _remote_pubkey <=> other._remote_pubkey;
-            if (ret == 0)
-                ret = Address::operator<=>(other);
-            return ret;
+            return Address::operator==(other) && _remote_pubkey == other._remote_pubkey;
         }
-        auto operator==(const RemoteAddress& other) const { return (*this <=> other) == 0; }
     };
 
     // Wrapper for ngtcp2_path with remote/local components. Implicitly convertible

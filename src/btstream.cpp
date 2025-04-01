@@ -204,7 +204,7 @@ namespace oxen::quic
                     "Handler for {} threw an uncaught exception ({}); returning a generic error message",
                     ep,
                     e.what());
-            respond(req_id, "An error occurred while processing the request"_bsp, true);
+            respond(req_id, str_to_bspan("An error occurred while processing the request"sv), true);
         }
     }
 

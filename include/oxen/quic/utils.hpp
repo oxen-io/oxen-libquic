@@ -159,13 +159,13 @@ namespace oxen::quic
         }
     }  // namespace detail
 
-    template <oxenc::string_like T>
+    template <oxenc::bt_input_string T>
     inline bspan str_to_bspan(const T& sv)
     {
         return detail::to_span<std::byte>(sv.data(), sv.size());
     }
 
-    template <oxenc::string_like T>
+    template <oxenc::bt_input_string T>
     inline uspan str_to_uspan(const T& sv)
     {
         return detail::to_span<unsigned char>(sv.data(), sv.size());

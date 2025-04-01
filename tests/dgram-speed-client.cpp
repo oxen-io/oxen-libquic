@@ -8,6 +8,17 @@
 
 using namespace oxen::quic;
 
+inline std::string_view view(std::span<const std::byte> x)
+{
+    return {reinterpret_cast<const char*>(x.data()), x.size()};
+}
+
+template <oxenc::basic_char Char>
+std::span<const Char> to_span(std::string_view x)
+{
+    return {reinterpret_cast<const Char*>(x.data()), x.size()};
+}
+
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC datagram speedtest client"};
@@ -100,7 +111,7 @@ int main(int argc, char* argv[])
             log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
             dgram_data->failed = true;
         }
-        else if (data != "DONE!"_bsp)
+        else if (view(data) != view(to_span<std::byte>("DONE!")))
         {
             log::error(
                     test_cat,
