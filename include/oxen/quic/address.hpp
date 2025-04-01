@@ -340,7 +340,8 @@ namespace oxen::quic
         RemoteAddress& operator=(RemoteAddress&& other) = default;
 
         auto operator<=>(const RemoteAddress& other) const = delete;
-        auto operator==(const RemoteAddress& other) const {
+        auto operator==(const RemoteAddress& other) const
+        {
             return Address::operator==(other) && _remote_pubkey == other._remote_pubkey;
         }
     };
