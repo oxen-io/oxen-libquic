@@ -6,11 +6,6 @@
 
 using namespace oxen::quic;
 
-inline std::string_view view(std::span<const std::byte> x)
-{
-    return {reinterpret_cast<const char*>(x.data()), x.size()};
-}
-
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC datagram speedtest server"};

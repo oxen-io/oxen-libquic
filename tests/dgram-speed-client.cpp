@@ -8,11 +8,6 @@
 
 using namespace oxen::quic;
 
-inline std::string_view view(std::span<const std::byte> x)
-{
-    return {reinterpret_cast<const char*>(x.data()), x.size()};
-}
-
 template <oxenc::basic_char Char>
 std::span<const Char> to_span(std::string_view x)
 {
