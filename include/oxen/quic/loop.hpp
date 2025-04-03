@@ -15,8 +15,6 @@ namespace oxen::quic
 {
     using Job = std::function<void()>;
 
-    static void setup_libevent_logging();
-
     class Loop;
 
     struct Ticker
