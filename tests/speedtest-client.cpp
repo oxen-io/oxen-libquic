@@ -22,9 +22,9 @@ int main(int argc, char* argv[])
     CLI::App cli{"libQUIC stream speedtest client"};
 
     std::string local_addr, remote_addr = "127.0.0.1:5500"s, remote_pubkey, seed_string;
-    bool enable_0rtt;
+    bool enable_0rtt, disable_pmtud;
     std::filesystem::path zerortt_path;
-    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, enable_0rtt, zerortt_path);
+    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, disable_pmtud, enable_0rtt, zerortt_path);
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
@@ -194,7 +194,11 @@ int main(int argc, char* argv[])
     RemoteAddress server_addr{remote_pubkey, Address::parse(remote_addr, DEFAULT_SPEEDTEST_ADDR.port())};
 
     log::debug(test_cat, "Constructing endpoint on {}", client_local);
-    auto client = client_net.endpoint(client_local, generate_static_secret(seed_string), opt::alpns{"speedtest"});
+    std::optional<opt::disable_mtu_discovery> mtu;
+    if (disable_pmtud)
+        mtu.emplace();
+
+    auto client = client_net.endpoint(client_local, generate_static_secret(seed_string), opt::alpns{"speedtest"}, mtu);
     log::debug(test_cat, "Connecting to {}...", server_addr);
     auto client_ci = client->connect(server_addr, client_tls, on_stream_data, stream_closed);
 

@@ -17,8 +17,8 @@ int main(int argc, char* argv[])
 
     auto server_addr = DEFAULT_DGRAM_SPEED_ADDR.to_string();
     std::string seed_string;
-    bool enable_0rtt;
-    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
+    bool enable_0rtt, disable_pmtud;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt, disable_pmtud);
 
     bool verify_datagrams = false;
     cli.add_flag("-V,--verify-datagrams", verify_datagrams, "Verify the value of each received datagrams");
@@ -170,9 +170,16 @@ int main(int argc, char* argv[])
     {
         log::debug(test_cat, "Starting up endpoint");
         auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
-        // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
+        std::optional<opt::disable_mtu_discovery> mtu;
+        if (disable_pmtud)
+            mtu.emplace();
         server = server_net.endpoint(
-                server_local, recv_dgram_cb, split_dgram, generate_static_secret(seed_string), opt::alpns{"dgram-speed"});
+                server_local,
+                recv_dgram_cb,
+                split_dgram,
+                generate_static_secret(seed_string),
+                opt::alpns{"dgram-speed"},
+                mtu);
         server->listen(server_tls, stream_opened);
     }
     catch (const std::exception& e)
