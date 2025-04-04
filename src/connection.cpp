@@ -1743,9 +1743,13 @@ namespace oxen::quic
         settings.max_stream_window = 16_Mi;
         settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
 
-        settings.no_pmtud = disable_mtu_discovery ? 1 : 0;
-
         ngtcp2_transport_params_default(&params);
+
+        if (disable_mtu_discovery)
+        {
+            settings.no_pmtud = true;
+            params.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+        }
 
         // Connection flow level control window
         params.initial_max_data = 15_Mi;
