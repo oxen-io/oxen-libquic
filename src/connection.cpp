@@ -1703,7 +1703,8 @@ namespace oxen::quic
             ngtcp2_settings& settings,
             ngtcp2_transport_params& params,
             ngtcp2_callbacks& callbacks,
-            std::chrono::nanoseconds handshake_timeout)
+            std::chrono::nanoseconds handshake_timeout,
+            bool disable_mtu_discovery)
     {
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.path_validation = connection_callbacks::on_path_validation;
@@ -1741,6 +1742,8 @@ namespace oxen::quic
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
         settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
+
+        settings.no_pmtud = disable_mtu_discovery ? 1 : 0;
 
         ngtcp2_transport_params_default(&params);
 
@@ -1795,7 +1798,8 @@ namespace oxen::quic
             std::optional<std::vector<unsigned char>> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
-            ngtcp2_cid* ocid) :
+            ngtcp2_cid* ocid,
+            bool disable_mtu_discovery) :
             _endpoint{ep},
             context{std::move(ctx)},
             dir{context->dir},
@@ -1837,7 +1841,7 @@ namespace oxen::quic
 
         auto handshake_timeout = context->config.handshake_timeout.value_or(default_handshake_timeout);
 
-        init(settings, params, callbacks, handshake_timeout);
+        init(settings, params, callbacks, handshake_timeout, disable_mtu_discovery);
 
         // Clients should be the ones providing a remote pubkey here. This way we can emplace it into
         // the gnutlssession object to be verified. Servers should be verifying via callback
@@ -2015,7 +2019,8 @@ namespace oxen::quic
             std::optional<std::vector<unsigned char>> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
-            ngtcp2_cid* ocid)
+            ngtcp2_cid* ocid,
+            bool disable_mtu_discovery)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{new Connection{
@@ -2030,7 +2035,8 @@ namespace oxen::quic
                 remote_pk,
                 hdr,
                 token_type,
-                ocid}};
+                ocid,
+                disable_mtu_discovery}};
 
         conn->packet_io_ready();
 

@@ -13,6 +13,11 @@ namespace oxen::quic
     {
         using namespace std::chrono_literals;
 
+        // It appears that sometimes the MTU on a path decreases, causing packets to fail
+        // because the discovered MTU is now too high.  Passing this opt disables path MTU discovery.
+        struct disable_mtu_discovery
+        {};
+
         struct max_streams
         {
             uint64_t stream_count{DEFAULT_MAX_BIDI_STREAMS};

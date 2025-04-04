@@ -336,7 +336,8 @@ namespace oxen::quic
                 std::optional<std::vector<unsigned char>> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,
-                ngtcp2_cid* ocid = nullptr);
+                ngtcp2_cid* ocid = nullptr,
+                bool disable_mtu_discovery = false);
 
         void packet_io_ready();
 
@@ -449,7 +450,8 @@ namespace oxen::quic
                 std::optional<std::vector<unsigned char>> remote_pk = std::nullopt,
                 ngtcp2_pkt_hd* hdr = nullptr,
                 std::optional<ngtcp2_token_type> token_type = std::nullopt,
-                ngtcp2_cid* ocid = nullptr);
+                ngtcp2_cid* ocid = nullptr,
+                bool disable_mtu_discovery = false);
 
         Endpoint& _endpoint;
         std::shared_ptr<IOContext> context;
@@ -545,7 +547,8 @@ namespace oxen::quic
                 ngtcp2_settings& settings,
                 ngtcp2_transport_params& params,
                 ngtcp2_callbacks& callbacks,
-                std::chrono::nanoseconds handshake_timeout);
+                std::chrono::nanoseconds handshake_timeout,
+                bool disable_mtu_discovery);
 
         io_result read_packet(const Packet& pkt);
 

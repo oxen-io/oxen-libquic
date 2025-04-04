@@ -98,6 +98,11 @@ namespace oxen::quic
         _manual_routing = std::move(mrouting);
     }
 
+    void Endpoint::handle_ep_opt([[maybe_unused]] opt::disable_mtu_discovery)
+    {
+        _disable_mtu_discovery = true;
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -175,7 +180,11 @@ namespace oxen::quic
                             outbound_ctx,
                             outbound_alpns,
                             handshake_timeout,
-                            remote.get_remote_key());
+                            remote.get_remote_key(),
+                            nullptr,
+                            std::nullopt,
+                            nullptr,
+                            _disable_mtu_discovery);
                     return it_b->second;
                 }
                 catch (...)
@@ -928,7 +937,8 @@ namespace oxen::quic
                             std::nullopt,
                             &hdr,
                             token_type,
-                            pkt_original_cid);
+                            pkt_original_cid,
+                            _disable_mtu_discovery);
 
                     conn = it_b->second.get();
                     break;
