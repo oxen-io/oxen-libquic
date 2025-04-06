@@ -204,6 +204,7 @@ namespace oxen::quic
         int _rbufsize{4096};
 
         opt::manual_routing _manual_routing;
+        bool _disable_mtu_discovery{false};
 
         uint64_t _next_rid{0};
 
@@ -237,6 +238,7 @@ namespace oxen::quic
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
         void handle_ep_opt(opt::static_secret ssecret);
         void handle_ep_opt(opt::manual_routing mrouting);
+        void handle_ep_opt(opt::disable_mtu_discovery);
 
         // Takes a std::optional-wrapped option that does nothing if the optional is empty,
         // otherwise passes it through to the above.  This is here to allow runtime-dependent

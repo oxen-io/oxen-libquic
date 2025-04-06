@@ -29,8 +29,8 @@ int main(int argc, char* argv[])
 
     std::string server_addr = DEFAULT_PING_ADDR.to_string();
     std::string seed_string;
-    bool enable_0rtt;
-    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
+    bool enable_0rtt, disable_pmtud;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt, disable_pmtud);
 
     double flakiness = 0.0;
     cli.add_option("-f,--flakiness", flakiness, "Fail to respond to pings this proportion of the time.")
@@ -89,6 +89,9 @@ int main(int argc, char* argv[])
         log::info(test_cat, "Starting endpoint...");
         if (enable_0rtt)
             server_tls->enable_inbound_0rtt();
+        std::optional<opt::disable_mtu_discovery> mtu;
+        if (disable_pmtud)
+            mtu.emplace();
 
         server = server_net.endpoint(
                 server_local,
@@ -96,7 +99,8 @@ int main(int argc, char* argv[])
                 conn_closed,
                 opt::enable_datagrams{},
                 generate_static_secret(seed_string),
-                opt::alpns{"quic-ping"});
+                opt::alpns{"quic-ping"},
+                mtu);
         server->listen(server_tls, dgram_recv);
 
         server_log_listening(server_local, DEFAULT_PING_ADDR, pubkey, seed_string, enable_0rtt);

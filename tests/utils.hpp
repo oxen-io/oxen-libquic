@@ -128,7 +128,8 @@ namespace oxen::quic
     void add_log_opts(CLI::App& cli, std::string& file, std::string& level);
 
     // Adds common server options.
-    void common_server_opts(CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt);
+    void common_server_opts(
+            CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt, bool& disable_pmtud);
 
     // Adds common client options.
     void common_client_opts(
@@ -137,6 +138,7 @@ namespace oxen::quic
             std::string& remote_addr,
             std::string& remote_pubkey,
             std::string& seed_string,
+            bool& disable_pmtud,
             bool& enable_0rtt,
             std::filesystem::path& store_0rtt);
 
