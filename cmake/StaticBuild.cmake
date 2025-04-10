@@ -382,6 +382,8 @@ add_find_package_override(
     ${DEPS_DESTDIR}/lib/libgnutls.a)
 if(WIN32)
     target_link_libraries(gnutls::gnutls INTERFACE ws2_32 ncrypt crypt32 iphlpapi)
+    # See GNUTLS gitlab issue 1117:
+    target_compile_definitions(gnutls::gnutls INTERFACE GNUTLS_INTERNAL_BUILD)
 endif()
 
 
