@@ -715,10 +715,7 @@ namespace oxen::quic::test
         auto server_conn_est = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler("sleep"s, [&](message m) {
-                slow_response = std::thread{[m = std::move(m)] {
-                    std::this_thread::sleep_for(100ms);
-                    m.respond("I'm slow");
-                }};
+                test_net.loop()->call_later(250ms, [m = std::move(m)] { m.respond("I'm slow"); });
             });
         };
 

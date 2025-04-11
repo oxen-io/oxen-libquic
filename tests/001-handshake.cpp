@@ -774,10 +774,10 @@ namespace oxen::quic::test
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         opt::idle_timeout timeout{
-#ifdef __APLE__
-                250ms
+#ifdef __APPLE__
+                500ms
 #else
-                100ms
+                200ms
 #endif
         };
         SECTION("Client fast timeout")
@@ -791,11 +791,11 @@ namespace oxen::quic::test
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
         }
 
-        CHECK_FALSE(server_conn_closed.wait(50ms));
+        CHECK_FALSE(server_conn_closed.wait(timeout.timeout / 2));
 
-        CHECK(server_conn_closed.wait(500ms));
+        CHECK(server_conn_closed.wait(timeout.timeout * 2));
         CHECK(server_errcode == CONN_IDLE_CLOSED);
-        CHECK(client_conn_closed.wait(500ms));
+        CHECK(client_conn_closed.wait(timeout.timeout * 2));
         CHECK(client_errcode == CONN_IDLE_CLOSED);
     }
 
