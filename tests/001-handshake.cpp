@@ -292,8 +292,8 @@ namespace oxen::quic::test
             in6_addr localnet_in6addr = localnet_ipv6.in6().sin6_addr;
 
             ipv6 addr_localnet{0xfdab, 0x1234, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001};
-            ipv6 addr_from_in6addr{&localnet_in6addr};
-            in6_addr localnet_from_ipv6 = addr_from_in6addr.to_in6();
+            ipv6 addr_from_in6addr{localnet_in6addr};
+            auto localnet_from_ipv6 = static_cast<in6_addr>(addr_from_in6addr);
 
             ipv6 weird_addr = Address{weird, 0}.to_ipv6();
 
