@@ -78,7 +78,7 @@ local generic_build(jobs, build_type, lto, werror, cmake_extra, local_mirror, te
         ]
         + (if tests then [
              'cd build',
-             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success -T --log-level debug --no-ipv6 --colour-mode ansi' + (if test_0rtt then '' else ' --disable-0rtt'),
+             (if gdb then '../utils/ci/drone-gdb.sh ' else '') + './tests/alltests --success -T --no-ipv6 --colour-mode ansi' + (if test_0rtt then '' else ' --disable-0rtt'),
              'cd ..',
            ] else []);
 
@@ -230,7 +230,8 @@ local clang(version) = debian_pipeline(
   'Debian sid/clang-' + version,
   docker_base + 'debian-sid-clang',
   deps=['clang-' + version] + default_deps_base + ['libngtcp2-dev'],
-  cmake_extra='-DCMAKE_C_COMPILER=clang-' + version + ' -DCMAKE_CXX_COMPILER=clang++-' + version + ' '
+  cmake_extra='-DCMAKE_C_COMPILER=clang-' + version + ' -DCMAKE_CXX_COMPILER=clang++-' + version +
+              ' -DUSE_LTO=OFF '  // Enabling LTO in oxen-logging makes clang unhappy
 );
 
 local full_llvm(version, _allow_fail=false) = debian_pipeline(

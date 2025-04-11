@@ -8,13 +8,14 @@ namespace oxen::quic::test
         auto server_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto good_msg = to_span<std::byte>(good_msg_str);
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
 
         stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
-            REQUIRE_THAT(dat, EqualsSpan(good_msg));
+            REQUIRE(view(dat) == view(good_msg));
             d_promise.set_value(true);
         };
 

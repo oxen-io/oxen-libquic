@@ -1,24 +1,37 @@
 #include "endpoint.hpp"
 
-extern "C"
-{
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/version.h>
-#ifdef __linux__
-#include <netinet/udp.h>
-#endif
-}
-
 #include "connection.hpp"
-#include "gnutls_crypto.hpp"
+#include "context.hpp"
 #include "internal.hpp"
 #include "opt.hpp"
-#include "types.hpp"
 #include "utils.hpp"
 
+#include <oxenc/hex.h>
+
+#include <event2/event.h>
+#include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+
+#include <gnutls/crypto.h>
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cerrno>
 #include <cstddef>
+#include <cstring>
 #include <list>
+#include <numeric>
 #include <optional>
+#include <string_view>
+#include <tuple>
+
+#ifndef _WIN32
+extern "C"
+{
+#include <sys/time.h>
+}
+#endif
 
 namespace oxen::quic
 {
@@ -83,6 +96,11 @@ namespace oxen::quic
     void Endpoint::handle_ep_opt(opt::manual_routing mrouting)
     {
         _manual_routing = std::move(mrouting);
+    }
+
+    void Endpoint::handle_ep_opt([[maybe_unused]] opt::disable_mtu_discovery)
+    {
+        _disable_mtu_discovery = true;
     }
 
     ConnectionID Endpoint::next_reference_id()
@@ -162,7 +180,11 @@ namespace oxen::quic
                             outbound_ctx,
                             outbound_alpns,
                             handshake_timeout,
-                            remote.get_remote_key());
+                            remote.get_remote_key(),
+                            nullptr,
+                            std::nullopt,
+                            nullptr,
+                            _disable_mtu_discovery);
                     return it_b->second;
                 }
                 catch (...)
@@ -915,7 +937,8 @@ namespace oxen::quic
                             std::nullopt,
                             &hdr,
                             token_type,
-                            pkt_original_cid);
+                            pkt_original_cid,
+                            _disable_mtu_discovery);
 
                     conn = it_b->second.get();
                     break;

@@ -6,14 +6,19 @@
 
 using namespace oxen::quic;
 
+inline std::string_view view(std::span<const std::byte> x)
+{
+    return {reinterpret_cast<const char*>(x.data()), x.size()};
+}
+
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC datagram speedtest server"};
 
     auto server_addr = DEFAULT_DGRAM_SPEED_ADDR.to_string();
     std::string seed_string;
-    bool enable_0rtt;
-    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
+    bool enable_0rtt, disable_pmtud;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt, disable_pmtud);
 
     bool verify_datagrams = false;
     cli.add_flag("-V,--verify-datagrams", verify_datagrams, "Verify the value of each received datagrams");
@@ -45,8 +50,7 @@ int main(int argc, char* argv[])
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_DGRAM_SPEED_ADDR.port());
-    Address server_local{listen_addr, listen_port};
+    auto server_local = Address::parse(server_addr, DEFAULT_DGRAM_SPEED_ADDR.port());
 
     stream_open_callback stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id());
@@ -116,7 +120,7 @@ int main(int argc, char* argv[])
                 bad = true;
                 log::error(log_cat, "Datagram {} verification found invalid first byte value {}", info.n_received, offset);
             }
-            else if (data != std::span{dgram_rainbow}.subspan(offset, data.size()))
+            else if (view(data) != view(std::span{dgram_rainbow}.subspan(offset, data.size())))
             {
                 bad = true;
             }
@@ -166,9 +170,16 @@ int main(int argc, char* argv[])
     {
         log::debug(test_cat, "Starting up endpoint");
         auto split_dgram = opt::enable_datagrams(Splitting::ACTIVE);
-        // opt::enable_datagrams split_dgram(Splitting::ACTIVE);
+        std::optional<opt::disable_mtu_discovery> mtu;
+        if (disable_pmtud)
+            mtu.emplace();
         server = server_net.endpoint(
-                server_local, recv_dgram_cb, split_dgram, generate_static_secret(seed_string), opt::alpns{"dgram-speed"});
+                server_local,
+                recv_dgram_cb,
+                split_dgram,
+                generate_static_secret(seed_string),
+                opt::alpns{"dgram-speed"},
+                mtu);
         server->listen(server_tls, stream_opened);
     }
     catch (const std::exception& e)

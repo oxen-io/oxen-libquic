@@ -4,6 +4,8 @@
 #include "endpoint.hpp"
 #include "internal.hpp"
 
+#include <type_traits>
+
 namespace oxen::quic
 {
 

@@ -1,23 +1,43 @@
 #include "connection.hpp"
 
+#include "context.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
-#include "error.hpp"
-#include "format.hpp"
-#include "gnutls_crypto.hpp"
 #include "internal.hpp"
+#include "iochannel.hpp"
+#include "result.hpp"
 #include "stream.hpp"
+#include "udp.hpp"
 #include "utils.hpp"
+
+#include <oxenc/endian.h>
+#include <oxenc/hex.h>
+
+#include <event2/event.h>
+
+#include <gnutls/crypto.h>
 
 #include <cassert>
 #include <chrono>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
+#include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <random>
 #include <ranges>
 #include <stdexcept>
+#include <unordered_map>
+
+#ifndef _WIN32
+extern "C"
+{
+#include <sys/time.h>
+}
+#endif
 
 namespace oxen::quic
 {
@@ -1653,6 +1673,19 @@ namespace oxen::quic
     {
         return get_max_datagram_piece() * (_packet_splitting ? 2 : 1);
     }
+    bool Connection::datagrams_enabled() const
+    {
+        return static_cast<bool>(datagrams);
+    }
+    void Connection::set_split_datagram_lookahead(int n)
+    {
+        if (datagrams)
+            datagrams->set_split_datagram_lookahead(n);
+    }
+    int Connection::get_split_datagram_lookahead() const
+    {
+        return datagrams ? datagrams->get_split_datagram_lookahead() : -1;
+    }
 
     std::optional<size_t> Connection::max_datagram_size_changed()
     {
@@ -1670,7 +1703,8 @@ namespace oxen::quic
             ngtcp2_settings& settings,
             ngtcp2_transport_params& params,
             ngtcp2_callbacks& callbacks,
-            std::chrono::nanoseconds handshake_timeout)
+            std::chrono::nanoseconds handshake_timeout,
+            bool disable_mtu_discovery)
     {
         callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
         callbacks.path_validation = connection_callbacks::on_path_validation;
@@ -1710,6 +1744,12 @@ namespace oxen::quic
         settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
 
         ngtcp2_transport_params_default(&params);
+
+        if (disable_mtu_discovery)
+        {
+            settings.no_pmtud = true;
+            params.max_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+        }
 
         // Connection flow level control window
         params.initial_max_data = 15_Mi;
@@ -1762,7 +1802,8 @@ namespace oxen::quic
             std::optional<std::vector<unsigned char>> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
-            ngtcp2_cid* ocid) :
+            ngtcp2_cid* ocid,
+            bool disable_mtu_discovery) :
             _endpoint{ep},
             context{std::move(ctx)},
             dir{context->dir},
@@ -1804,7 +1845,7 @@ namespace oxen::quic
 
         auto handshake_timeout = context->config.handshake_timeout.value_or(default_handshake_timeout);
 
-        init(settings, params, callbacks, handshake_timeout);
+        init(settings, params, callbacks, handshake_timeout, disable_mtu_discovery);
 
         // Clients should be the ones providing a remote pubkey here. This way we can emplace it into
         // the gnutlssession object to be verified. Servers should be verifying via callback
@@ -1982,7 +2023,8 @@ namespace oxen::quic
             std::optional<std::vector<unsigned char>> remote_pk,
             ngtcp2_pkt_hd* hdr,
             std::optional<ngtcp2_token_type> token_type,
-            ngtcp2_cid* ocid)
+            ngtcp2_cid* ocid,
+            bool disable_mtu_discovery)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         std::shared_ptr<Connection> conn{new Connection{
@@ -1997,7 +2039,8 @@ namespace oxen::quic
                 remote_pk,
                 hdr,
                 token_type,
-                ocid}};
+                ocid,
+                disable_mtu_discovery}};
 
         conn->packet_io_ready();
 
