@@ -106,7 +106,7 @@ namespace oxen::quic
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        assert(in_event_loop());
+        assert(loop.inside());
         return ConnectionID{++_next_rid};
     }
 
@@ -120,7 +120,11 @@ namespace oxen::quic
 
     void Endpoint::manually_receive_packet(Packet&& pkt)
     {
-        call([this, packet = std::move(pkt)]() mutable { handle_packet(std::move(packet)); });
+        if (loop.inside())
+            return handle_packet(std::move(pkt));
+
+        pkt.ensure_owned_data();
+        loop.call_soon([this, packet = std::move(pkt)]() mutable { handle_packet(std::move(packet)); });
     }
 
     void Endpoint::_init_internals()
@@ -129,7 +133,7 @@ namespace oxen::quic
         {
             log::debug(log_cat, "Starting new UDP socket on {}", _local);
             socket = std::make_unique<UDPSocket>(
-                    get_loop().get(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
+                    loop.get_event_base(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
 
             _local = socket->address();
         }
@@ -137,7 +141,7 @@ namespace oxen::quic
             log::info(log_cat, "Endpoint enabled with manual packet routing -- bypassing UDP socket creation!");
 
         expiry_timer.reset(event_new(
-                get_loop().get(),
+                loop.get_event_base(),
                 -1,          // Not attached to an actual socket
                 EV_PERSIST,  // Stays active (i.e. repeats) once fired
                 [](evutil_socket_t, short, void* self) { static_cast<Endpoint*>(self)->check_timeouts(); },
@@ -204,9 +208,9 @@ namespace oxen::quic
         ctx->config.policy = _policy;
     }
 
-    std::list<std::shared_ptr<connection_interface>> Endpoint::get_all_conns(std::optional<Direction> d)
+    std::list<std::shared_ptr<Connection>> Endpoint::get_all_conns(std::optional<Direction> d)
     {
-        std::list<std::shared_ptr<connection_interface>> ret{};
+        std::list<std::shared_ptr<Connection>> ret{};
 
         for (const auto& c : conns)
         {
@@ -226,7 +230,10 @@ namespace oxen::quic
     {
         // We need to defer this because we aren't allowed to close connections during some other
         // callback, and can't guarantee we aren't in such a callback.
-        call_soon([this, d] { _close_conns(d); });
+        loop.call_soon([wself = weak_from_this(), d] {
+            if (auto self = wself.lock())
+                self->_close_conns(d);
+        });
     }
 
     void Endpoint::_close_conns(std::optional<Direction> d)
@@ -335,16 +342,23 @@ namespace oxen::quic
     void Endpoint::drop_connection(Connection& conn, io_error err)
     {
         log::debug(log_cat, "Scheduling drop connection ({}) with errcode {}", conn.reference_id(), err.code());
-        call_soon([this, &conn, err] { _drop_connection(conn, err); });
+        loop.call_soon([wself = weak_from_this(), &conn, err] {
+            if (auto self = wself.lock())
+                self->_drop_connection(conn, err);
+        });
     }
 
     void Endpoint::close_connection(Connection& conn, io_error ec, std::optional<std::string> msg)
     {
         if (!msg)
             msg = ec.strerror();
-        call_soon([this, connid = conn.reference_id(), ec = std::move(ec), msg = std::move(*msg)]() mutable {
-            if (auto it = conns.find(connid); it != conns.end() && it->second)
-                _close_connection(*it->second, std::move(ec), std::move(msg));
+        loop.call_soon([wself = weak_from_this(),
+                        connid = conn.reference_id(),
+                        ec = std::move(ec),
+                        msg = std::move(*msg)]() mutable {
+            if (auto self = wself.lock())
+                if (auto it = self->conns.find(connid); it != self->conns.end() && it->second)
+                    self->_close_connection(*it->second, std::move(ec), std::move(msg));
         });
     }
 
@@ -368,11 +382,17 @@ namespace oxen::quic
         }
     }
 
+    // ngtcp2 buffer converter helper:
+    static uint8_t* u8data(std::span<std::byte> c)
+    {
+        return reinterpret_cast<uint8_t*>(c.data());
+    }
+
     void Endpoint::_close_connection(Connection& conn, io_error ec, std::string msg)
     {
         log::debug(log_cat, "Closing connection ({})", conn.reference_id());
 
-        assert(in_event_loop());
+        assert(loop.inside());
 
         if (conn.is_closing() || conn.is_draining())
             return;
@@ -436,7 +456,7 @@ namespace oxen::quic
 
         draining_closing.emplace(get_time() + ngtcp2_conn_get_pto(conn) * 3 * 1ns, conn.reference_id());
 
-        send_or_queue_packet(conn.path_impl(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
+        send_or_queue_packet(conn.path(), std::move(buf), /*ecn=*/0, [this, &conn](io_result rv) {
             if (rv.failure())
             {
                 log::warning(
@@ -478,7 +498,7 @@ namespace oxen::quic
             // Defer destruction until the next event loop tick because there are code paths that
             // can land here from within an ongoing connection method and so it isn't safe to allow
             // the Connection to get destroyed right now.
-            reset_soon(std::move(it->second));
+            loop.reset_soon(std::move(it->second));
             // We do want to remove it from `conns`, though, because some scheduled callbacks check
             // for `rid` being still in the endpoint and so, in that respect, we want the connection
             // to be considered gone even if its destructor doesn't fire yet.
@@ -490,7 +510,7 @@ namespace oxen::quic
     void Endpoint::initial_association(Connection& conn)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        assert(in_event_loop());
+        assert(loop.inside());
 
         auto dir_str = conn.is_outbound() ? "CLIENT"s : "SERVER"s;
         auto n = ngtcp2_conn_get_scid(conn, nullptr);
@@ -514,7 +534,7 @@ namespace oxen::quic
 
     void Endpoint::associate_reset(const uint8_t* token, Connection& conn)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         if (!token)
         {
             log::debug(log_cat, "Cannot add a null reset token");
@@ -531,7 +551,7 @@ namespace oxen::quic
 
     void Endpoint::dissociate_reset(const uint8_t* token, Connection& conn)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         if (!token)
             return;
 
@@ -560,7 +580,7 @@ namespace oxen::quic
 
     void Endpoint::associate_cid(quic_cid qcid, Connection& conn, bool weakly)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         log::trace(
                 log_cat, "{} associating CID:{} to {}", conn.is_inbound() ? "SERVER" : "CLIENT", qcid, conn.reference_id());
 
@@ -571,14 +591,14 @@ namespace oxen::quic
 
     void Endpoint::associate_cid(const ngtcp2_cid* cid, Connection& conn)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         if (cid->datalen)
             return associate_cid(quic_cid{*cid}, conn);
     }
 
     void Endpoint::dissociate_cid(quic_cid qcid, Connection& conn)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         log::trace(
                 log_cat, "{} dissociating CID:{} to {}", conn.is_inbound() ? "SERVER" : "CLIENT", qcid, conn.reference_id());
 
@@ -588,7 +608,7 @@ namespace oxen::quic
 
     void Endpoint::dissociate_cid(const ngtcp2_cid* cid, Connection& conn)
     {
-        assert(in_event_loop());
+        assert(loop.inside());
         if (cid->datalen)
             return dissociate_cid(quic_cid{*cid}, conn);
     }
@@ -790,7 +810,7 @@ namespace oxen::quic
         return std::nullopt;
     }
 
-    void Endpoint::connection_established(connection_interface& conn)
+    void Endpoint::connection_established(Connection& conn)
     {
         log::trace(log_cat, "Connection established, calling user callback ({})", conn.reference_id());
 
@@ -913,7 +933,7 @@ namespace oxen::quic
 
         log::debug(log_cat, "Constructing path using packet path: {}", pkt.path);
 
-        assert(in_event_loop());
+        assert(loop.inside());
 
         auto next_rid = next_reference_id();
 
@@ -960,7 +980,7 @@ namespace oxen::quic
             {
                 for (size_t i = 0; i < n_pkts; i++)
                 {
-                    _manual_routing(path, bspan{buf, *bufsize});
+                    _manual_routing(path, std::span{buf, *bufsize});
                     buf += *bufsize++;
                 }
             }
@@ -1122,11 +1142,6 @@ namespace oxen::quic
                 return it_b->second.get();
 
         return nullptr;
-    }
-
-    bool Endpoint::in_event_loop() const
-    {
-        return net.in_event_loop();
     }
 
 }  // namespace oxen::quic

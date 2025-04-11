@@ -16,8 +16,8 @@ namespace oxen::quic::test
         // It ought to work post-migration, however, and so we could conceivably test that here as
         // well.
 
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network net_client;
         // Unique pointer because we are going to force kill it and then start it up again for this
@@ -45,7 +45,7 @@ namespace oxen::quic::test
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
         uint64_t client_close_ec = 0;
-        callback_waiter client_closed{[&](connection_interface& /*conn*/, uint64_t ec) { client_close_ec = ec; }};
+        callback_waiter client_closed{[&](Connection& /*conn*/, uint64_t ec) { client_close_ec = ec; }};
         auto client_endpoint = net_client.endpoint(client_local, client_established);
         auto client_ci = client_endpoint->connect(client_remote, client_tls, client_closed);
 
