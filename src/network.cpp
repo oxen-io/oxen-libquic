@@ -58,6 +58,9 @@ namespace oxen::quic
     void Network::close()
     {
         log::debug(log_cat, "Shutting down network...");
+        // Endpoint's own destructor will _close_conns on itself, but just in case the app is
+        // holding a shared pointer, we still want to close everything because, when using Network
+        // rather than holding Endpoints yourself, it is supposed to be in charge.
         _loop->call_get([this] {
             for (const auto& ep : endpoints)
                 ep->_close_conns(std::nullopt);

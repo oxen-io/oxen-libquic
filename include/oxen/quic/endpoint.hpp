@@ -146,6 +146,12 @@ namespace oxen::quic
             return loop.make_shared<Endpoint>(loop, local_addr, std::forward<Opt>(opts)...);
         }
 
+        // Immediately closes all connections when destroying.  This will attempt to send close
+        // packets to the other end of open connections, but only if such close packets can be
+        // immediately sent: any close packets that would block and need a delay are dropped
+        // immediately.
+        ~Endpoint();
+
       private:
         friend class Network;
         friend class Loop;

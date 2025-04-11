@@ -249,6 +249,16 @@ namespace oxen::quic
             _close_connection(*c, io_error{0}, "NO_ERROR");
     }
 
+    Endpoint::~Endpoint()
+    {
+        assert(loop.inside());
+        _close_conns(std::nullopt);
+
+        // Close it here rather than via member destruction because it still owns a callback that
+        // comes back into the Endpoint.
+        socket.reset();
+    }
+
     void Endpoint::drain_connection(Connection& conn)
     {
         if (conn.is_draining() || conn.is_closing())

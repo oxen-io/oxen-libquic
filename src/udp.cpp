@@ -305,6 +305,10 @@ namespace oxen::quic
 
     UDPSocket::~UDPSocket()
     {
+        // Make sure we reset these before continuing with destruction so that we cannot get any
+        // packet processing queued on this object during destruction.
+        rev_.reset();
+        wev_.reset();
 #ifdef _WIN32
         ::closesocket(sock_);
 #else
