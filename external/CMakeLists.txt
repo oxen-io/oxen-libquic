@@ -87,7 +87,7 @@ oxen_logging_add_source_dir("${PROJECT_SOURCE_DIR}")
 
 # oxenc
 if (NOT TARGET oxenc)
-    system_or_submodule(OXENC oxenc liboxenc>=1.2.0 oxen-encoding)
+    system_or_submodule(OXENC oxenc liboxenc>=1.4.0 oxen-encoding)
 endif()
 
 # libevent

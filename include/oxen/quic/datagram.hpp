@@ -5,15 +5,27 @@
 #include "messages.hpp"
 #include "utils.hpp"
 
+#include <oxenc/common.h>
+
+#include <ngtcp2/ngtcp2.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <functional>
 #include <limits>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace oxen::quic
 {
     class Connection;
     class Endpoint;
-    class Stream;
     class connection_interface;
-    struct quic_cid;
 
     // The pseudo "stream id" we use to indicate the datagram channel:
     inline constexpr int64_t DATAGRAM_PSEUDO_STREAM_ID = std::numeric_limits<int64_t>::min();

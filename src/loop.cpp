@@ -2,6 +2,11 @@
 
 #include "internal.hpp"
 
+#include <event2/event.h>
+#include <event2/thread.h>
+
+#include <fmt/ranges.h>
+
 namespace oxen::quic
 {
     static auto ev_cat = log::Cat("ev-loop");
@@ -301,6 +306,12 @@ namespace oxen::quic
             swapped_queue.pop();
             job();
         }
+    }
+
+    // Wrapper around event_active so that we can keep libevent out of the public headers.
+    void Loop::activate(::event& evt)
+    {
+        event_active(&evt, 0, 0);
     }
 
 }  //  namespace oxen::quic
