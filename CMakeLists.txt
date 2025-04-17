@@ -17,7 +17,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 project(libquic
-    VERSION 1.4.0
+    VERSION 1.4.1
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
