@@ -1,3 +1,9 @@
+oxen-libquic (1.2.0-1~ubuntu2504) plucky; urgency=medium
+
+  * Plucky deb.
+
+ -- Jason Rhinelander <jason@session.foundation>  Thu, 17 Apr 2025 18:24:57 -0300
+
 oxen-libquic (1.2.0-1~ubuntu2410+1) oracular; urgency=medium
 
   * Rebuild
