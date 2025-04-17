@@ -10,6 +10,7 @@ Build-Depends:
     libngtcp2-crypto-gnutls-dev (>= 1.1.0~),
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
+    liboxen-logging-dev (>= 1.1.1),
     liboxenc-dev (>= 1.4.0)
 Standards-Version: 4.4.1
 Section: libs
@@ -22,6 +23,7 @@ Depends: liboxen-quic@LIB_VERSION@ (= ${binary:Version}), ${misc:Depends},
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
     liboxenc-dev (>= 1.4.0),
+    liboxen-logging-dev (>= 1.1.1),
     libngtcp2-dev (>= 1.1.0~),
     libngtcp2-crypto-gnutls-dev (>= 1.1.0~)
 Description: C++ library for multi-stream QUIC implementations (headers)
