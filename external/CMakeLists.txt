@@ -75,15 +75,20 @@ endif()
 
 # oxen-logging
 if (NOT TARGET oxen::logging)
-    message(STATUS "Target oxen::logging not found; using submodule")
     if(BUILD_STATIC_DEPS)
         set(OXEN_LOGGING_FORCE_SUBMODULES ON CACHE INTERNAL "")
     endif()
-    add_subdirectory(oxen-logging)
-else()
-    message(STATUS "Target oxen::logging already found!")
+    system_or_submodule(OXENLOGGING oxen-logging liboxen-logging>=1.1.1 oxen-logging)
+    if(OXENLOGGING_FOUND)
+        # If we load oxen-logging via system lib then we won't necessarily have fmt/spdlog targets,
+        # but this script will give us them:
+        include(oxen-logging/cmake/load_fmt_spdlog.cmake)
+
+        add_library(oxen-logging-fmt-spdlog INTERFACE)
+        target_link_libraries(oxen-logging-fmt-spdlog INTERFACE oxen-logging ${OXEN_LOGGING_FMT_TARGET} ${OXEN_LOGGING_SPDLOG_TARGET})
+        add_library(oxen::logging ALIAS oxen-logging-fmt-spdlog)
+    endif()
 endif()
-oxen_logging_add_source_dir("${PROJECT_SOURCE_DIR}")
 
 # oxenc
 if (NOT TARGET oxenc)
