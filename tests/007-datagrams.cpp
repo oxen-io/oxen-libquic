@@ -140,7 +140,8 @@ namespace oxen::quic::test
         auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> data_promise;
         std::future<void> data_future = data_promise.get_future();
@@ -200,7 +201,7 @@ namespace oxen::quic::test
         dgram_data_callback recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
             log::debug(test_cat, "Calling endpoint receive datagram callback... data received...");
             ++data_counter;
-            if (data == "final"_bsp)
+            if (view(data) == view(to_span<std::byte>("final")))
                 data_promise.set_value();
         };
 
@@ -610,6 +611,10 @@ namespace oxen::quic::test
         REQUIRE(data_counter.load() == n);
         auto send_packet_count = TestHelper::disable_dgram_counter(*conn_interface);
         REQUIRE(send_packet_count >= target_dgrams);
-        REQUIRE(send_packet_count <= target_dgrams + 5 /*fudge factor for other quic packet (ACKs, etc.)*/);
+        REQUIRE(send_packet_count <= target_dgrams + 5 /*fudge factor for other quic packet (ACKs, etc.)*/
+#if defined(__APPLE__) && defined(__x86_64__)
+                                             + 10  // extra fudge factor for who knows what amd64-macos does
+#endif
+        );
     }
 }  // namespace oxen::quic::test

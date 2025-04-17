@@ -31,6 +31,7 @@ ping_stats run_client(
         std::string_view remote_pubkey,
         std::string_view local_addr,
         std::string_view seed_string,
+        bool disable_pmtud,
         bool enable_0rtt,
         const std::filesystem::path& zerortt_path,
         uint32_t ping_count,
@@ -47,9 +48,9 @@ int main(int argc, char* argv[])
 
     std::string local_addr, remote_pubkey, seed_string;
     auto remote_addr = DEFAULT_PING_ADDR.to_string();
-    bool enable_0rtt;
+    bool enable_0rtt, disable_pmtud;
     std::filesystem::path zerortt_path;
-    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, enable_0rtt, zerortt_path);
+    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, disable_pmtud, enable_0rtt, zerortt_path);
 
     double ping_timeout = 5.0;
     cli.add_option(
@@ -88,6 +89,7 @@ int main(int argc, char* argv[])
             remote_pubkey,
             local_addr,
             seed_string,
+            disable_pmtud,
             enable_0rtt,
             zerortt_path,
             ping_count,
@@ -127,6 +129,7 @@ ping_stats run_client(
         std::string_view remote_pubkey,
         std::string_view local_addr,
         std::string_view seed_string,
+        bool disable_pmtud,
         bool enable_0rtt,
         const std::filesystem::path& zerortt_path,
         uint32_t ping_count,
@@ -154,10 +157,7 @@ ping_stats run_client(
 
     Address client_local{};
     if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = Address{a, p};
-    }
+        client_local = Address::parse(local_addr);
 
     std::optional<std::promise<void>> all_done;
     std::shared_ptr<Ticker> ticker;
@@ -174,8 +174,7 @@ ping_stats run_client(
         all_done->set_value();
     };
 
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    Address server_addr{server_a, server_p};
+    auto server_addr = Address::parse(remote_addr, DEFAULT_PING_ADDR.port());
 
     log::info(test_cat, "Constructing endpoint on {}", client_local);
 
@@ -185,6 +184,9 @@ ping_stats run_client(
 
     if (enable_0rtt)
         zerortt_storage::enable(*client_tls, zerortt_path);
+    std::optional<opt::disable_mtu_discovery> mtu;
+    if (disable_pmtud)
+        mtu.emplace();
 
     auto client = client_net.endpoint(
             client_local,

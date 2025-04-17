@@ -1,17 +1,20 @@
 #pragma once
 
-#include "crypto.hpp"
 #include "datagram.hpp"
-#include "opt.hpp"
+#include "opt.hpp"  // IWYU pragma: keep
 #include "stream.hpp"
-#include "udp.hpp"
 #include "utils.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <memory>
-#include <unordered_map>
+#include <optional>
+#include <utility>
 
 namespace oxen::quic
 {
+    class TLSCreds;
+
     // created to store user configuration values; more values to be added later
     struct user_config
     {

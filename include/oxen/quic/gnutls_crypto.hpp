@@ -1,25 +1,32 @@
 #pragma once
 
 #include "address.hpp"
-#include "connection_ids.hpp"
 #include "crypto.hpp"
-#include "types.hpp"
+#include "utils.hpp"
 
 #include <oxenc/base64.h>
 #include <oxenc/hex.h>
 
-extern "C"
-{
-#include <ngtcp2/ngtcp2_crypto_gnutls.h>
-
 #include <gnutls/abstract.h>
-#include <gnutls/crypto.h>
-}
 
 #include <array>
 #include <chrono>
+#include <concepts>
+#include <cstddef>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <new>
 #include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <variant>
+#include <vector>
 
 namespace oxen::quic
 {
@@ -30,8 +37,6 @@ namespace oxen::quic
     // Call to enable gnutls trace logging via oxen::logging.  This function does nothing unless
     // libquic is a debug build.
     void enable_gnutls_logging(int level = 99);
-
-    namespace fs = std::filesystem;
 
     using gnutls_callback = std::function<int(
             gnutls_session_t session,
@@ -178,21 +183,21 @@ namespace oxen::quic
     //      - gnutls_x509_crt_fmt_t (ex: to parameter 3 of the above functions)
     struct x509_loader
     {
-        std::variant<std::string, fs::path> source;
+        std::variant<std::string, std::filesystem::path> source;
         gnutls_datum_t mem;  // Will point at the string content when in_mem() is true
         gnutls_x509_crt_fmt_t format{};
 
         // x509_loader() = default;
         x509_loader(std::string input)
         {
-            if (auto path = fs::path(
+            if (auto path = std::filesystem::path(
 #ifdef _WIN32
                         std::u8string{reinterpret_cast<char8_t*>(input.data()), input.size()}
 #else
                         input
 #endif
                 );
-                fs::exists(path))
+                std::filesystem::exists(path))
             {
 #ifdef _WIN32
                 auto p8_str = path.extension().u8string();
@@ -292,7 +297,7 @@ namespace oxen::quic
             requires std::same_as<T, char>
         operator const T*() const
         {
-            if (auto* p = std::get_if<fs::path>(&source))
+            if (auto* p = std::get_if<std::filesystem::path>(&source))
             {
 #ifdef _WIN32
                 auto u8_path = p->u8string();
