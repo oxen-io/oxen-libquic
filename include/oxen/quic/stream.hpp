@@ -1,11 +1,11 @@
 #pragma once
 
 #include "connection_ids.hpp"
-#include "error.hpp"
 #include "iochannel.hpp"
 #include "opt.hpp"
-#include "types.hpp"
 #include "utils.hpp"
+
+#include <ngtcp2/ngtcp2.h>
 
 #include <cassert>
 #include <cstddef>
@@ -13,8 +13,12 @@
 #include <deque>
 #include <functional>
 #include <memory>
-#include <queue>
-#include <variant>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace oxen::quic
@@ -22,7 +26,6 @@ namespace oxen::quic
     class Stream;
     class Endpoint;
     class Connection;
-    struct quic_cid;
 
     // Stream callbacks
     using stream_data_callback = std::function<void(Stream&, bspan)>;
@@ -33,14 +36,10 @@ namespace oxen::quic
     using stream_open_callback = std::function<uint64_t(Stream&)>;
     using stream_unblocked_callback = std::function<bool(Stream&)>;
 
+    using stream_buffer = std::deque<std::pair<bspan, std::shared_ptr<void>>>;
+
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
-
-    inline namespace concepts
-    {
-        template <typename T>
-        concept stream_derived_type = std::derived_from<T, Stream>;
-    }
 
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {

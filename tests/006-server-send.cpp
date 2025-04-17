@@ -7,7 +7,8 @@ namespace oxen::quic::test
     TEST_CASE("006 - Server streams: Direct creation and transmission", "[006][server][streams][send][execute]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::atomic<int> data_check{0};
 
@@ -64,8 +65,10 @@ namespace oxen::quic::test
     TEST_CASE("006 - Server streams: Remote initiation, server send", "[006][server][streams][send][execute]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
-        constexpr auto response = "okay okay i get it already"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto response_str = "okay okay i get it already"sv;
+        auto msg = to_span<std::byte>(msg_str);
+        auto response = to_span<std::byte>(response_str);
 
         std::atomic<int> ci{0}, si{0};
         std::atomic<int> data_check{0};

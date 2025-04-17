@@ -1,5 +1,7 @@
 #include "unit_test.hpp"
 
+#include <oxenc/bt_producer.h>
+
 namespace oxen::quic::test
 {
     using namespace std::literals;
