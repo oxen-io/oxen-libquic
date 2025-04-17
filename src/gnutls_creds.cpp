@@ -1,13 +1,40 @@
+#include "address.hpp"
 #include "connection.hpp"
+#include "crypto.hpp"
 #include "gnutls_crypto.hpp"
 #include "internal.hpp"
 
+#include <oxenc/base64.h>
 #include <oxenc/bt_producer.h>
 #include <oxenc/bt_serialize.h>
+#include <oxenc/hex.h>
 
+#include <ngtcp2/ngtcp2.h>
+
+#include <fmt/core.h>
+#include <gnutls/abstract.h>
+#include <gnutls/gnutls.h>
+
+#include <algorithm>
+#include <array>
+#include <cassert>
 #include <chrono>
+#include <cstring>
+#include <ctime>
+#include <deque>
+#include <exception>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace oxen::quic
 {

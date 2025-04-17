@@ -13,13 +13,13 @@ extern "C"
 }
 
 #include "address.hpp"
-#include "types.hpp"
+#include "result.hpp"
 #include "utils.hpp"
-
-#include <event2/event.h>
 
 #include <cstdint>
 #include <variant>
+
+struct event_base;
 
 namespace oxen::quic
 {

@@ -1,11 +1,32 @@
-#include "endpoint.hpp"
+#include "connection_ids.hpp"
+#include "endpoint.hpp"  // IWYU pragma: keep
 #include "stream.hpp"
 #include "utils.hpp"
 
-#include <oxenc/bt.h>
+#include <oxenc/bt_serialize.h>
+#include <oxenc/common.h>
+
+#include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <exception>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace oxen::quic
 {
+    class Connection;
+
     // timeout is used for sent requests awaiting responses
     inline constexpr std::chrono::seconds DEFAULT_TIMEOUT{10s};
 

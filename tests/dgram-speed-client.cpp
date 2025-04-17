@@ -4,7 +4,20 @@
 
 #include "utils.hpp"
 
+#include <span>
+
 using namespace oxen::quic;
+
+inline std::string_view view(std::span<const std::byte> x)
+{
+    return {reinterpret_cast<const char*>(x.data()), x.size()};
+}
+
+template <oxenc::basic_char Char>
+std::span<const Char> to_span(std::string_view x)
+{
+    return {reinterpret_cast<const Char*>(x.data()), x.size()};
+}
 
 int main(int argc, char* argv[])
 {
@@ -12,9 +25,9 @@ int main(int argc, char* argv[])
 
     std::string local_addr, remote_pubkey, seed_string;
     auto remote_addr = DEFAULT_DGRAM_SPEED_ADDR.to_string();
-    bool enable_0rtt;
+    bool enable_0rtt, disable_pmtud;
     std::filesystem::path zerortt_path;
-    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, enable_0rtt, zerortt_path);
+    common_client_opts(cli, local_addr, remote_addr, remote_pubkey, seed_string, disable_pmtud, enable_0rtt, zerortt_path);
 
     std::string log_file, log_level;
     add_log_opts(cli, log_file, log_level);
@@ -98,7 +111,7 @@ int main(int argc, char* argv[])
             log::error(test_cat, "Got unexpected data from the other side: {}B != 5B", data.size());
             dgram_data->failed = true;
         }
-        else if (data != "DONE!"_bsp)
+        else if (view(data) != view(to_span<std::byte>("DONE!")))
         {
             log::error(
                     test_cat,
@@ -118,16 +131,15 @@ int main(int argc, char* argv[])
 
     Address client_local{};
     if (!local_addr.empty())
-    {
-        auto [a, p] = parse_addr(local_addr);
-        client_local = Address{a, p};
-    }
+        client_local = Address::parse(local_addr);
 
     auto client_established = callback_waiter{[](connection_interface&) {}};
 
-    auto [server_a, server_p] = parse_addr(remote_addr);
-    RemoteAddress server_addr{remote_pubkey, server_a, server_p};
+    RemoteAddress server_addr{remote_pubkey, Address::parse(remote_addr, DEFAULT_DGRAM_SPEED_ADDR.port())};
     opt::enable_datagrams split_dgram(Splitting::ACTIVE);
+    std::optional<opt::disable_mtu_discovery> mtu;
+    if (disable_pmtud)
+        mtu.emplace();
 
     log::critical(test_cat, "Calling 'client_connect'...");
     auto client = client_net.endpoint(
@@ -136,7 +148,8 @@ int main(int argc, char* argv[])
             recv_dgram_cb,
             split_dgram,
             generate_static_secret(seed_string),
-            opt::alpns{"dgram-speed"});
+            opt::alpns{"dgram-speed"},
+            mtu);
     auto client_ci = client->connect(server_addr, client_tls, stream_closed);
 
     client_ci->set_split_datagram_lookahead(lookahead);
