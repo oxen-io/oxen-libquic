@@ -1,10 +1,29 @@
+#include "address.hpp"
 #include "connection.hpp"
-#include "endpoint.hpp"
+#include "crypto.hpp"
 #include "gnutls_crypto.hpp"
 #include "internal.hpp"
 
+#include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+#include <ngtcp2/ngtcp2_crypto_gnutls.h>
+
+#include <gnutls/gnutls.h>
+
+#include <cassert>
+#include <cstring>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 namespace oxen::quic
 {
+    struct IOContext;
+
     namespace
     {
         constexpr std::string_view translate_cert_type(gnutls_certificate_type_t type)

@@ -2,8 +2,12 @@
     Test server binary
 */
 
-#include "oxen/quic/opt.hpp"
 #include "utils.hpp"
+
+#include <oxen/quic/opt.hpp>
+
+#include <fmt/ranges.h>
+#include <gnutls/crypto.h>
 
 using namespace oxen::quic;
 
@@ -17,7 +21,8 @@ int main(int argc, char* argv[])
     std::string server_addr = DEFAULT_SPEEDTEST_ADDR.to_string();
     std::string seed_string;
     bool enable_0rtt;
-    common_server_opts(cli, server_addr, seed_string, enable_0rtt);
+    bool disable_pmtud;
+    common_server_opts(cli, server_addr, seed_string, enable_0rtt, disable_pmtud);
 
     bool no_hash = false;
     cli.add_flag(
@@ -50,8 +55,7 @@ int main(int argc, char* argv[])
 
     Network server_net{};
 
-    auto [listen_addr, listen_port] = parse_addr(server_addr, DEFAULT_SPEEDTEST_ADDR.port());
-    Address server_local{listen_addr, listen_port};
+    auto server_local = Address::parse(server_addr, DEFAULT_SPEEDTEST_ADDR.port());
 
     stream_open_callback stream_opened = [&](Stream& s) {
         log::warning(test_cat, "Stream {} opened!", s.stream_id());
@@ -137,8 +141,12 @@ int main(int argc, char* argv[])
 
     try
     {
+        std::optional<opt::disable_mtu_discovery> mtu;
+        if (disable_pmtud)
+            mtu.emplace();
+
         log::debug(test_cat, "Starting up endpoint");
-        auto _server = server_net.endpoint(server_local, generate_static_secret(seed_string), opt::alpns{"speedtest"});
+        auto _server = server_net.endpoint(server_local, generate_static_secret(seed_string), opt::alpns{"speedtest"}, mtu);
         _server->listen(server_tls, stream_opened, stream_data);
     }
     catch (const std::exception& e)

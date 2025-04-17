@@ -5,7 +5,22 @@
 #include "messages.hpp"
 #include "utils.hpp"
 
+#include <oxenc/common.h>
+
+#include <ngtcp2/ngtcp2.h>
+
 #include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace oxen::quic
 {

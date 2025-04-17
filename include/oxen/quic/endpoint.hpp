@@ -1,30 +1,43 @@
 #pragma once
 
-#include "oxen/quic/opt.hpp"
-extern "C"
-{
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <netinet/in.h>
-#endif
-}
-
+#include "address.hpp"
 #include "connection.hpp"
-#include "context.hpp"
+#include "connection_ids.hpp"
+#include "crypto.hpp"
+#include "datagram.hpp"
+#include "loop.hpp"
 #include "network.hpp"
+#include "opt.hpp"
+#include "result.hpp"
 #include "udp.hpp"
 #include "utils.hpp"
 
+#include <ngtcp2/ngtcp2.h>
+
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <functional>
+#include <future>
 #include <list>
+#include <map>
 #include <memory>
 #include <optional>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
+#include <vector>
+
+struct event_base;
 
 namespace oxen::quic
 {
+    struct IOContext;
+
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
       public:
@@ -88,7 +101,7 @@ namespace oxen::quic
                 }
             });
 
-            return conn_prom.get_future().get();
+            return std::static_pointer_cast<connection_interface>(conn_prom.get_future().get());
         }
 
         // query a list of all active inbound and outbound connections paired with a conn_interface
@@ -191,6 +204,7 @@ namespace oxen::quic
         int _rbufsize{4096};
 
         opt::manual_routing _manual_routing;
+        bool _disable_mtu_discovery{false};
 
         uint64_t _next_rid{0};
 
@@ -224,6 +238,7 @@ namespace oxen::quic
         void handle_ep_opt(connection_closed_callback conn_closed_cb);
         void handle_ep_opt(opt::static_secret ssecret);
         void handle_ep_opt(opt::manual_routing mrouting);
+        void handle_ep_opt(opt::disable_mtu_discovery);
 
         // Takes a std::optional-wrapped option that does nothing if the optional is empty,
         // otherwise passes it through to the above.  This is here to allow runtime-dependent

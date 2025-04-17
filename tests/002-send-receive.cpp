@@ -7,14 +7,15 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][execute]")
     {
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto good_msg = to_span<std::byte>(good_msg_str);
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
 
         stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(good_msg));
+            REQUIRE(view(dat) == view(good_msg));
             d_promise.set_value(true);
         };
 
@@ -42,7 +43,8 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][bidirectional]")
     {
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto good_msg = to_span<std::byte>(good_msg_str);
 
         std::vector<std::promise<void>> d_promises{2};
         std::vector<std::future<void>> d_futures{2};
@@ -54,7 +56,7 @@ namespace oxen::quic::test
 
         stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(good_msg));
+            REQUIRE(view(dat) == view(good_msg));
             d_promises.at(index).set_value();
             index += 1;
         };
@@ -94,7 +96,8 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][2x2]")
     {
         Network test_net{};
-        constexpr auto good_msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto good_msg = to_span<std::byte>(good_msg_str);
 
         std::vector<std::promise<void>> d_promises{2};
         std::vector<std::future<void>> d_futures{2};
@@ -106,7 +109,7 @@ namespace oxen::quic::test
 
         stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(good_msg));
+            REQUIRE(view(dat) == view(good_msg));
             d_promises.at(index).set_value();
             index += 1;
         };

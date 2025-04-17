@@ -10,16 +10,16 @@ add_library(quic
     context.cpp
     datagram.cpp
     endpoint.cpp
-    error.cpp
     format.cpp
-    gnutls_crypto.cpp
     gnutls_creds.cpp
+    gnutls_crypto.cpp
     gnutls_session.cpp
     iochannel.cpp
     ip.cpp
     loop.cpp
     messages.cpp
     network.cpp
+    result.cpp
     stream.cpp
     udp.cpp
     utils.cpp
@@ -29,13 +29,13 @@ add_library(quic
 target_link_libraries(quic
     PUBLIC
     ngtcp2::crypto
-    libevent::core
-    libevent::threads
     gnutls::gnutls
     oxen::logging
     libquic_external
     oxenc
     PRIVATE
+    libevent::core
+    libevent::threads
     libquic_internal
     nettle::nettle
 )
