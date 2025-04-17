@@ -1,3 +1,48 @@
+oxen-libquic (1.3.0-1~ubuntu2404) noble; urgency=medium
+
+  [ Jason Rhinelander ]
+  * disable 0-rtt tests
+  * Remove libevent2 from public headers, linkage
+  * Apply (most) IWYU recommendataions to include and src
+  * bump oxenc to latest
+  * fix std::tie usage
+  * formatting
+  * add missing optional header
+  * fix win32 build
+  * try more random windows headers
+  * Add more fudge for macos
+  * Disable debug logging in tests
+  * Disable -Werror for buggy GCC stringop warnings
+
+  [ Morgan Pretty ]
+  * Updated to the latest oxen-logging which fixes fmt build issues
+  * Added missing fmt header
+  * Ran formatter
+  * Removed 'source_prefixes' usage
+  * Ran formatter again...
+
+  [ Jason Rhinelander ]
+  * Fix Address::parse not properly parsing
+  * gcc 10 can produce these warnings too, hurray
+  * disable oxen-logging LTO for clang builds
+
+  [ Morgan Pretty ]
+  * Updated oxen-encoding, patch GnuTLS for NDK 27+, fixes for NDK 26
+  * Removed <=> operator from RemoteAddress
+  * Ran formatter -_-
+  * Updated CLI11 from 2.3.2 -> 2.4.2
+  * Updated to the latest oxen-logging
+
+  [ Thomas Winget ]
+  * add endpoint opt to disable path mtu discovery
+  * include max received size param if disabling MTU discovery
+
+  [ Jason Rhinelander ]
+  * Add -M flag to speedtests to disable PMTUD
+  * 1.3.0 version bump
+
+ -- Jason Rhinelander <jason@session.foundation>  Thu, 17 Apr 2025 18:27:47 -0300
+
 oxen-libquic (1.2.0-1~ubuntu2404) noble; urgency=medium
 
   * Revert oxen-logging changes to not always force fmt/spdlog submodules
