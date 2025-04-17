@@ -1,3 +1,11 @@
+oxen-libquic (1.3.1-1~ubuntu2404) noble; urgency=medium
+
+  * bump required oxenc dep
+  * Use system liboxen-logging, if available
+  * add oxen-logging dev dep
+
+ -- Jason Rhinelander <jason@session.foundation>  Thu, 17 Apr 2025 20:48:03 -0300
+
 oxen-libquic (1.3.0-1~ubuntu2404) noble; urgency=medium
 
   [ Jason Rhinelander ]

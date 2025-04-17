@@ -12,7 +12,8 @@ Build-Depends:
     libevent-dev,
     libspdlog-dev (>= 1.9.1),
     libfmt-dev (>= 9),
-    liboxenc-dev (>= 1.1.0)
+    liboxen-logging-dev (>= 1.1.1),
+    liboxenc-dev (>= 1.4.0)
 Standards-Version: 4.4.1
 Section: libs
 Homepage: https://github.com/oxen-io/oxen-libquic
@@ -23,7 +24,8 @@ Architecture: any
 Depends: liboxen-quic1.3 (= ${binary:Version}), ${misc:Depends},
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
-    liboxenc-dev (>= 1.1.0),
+    liboxenc-dev (>= 1.4.0),
+    liboxen-logging-dev (>= 1.1.1),
     libngtcp2-dev (>= 1.1.0~),
     libngtcp2-crypto-gnutls-dev (>= 1.1.0~)
 Description: C++ library for multi-stream QUIC implementations (headers)
