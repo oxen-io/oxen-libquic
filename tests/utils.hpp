@@ -1,26 +1,43 @@
 #pragma once
 
+// IWYU pragma: begin_exports
 #include <oxen/log.hpp>
 #include <oxen/log/format.hpp>
 #include <oxen/quic.hpp>
 #include <oxen/quic/format.hpp>
+#include <oxen/quic/gnutls_crypto.hpp>
 #include <oxenc/base64.h>
 #include <oxenc/hex.h>
 
 #include <CLI/CLI.hpp>
 #include <CLI/Error.hpp>
 
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <cassert>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <future>
+#include <list>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 extern "C"
 {
 #include <unistd.h>
 }
+// IWYU pragma: end_exports
 
 namespace oxen::quic
 {
@@ -97,8 +114,8 @@ namespace oxen::quic
     // of the given seed, if non-empty, and otherwise will generate a random value.
     opt::static_secret generate_static_secret(std::string_view seed_string = ""sv);
 
-    template <oxenc::const_span_type T>
-    inline std::string_view sp_to_sv(const T& sp)
+    template <typename InChar>
+    inline std::string_view sp_to_sv(std::span<const InChar> sp)
     {
         return {reinterpret_cast<const char*>(sp.data()), sp.size()};
     }
@@ -111,7 +128,8 @@ namespace oxen::quic
     void add_log_opts(CLI::App& cli, std::string& file, std::string& level);
 
     // Adds common server options.
-    void common_server_opts(CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt);
+    void common_server_opts(
+            CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt, bool& disable_pmtud);
 
     // Adds common client options.
     void common_client_opts(
@@ -120,6 +138,7 @@ namespace oxen::quic
             std::string& remote_addr,
             std::string& remote_pubkey,
             std::string& seed_string,
+            bool& disable_pmtud,
             bool& enable_0rtt,
             std::filesystem::path& store_0rtt);
 

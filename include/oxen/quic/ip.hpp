@@ -1,9 +1,29 @@
 #pragma once
 
-#include "formattable.hpp"
-#include "utils.hpp"
+#include <oxenc/endian.h>
 
 #include <array>
+#include <limits>
+#include <optional>
+#include <string>
+#include <tuple>
+
+extern "C"
+{
+#ifdef _WIN32
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <ws2tcpip.h>
+
+#else
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+
+#endif
+}
 
 /** IP Addressing Types:
     - ipv{4,6} : These types represent raw ipv4/ipv6 addresses. Both hold their respective addresses in host order
@@ -29,6 +49,15 @@
 
 namespace oxen::quic
 {
+    namespace detail
+    {
+        template <std::integral T>
+        constexpr bool increment_will_overflow(T val)
+        {
+            return std::numeric_limits<T>::max() == val;
+        }
+    }  // namespace detail
+
     struct ipv4
     {
         // host order
@@ -45,7 +74,7 @@ namespace oxen::quic
 
         constexpr std::optional<ipv4> next_ip() const
         {
-            if (not increment_will_overflow(addr))
+            if (!detail::increment_will_overflow(addr))
                 return ipv4{addr + 1};
 
             return std::nullopt;
@@ -90,7 +119,7 @@ namespace oxen::quic
         constexpr std::optional<ipv6> next_ip() const
         {
             // If lo will not overflow, increment and return
-            if (not increment_will_overflow(lo))
+            if (!detail::increment_will_overflow(lo))
             {
                 ipv6 next{*this};  //  hi is unchanged
                 next.lo = lo + 1;
@@ -100,7 +129,7 @@ namespace oxen::quic
             // If lo is INT_MAX, then:
             //  - if hi can be incremented, ++hi and set lo to all 0's
             //  - else, return nullopt
-            if (not increment_will_overflow(hi))
+            if (!detail::increment_will_overflow(hi))
             {
                 ipv6 next{};  //  lo default set to 0
                 next.hi = hi + 1;
@@ -111,7 +140,7 @@ namespace oxen::quic
         }
 
         // Network order in6_addr constructor (calls private constructor)
-        ipv6(const struct in6_addr* addr) : ipv6{addr->s6_addr} {}
+        ipv6(const in6_addr* addr) : ipv6{addr->s6_addr} {}
 
         explicit constexpr ipv6(
                 uint16_t a,
@@ -335,4 +364,18 @@ namespace oxen::quic
             ipv6(0xfe80) / 10,                 // link-local unicast addressing
             ipv6(0xff00) / 8,                  // Multicast
     };
+
+    namespace detail
+    {
+        // Wrapper around inet_pton that throws an exception on error
+        void parse_addr(int af, void* dest, const std::string& from);
+
+        // Parses an IPv4 address from string
+        void parse_addr(in_addr& into, const std::string& from);
+
+        // Parses an IPv6 address from string
+        void parse_addr(in6_addr& into, const std::string& from);
+
+    }  // namespace detail
+
 }  //  namespace oxen::quic

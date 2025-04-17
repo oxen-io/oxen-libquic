@@ -353,7 +353,14 @@ build_external(nettle
 add_static_target(nettle::nettle nettle_external libnettle.a gmp::gmp)
 add_static_target(hogweed::hogweed nettle_external libhogweed.a nettle::nettle)
 
+# The Android NDK defines `timezone_t` but not a number of related types and GnuTLS assumes if `timezone_t` is defined then all the others will be defined as well (resulting in build errors), so we need to patch GnuTLS to think `HAVE_TIMEZONE_T` is not defined and rename it's internal `timezone_t` so there isn't a name collision
+set(gnutls_patch_commands "")
+if(ANDROID)
+    set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${PROJECT_SOURCE_DIR}/utils/build_scripts/gnutls-android-timezone-t.patch)
+endif()
+
 build_external(gnutls
+    ${gnutls_patch_commands}
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
         --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
         --without-zlib --without-brotli --without-zstd --without-libintl-prefix --disable-tests

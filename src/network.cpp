@@ -1,14 +1,11 @@
 #include "network.hpp"
 
-#include "connection.hpp"
 #include "endpoint.hpp"
 #include "internal.hpp"
 
-#include <exception>
+#include <cassert>
 #include <memory>
-#include <stdexcept>
-#include <string_view>
-#include <thread>
+#include <optional>
 
 namespace oxen::quic
 {

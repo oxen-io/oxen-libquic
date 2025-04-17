@@ -1,7 +1,8 @@
 #include "context.hpp"
 
-#include "connection.hpp"
 #include "internal.hpp"
+
+#include <stdexcept>
 
 namespace oxen::quic
 {
