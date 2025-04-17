@@ -1,12 +1,23 @@
 #include "utils.hpp"
 
+#include <oxen/quic/connection.hpp>
+#include <oxen/quic/endpoint.hpp>
+#include <oxen/quic/loop.hpp>
 #include <oxen/quic/opt.hpp>
+#include <oxenc/bt_serialize.h>
 
+#include <ngtcp2/ngtcp2.h>
+
+#include <fmt/ranges.h>
+#include <gnutls/crypto.h>
 #include <nettle/eddsa.h>
 #include <nettle/sha3.h>
 
+#include <array>
 #include <chrono>
+#include <cstring>
 #include <fstream>
+#include <stdexcept>
 
 namespace oxen::quic
 {
@@ -220,10 +231,12 @@ namespace oxen::quic
                 ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error", "critical", "off"}));
     }
 
-    void common_server_opts(CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt)
+    void common_server_opts(
+            CLI::App& cli, std::string& server_listen, std::string& seed_string, bool& enable_0rtt, bool& disable_pmtud)
     {
         seed_string.clear();
         enable_0rtt = false;
+        disable_pmtud = false;
 
         cli.add_option("--listen", server_listen, "Server address to listen on")
                 ->type_name("IP:PORT")
@@ -237,6 +250,11 @@ namespace oxen::quic
                 "for reproducible keys and operation.  If omitted/empty a random seed is used.");
 
         cli.add_flag("-Z,--enable-0rtt", enable_0rtt, "Enable 0-RTT early data for this endpoint");
+
+        cli.add_flag(
+                "-M,--no-pmtud",
+                disable_pmtud,
+                "Disable path MTU discovery, forcing all outgoing packets to be the minimum size (1200 bytes).");
     }
 
     void common_client_opts(
@@ -245,6 +263,7 @@ namespace oxen::quic
             std::string& remote_addr,
             std::string& remote_pubkey,
             std::string& seed_string,
+            bool& disable_pmtud,
             bool& enable_0rtt,
             std::filesystem::path& store_0rtt)
     {
@@ -252,6 +271,7 @@ namespace oxen::quic
             remote_addr = "127.0.0.1:5500";
         remote_pubkey.clear();
         seed_string.clear();
+        disable_pmtud = false;
         enable_0rtt = false;
         if (store_0rtt.empty())
             store_0rtt = std::filesystem::path{u8"./libquic-test-0rtt-cache.bin"};
@@ -275,6 +295,11 @@ namespace oxen::quic
 
         cli.add_flag("-Z,--enable-0rtt", enable_0rtt, "Enable 0-RTT early data for this endpoint");
         cli.add_option("-z,--zerortt-storage", store_0rtt, "Path to load and store 0rtt information from.");
+
+        cli.add_flag(
+                "-M,--no-pmtud",
+                disable_pmtud,
+                "Disable path MTU discovery, forcing all outgoing packets to be the minimum size (1200 bytes).");
 
         cli.add_option("--local", local_addr, "Local bind address (optional)")->type_name("IP:PORT")->capture_default_str();
 

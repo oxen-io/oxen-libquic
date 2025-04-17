@@ -13,15 +13,36 @@ extern "C"
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <netinet/in.h>
 #include <netinet/ip.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
 #endif
 }
 
+#include "address.hpp"
 #include "internal.hpp"
+#include "result.hpp"
 #include "udp.hpp"
 
+#include <event2/event.h>
+
+#include <array>
+#include <cassert>
+#include <cerrno>
+#include <cstring>
+#include <functional>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string_view>
 #include <system_error>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #ifdef _WIN32
 

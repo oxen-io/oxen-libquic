@@ -1,6 +1,12 @@
 #include "gnutls_crypto.hpp"
 
+#include "connection_ids.hpp"
 #include "internal.hpp"
+
+#include <oxen/log/level.hpp>
+
+#include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
 
 #include <nettle/sha3.h>
 

@@ -8,6 +8,9 @@
 #include <oxenc/endian.h>
 
 #include <limits>
+#include <numeric>
+#include <string_view>
+#include <utility>
 
 namespace oxen::quic
 {

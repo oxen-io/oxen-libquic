@@ -1,5 +1,12 @@
 #include "unit_test.hpp"
 
+#ifndef _WIN32
+extern "C"
+{
+#include <arpa/inet.h>
+}
+#endif
+
 namespace oxen::quic::test
 {
     using namespace std::literals;

@@ -1,5 +1,6 @@
 #include "iochannel.hpp"
 
+#include "connection.hpp"
 #include "endpoint.hpp"
 #include "internal.hpp"
 

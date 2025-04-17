@@ -1,46 +1,29 @@
 #pragma once
 
-#include <type_traits>
+#include <oxenc/common.h>
 
-extern "C"
-{
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#endif
-#include <ngtcp2/ngtcp2.h>
-}
-
-#include <oxenc/endian.h>
-#include <oxenc/hex.h>
-
-#include <event2/event.h>
-
-#include <algorithm>
-#include <cassert>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <deque>
-#include <filesystem>
-#include <future>
-#include <iostream>
-#include <list>
-#include <map>
-#include <optional>
-#include <random>
+#include <functional>
+#include <memory>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <unordered_set>
+#include <system_error>
+#include <type_traits>
+#include <vector>
+
+struct event;
 
 namespace oxen::quic
 {
+
+    enum class Direction { OUTBOUND = 0, INBOUND = 1 };
+
+    enum class Splitting { NONE = 0, ACTIVE = 1 };
+
     class connection_interface;
 
     using time_point = std::chrono::steady_clock::time_point;
@@ -54,13 +37,10 @@ namespace oxen::quic
     using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
 
     using namespace std::literals;
-    using namespace oxenc;
 
     using cspan = std::span<const char>;
     using uspan = std::span<const unsigned char>;
     using bspan = std::span<const std::byte>;
-
-    using stream_buffer = std::deque<std::pair<bspan, std::shared_ptr<void>>>;
 
 #ifdef _WIN32
     inline constexpr bool IN_HELL = true;
@@ -69,13 +49,6 @@ namespace oxen::quic
     inline constexpr bool IN_HELL = false;
     inline constexpr bool EMULATING_HELL = false;
 #endif
-
-    struct ngtcp2_error_code_t final
-    {};
-
-    // Tag value to pass into the io_result/io_error constructors to indicate an ngtcp2 error code.
-    // (For ngtcp2, error codes are arbitrary negative values without any connection to errno).
-    static inline constexpr ngtcp2_error_code_t ngtcp2_error_code{};
 
     // SI (1000) and non-SI (1024-based) modifier prefix operators.  E.g.
     // 50_M is 50'000'000 and 50_Mi is 52'428'800.
@@ -117,20 +90,18 @@ namespace oxen::quic
     inline constexpr std::chrono::seconds DEFAULT_HANDSHAKE_TIMEOUT = 10s;
     inline constexpr std::chrono::seconds DEFAULT_IDLE_TIMEOUT = 30s;
 
-    inline constexpr size_t inverse_golden_ratio = sizeof(size_t) >= 8 ? 0x9e37'79b9'7f4a'7c15 : 0x9e37'79b9;
-
     // NGTCP2 sets the path_pmtud_payload to 1200 on connection creation, then discovers upwards
     // to a theoretical max of 1452. In 'lazy' mode, we take in split packets under the current max
     // pmtud size. In 'greedy' mode, we take in up to double the current pmtud size to split amongst
     // two datagrams. (Note: NGTCP2_MAX_UDP_PAYLOAD_SIZE is badly named, so we're using more accurate
     // ones)
 
-    inline constexpr size_t MIN_UDP_PAYLOAD = NGTCP2_MAX_UDP_PAYLOAD_SIZE;                // 1200
-    inline constexpr size_t MIN_LAZY_UDP_PAYLOAD = MIN_UDP_PAYLOAD;                       // 1200
-    inline constexpr size_t MIN_GREEDY_UDP_PAYLOAD = (MIN_LAZY_UDP_PAYLOAD << 1);         // 2400
-    inline constexpr size_t MAX_PMTUD_UDP_PAYLOAD = NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE;    // 1452
-    inline constexpr size_t MAX_GREEDY_PMTUD_UDP_PAYLOAD = (MAX_PMTUD_UDP_PAYLOAD << 1);  // 2904
-                                                                                          //
+    inline constexpr size_t MIN_UDP_PAYLOAD = 1200;  // == NGTCP2_MAX_UDP_PAYLOAD_SIZE
+    inline constexpr size_t MIN_LAZY_UDP_PAYLOAD = MIN_UDP_PAYLOAD;
+    inline constexpr size_t MIN_GREEDY_UDP_PAYLOAD = 2 * MIN_LAZY_UDP_PAYLOAD;
+    inline constexpr size_t MAX_PMTUD_UDP_PAYLOAD = 1452;  // == NGTCP2_MAX_PMTUD_UDP_PAYLOAD_SIZE
+    inline constexpr size_t MAX_GREEDY_PMTUD_UDP_PAYLOAD = 2 * MAX_PMTUD_UDP_PAYLOAD;
+
     // This is the maximum overhead in the UDP packet of sending a packet containing only one single
     // datagram, and is used to determine the maximum datagram size we can send.
     //
@@ -179,8 +150,6 @@ namespace oxen::quic
     template <template <typename...> class Class, typename... Us>
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
 
-    std::pair<std::string, uint16_t> parse_addr(std::string_view addr, std::optional<uint16_t> default_port = std::nullopt);
-
     namespace detail
     {
         template <oxenc::basic_char Out, oxenc::basic_char In>
@@ -190,13 +159,13 @@ namespace oxen::quic
         }
     }  // namespace detail
 
-    template <oxenc::string_like T>
+    template <oxenc::bt_input_string T>
     inline bspan str_to_bspan(const T& sv)
     {
         return detail::to_span<std::byte>(sv.data(), sv.size());
     }
 
-    template <oxenc::string_like T>
+    template <oxenc::bt_input_string T>
     inline uspan str_to_uspan(const T& sv)
     {
         return detail::to_span<unsigned char>(sv.data(), sv.size());
@@ -224,12 +193,6 @@ namespace oxen::quic
     }
 
     std::string str_tolower(std::string s);
-
-    template <std::integral T>
-    constexpr bool increment_will_overflow(T val)
-    {
-        return std::numeric_limits<T>::max() == val;
-    }
 
     /// Parses an integer of some sort from a string, requiring that the entire string be consumed
     /// during parsing.  Return false if parsing failed, sets `value` and returns true if the entire

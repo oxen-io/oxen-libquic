@@ -32,7 +32,8 @@ namespace oxen::quic::test
     TEST_CASE("004 - Multiple pending streams: streams available", "[004][streams][pending][config]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> data_promise;
         std::future<void> data_future = data_promise.get_future();
@@ -68,7 +69,8 @@ namespace oxen::quic::test
         auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> data_promise;
         std::future<void> data_future = data_promise.get_future();
@@ -122,7 +124,8 @@ namespace oxen::quic::test
         auto client_established = callback_waiter{[](connection_interface&) {}};
 
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::atomic<size_t> index{0};
         std::atomic<size_t> data_check{0};
@@ -251,7 +254,8 @@ namespace oxen::quic::test
     TEST_CASE("004 - Subclassing quic::stream, custom to standard", "[004][customstream][cross]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> ss_p, sc_p, cs_p, cc_p;
         std::future<void> ss_f = ss_p.get_future(), sc_f = sc_p.get_future(), cs_f = cs_p.get_future(),
@@ -259,14 +263,14 @@ namespace oxen::quic::test
 
         stream_data_callback standard_server_cb = [&](Stream& s, bspan dat) {
             log::debug(test_cat, "Calling standard stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(msg));
+            REQUIRE(view(dat) == view(msg));
             ss_p.set_value();
             s.send(msg, nullptr);
         };
 
         stream_data_callback standard_client_cb = [&](Stream& s, bspan dat) {
             log::debug(test_cat, "Calling standard stream data callback... data received...");
-            REQUIRE_THAT(dat, EqualsSpan(msg));
+            REQUIRE(view(dat) == view(msg));
             cs_p.set_value();
             s.send(msg, nullptr);
         };
@@ -303,7 +307,8 @@ namespace oxen::quic::test
     TEST_CASE("004 - Subclassing quic::stream, custom to custom", "[004][customstream][subclass]")
     {
         Network test_net{};
-        constexpr auto msg = "hello from the other siiiii-iiiiide"_bsp;
+        auto msg_str = "hello from the other siiiii-iiiiide"sv;
+        auto msg = to_span<std::byte>(msg_str);
 
         std::promise<void> server_promise, client_promise;
         std::future<void> server_future = server_promise.get_future();
@@ -517,24 +522,24 @@ namespace oxen::quic::test
         client_a = client_ci->open_stream<CustomStreamA>(std::move(cp1));
         REQUIRE_NOTHROW(client_a->send("Stream A!"s));
         require_future(sf1);
-        CHECK_THAT(sf1.get(), EqualsSpan("Stream A!"_bsp));
+        CHECK(view(sf1.get()) == view(to_span<std::byte>("Stream A!")));
 
         log::info(test_cat, "Client opening Custom Stream B!");
         client_b = client_ci->open_stream<CustomStreamB>(std::move(cp2));
         REQUIRE_NOTHROW(client_b->send("Stream B!"s));
         require_future(sf2);
-        CHECK_THAT(sf2.get(), EqualsSpan("Stream B!"_bsp));
+        CHECK(view(sf2.get()) == view(to_span<std::byte>("Stream B!")));
 
         log::info(test_cat, "Client opening Custom Stream C!");
         client_c = client_ci->open_stream<CustomStreamC>(std::move(cp3));
         REQUIRE_NOTHROW(client_c->send("Stream C!"s));
         require_future(sf3);
-        CHECK_THAT(sf3.get(), EqualsSpan("Stream C!"_bsp));
+        CHECK(view(sf3.get()) == view(to_span<std::byte>("Stream C!")));
 
         client_d = client_ci->open_stream();
         client_d->send("Stream D!"s);
         require_future(sf4);
-        CHECK_THAT(sf4.get(), EqualsSpan("Stream D!"_bsp));
+        CHECK(view(sf4.get()) == view(to_span<std::byte>("Stream D!")));
 
         client_ci->close_connection();
         REQUIRE(server_closed.wait());
@@ -942,7 +947,7 @@ namespace oxen::quic::test
 
             auto conn = client_endpoint->connect(client_remote, client_tls, conn_closed);
             auto stream_data_cb = [&](Stream&, bspan data) {
-                REQUIRE_THAT(data, EqualsSpan("11"_bsp));
+                REQUIRE(view(data) == view(to_span<std::byte>("11")));
                 got_reply.set_value();
             };
             auto stream_close_cb = [&](Stream&, uint64_t) { got_closed.set_value(); };
