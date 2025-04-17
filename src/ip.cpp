@@ -2,6 +2,15 @@
 
 #include "internal.hpp"
 
+extern "C"
+{
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
+}
+
 namespace oxen::quic
 {
     ipv4::ipv4(const std::string& str)
@@ -62,4 +71,29 @@ namespace oxen::quic
 
         return "{}"_format(buf);
     }
+
+    namespace detail
+    {
+        void parse_addr(int af, void* dest, const std::string& from)
+        {
+            auto rv = inet_pton(af, from.c_str(), dest);
+
+            if (rv == 0)  // inet_pton returns this on invalid input
+                throw std::invalid_argument{"Unable to parse IP address!"};
+            if (rv < 0)
+                throw std::system_error{errno, std::system_category()};
+        }
+
+        // Parses an IPv4 address from string
+        void parse_addr(in_addr& into, const std::string& from)
+        {
+            parse_addr(AF_INET, &into.s_addr, from);
+        }
+
+        // Parses an IPv6 address from string
+        void parse_addr(in6_addr& into, const std::string& from)
+        {
+            parse_addr(AF_INET6, &into, from);
+        }
+    }  // namespace detail
 }  //  namespace oxen::quic

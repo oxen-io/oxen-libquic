@@ -2,8 +2,19 @@
 
 #include "utils.hpp"
 
+#include <ngtcp2/ngtcp2.h>
+
 #include <array>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <deque>
 #include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <vector>
 
 namespace oxen::quic
 {
