@@ -1,3 +1,34 @@
+oxen-libquic (1.4.0-1) unstable; urgency=medium
+
+  [ Jason Rhinelander ]
+  * 1.4.0 dev branch version bump
+  * Add public `close()` method for app-specified shutdown
+  * Make Endpoint destruction happen on event loop
+  * De-Network everything and make Loop more public
+  * reduce various test suite excessive waits
+  * Refactor watermarking
+  * Fix Endpoint destruction race condition
+  * Fix bugs caused by packet delayer
+  * Improve various API weirdness (breaking change!)
+  * formatting
+  * <3 apple
+  * fix duplicated/ambiguous methods
+  * remove pointless declaration
+  * add unholy prayer for win32
+  * ipv4/ipv6 fixes/improvements
+  * update gnutls to latest (3.8.9)
+  * tweak test timings for spurious failures
+  * Make Endpoint destruction shut down connections
+  * update C++ version in readme
+
+  [ Morgan Pretty ]
+  * Updated the patch for building GnuTLS on Android
+
+  [ Jason Rhinelander ]
+  * Use system liboxen-logging, if available
+
+ -- Jason Rhinelander <jason@session.foundation>  Thu, 17 Apr 2025 21:05:51 -0300
+
 oxen-libquic (1.3.1-1) unstable; urgency=medium
 
   * bump required oxenc dep
