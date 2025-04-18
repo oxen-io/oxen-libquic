@@ -28,7 +28,7 @@ namespace oxen::quic
     {
         if (!is_timeout)
         {
-            oxenc::bt_list_consumer btlc(bspan{data});
+            oxenc::bt_list_consumer btlc{data};
 
             req_type = get_location(data, btlc.consume_string_view());
             req_id = btlc.consume_integer<int64_t>();
@@ -42,7 +42,7 @@ namespace oxen::quic
         }
     }
 
-    void message::respond(bspan body, bool error) const
+    void message::respond(std::span<const std::byte> body, bool error) const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -62,7 +62,7 @@ namespace oxen::quic
         log::debug(log_cat, "Bparser set generic request handler");
         generic_handler = std::move(request_handler);
     }
-    void BTRequestStream::respond(int64_t rid, bspan body, bool error)
+    void BTRequestStream::respond(int64_t rid, std::span<const std::byte> body, bool error)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -98,7 +98,7 @@ namespace oxen::quic
         }
     }
 
-    void BTRequestStream::receive(bspan data)
+    void BTRequestStream::receive(std::span<const std::byte> data)
     {
         log::trace(log_cat, "bparser recv data callback called!");
 
@@ -129,14 +129,14 @@ namespace oxen::quic
 
     void BTRequestStream::register_handler(std::string ep, std::function<void(message)> func)
     {
-        endpoint.call(
+        loop.call(
                 [this, ep = std::move(ep), func = std::move(func)]() mutable { func_map[std::move(ep)] = std::move(func); });
     }
 
     void BTRequestStream::register_generic_handler(std::function<void(message)> request_handler)
     {
         log::debug(log_cat, "Bparser set generic request handler");
-        endpoint.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
+        loop.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
     }
 
     void BTRequestStream::handle_input(message msg)
@@ -174,7 +174,7 @@ namespace oxen::quic
         // `msg` likely isn't valid in the exception handlers below, so extract what we need to
         // send a response anyway:
         const auto req_id = msg.req_id;
-        const auto ep = msg.endpoint_str();
+        const std::string ep{msg.endpoint()};
         try
         {
             if (!func_map.empty())
@@ -195,7 +195,7 @@ namespace oxen::quic
         catch (const no_such_endpoint&)
         {
             log::warning(log_cat, "No handler found for endpoint {}, returning error response", ep);
-            respond(req_id, str_to_bspan("Invalid endpoint '{}'"_format(ep)), true);
+            respond(req_id, "Invalid endpoint '{}'"_format(ep), true);
         }
         catch (const std::exception& e)
         {
@@ -204,11 +204,11 @@ namespace oxen::quic
                     "Handler for {} threw an uncaught exception ({}); returning a generic error message",
                     ep,
                     e.what());
-            respond(req_id, str_to_bspan("An error occurred while processing the request"sv), true);
+            respond(req_id, "An error occurred while processing the request", true);
         }
     }
 
-    void BTRequestStream::process_incoming(bspan req)
+    void BTRequestStream::process_incoming(std::span<const std::byte> req)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
@@ -293,7 +293,7 @@ namespace oxen::quic
         }
     }
 
-    std::string BTRequestStream::encode_command(std::string_view endpoint, int64_t rid, bspan body)
+    std::string BTRequestStream::encode_command(std::string_view endpoint, int64_t rid, std::span<const std::byte> body)
     {
         oxenc::bt_list_producer btlp;
 
@@ -305,7 +305,7 @@ namespace oxen::quic
         return std::move(btlp).str();
     }
 
-    std::string BTRequestStream::encode_response(int64_t rid, bspan body, bool error)
+    std::string BTRequestStream::encode_response(int64_t rid, std::span<const std::byte> body, bool error)
     {
         oxenc::bt_list_producer btlp;
 

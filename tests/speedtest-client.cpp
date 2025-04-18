@@ -12,11 +12,6 @@
 
 using namespace oxen::quic;
 
-inline std::string_view view(std::span<const std::byte> x)
-{
-    return {reinterpret_cast<const char*>(x.data()), x.size()};
-}
-
 int main(int argc, char* argv[])
 {
     CLI::App cli{"libQUIC stream speedtest client"};
@@ -129,7 +124,7 @@ int main(int argc, char* argv[])
         log::critical(test_cat, "Stream {} (rawid={}) closed{}", i, s.stream_id(), error);
     };
 
-    stream_data_callback on_stream_data = [&](Stream& s, bspan data) {
+    stream_data_callback on_stream_data = [&](Stream& s, std::span<const std::byte> data) {
         size_t i = s.stream_id() >> 2;
         if (i >= parallel)
         {
@@ -164,7 +159,7 @@ int main(int argc, char* argv[])
             log::critical(
                     test_cat,
                     "Hash mismatch: other size said {}, we say {}",
-                    oxenc::to_hex(data.begin(), data.end()),
+                    oxenc::to_hex(first.begin(), first.end()),
                     oxenc::to_hex(sd.hash.begin(), sd.hash.end()));
             sd.failed = true;
         }

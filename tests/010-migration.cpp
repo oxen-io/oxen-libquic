@@ -5,8 +5,7 @@ namespace oxen::quic::test
     TEST_CASE("010 - Migration", "[010][migration]")
     {
         Network test_net{};
-        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto good_msg = to_span<std::byte>(good_msg_str);
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"sv;
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -24,23 +23,23 @@ namespace oxen::quic::test
         std::atomic<bool> address_flipped = false, secondary_connected = false;
 
         std::shared_ptr<Endpoint> client_endpoint;
-        std::shared_ptr<connection_interface> server_ci;
+        std::shared_ptr<Connection> server_ci;
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE(view(dat) == view(good_msg));
+            REQUIRE(view(dat) == good_msg);
             d_promise.set_value();
         };
 
-        auto server_established = callback_waiter{[](connection_interface&) {}};
-        auto client_established_b = callback_waiter{[](connection_interface&) { log::trace(test_cat, "LOOK ME UP BRO"); }};
+        auto server_established = callback_waiter{[](Connection&) {}};
+        auto client_established_b = callback_waiter{[](Connection&) { log::trace(test_cat, "LOOK ME UP BRO"); }};
 
         auto server_endpoint = test_net.endpoint(server_local, server_established);
         server_endpoint->listen(server_tls, server_data_cb);
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
-        auto client_established = [&](connection_interface& ci) mutable {
+        auto client_established = [&](Connection& ci) mutable {
             if (not address_flipped)
             {
                 auto& conn = static_cast<Connection&>(ci);
