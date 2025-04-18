@@ -84,14 +84,14 @@ namespace oxen::quic
     }
 
     void Ticker::init_event(
-            const loop_ptr& _loop,
+            ::event_base* loop,
             std::chrono::microseconds _t,
             std::function<void()> task,
             bool one_off,
             bool start_immediately,
             bool task_rescheduling)
     {
-        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)]() mutable {
+        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)] {
             func();
             event_del(ev.get());
             event_add(ev.get(), &interval);
@@ -100,7 +100,7 @@ namespace oxen::quic
         interval = loop_time_to_timeval(_t);
 
         ev.reset(event_new(
-                _loop.get(),
+                loop,
                 -1,
                 task_rescheduling ? 0 : EV_PERSIST,
                 [](evutil_socket_t, short, void* s) {
@@ -122,8 +122,9 @@ namespace oxen::quic
                 },
                 this));
 
-        if ((one_off or start_immediately) and not start())
-            log::warning(log_cat, "Failed to immediately start one-off event!");
+        if (one_off or start_immediately)
+            if (not start())
+                log::warning(log_cat, "Failed to immediately start one-off event!");
     }
 
     Ticker::~Ticker()
@@ -140,7 +141,7 @@ namespace oxen::quic
         return ev_methods_avail;
     }
 
-    Loop::Loop()
+    Loop::Loop() : ev_loop{nullptr, ::event_base_free}
     {
         log::trace(log_cat, "Beginning loop context creation with new ev loop thread");
 
@@ -180,7 +181,7 @@ namespace oxen::quic
         event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_NO_CACHE_TIME);
         event_config_set_flag(ev_conf.get(), EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST);
 
-        ev_loop = std::shared_ptr<event_base>{event_base_new_with_config(ev_conf.get()), event_base_free};
+        ev_loop = {event_base_new_with_config(ev_conf.get()), event_base_free};
 
         log::debug(log_cat, "Started libevent loop with backend {}", event_base_get_method(ev_loop.get()));
 
@@ -188,17 +189,16 @@ namespace oxen::quic
 
         std::promise<void> p;
 
-        loop_thread.emplace([this, &p]() mutable {
+        loop_thread = std::thread{[this, &p] {
             log::debug(log_cat, "Starting event loop run");
             p.set_value();
             event_base_loop(ev_loop.get(), EVLOOP_NO_EXIT_ON_EMPTY);
             log::debug(log_cat, "Event loop run returned, thread finished");
-        });
+        }};
 
-        loop_thread_id = loop_thread->get_id();
+        loop_thread_id = loop_thread.get_id();
         p.get_future().get();
 
-        running.store(true);
         log::info(log_cat, "libevent loop is started");
     }
 
@@ -206,18 +206,17 @@ namespace oxen::quic
     {
         log::debug(log_cat, "Shutting down loop...");
 
-        stop_thread();
-
-        for (auto& [id, list] : tickers)
+        for (auto& t : tickers)
         {
-            std::for_each(list.begin(), list.end(), [](auto& t) {
-                if (auto tick = t.lock())
-                {
-                    tick->f = nullptr;
-                    tick->stop();
-                }
-            });
+            if (auto tick = t.lock())
+            {
+                tick->f = nullptr;
+                tick->stop();
+            }
         }
+
+        event_base_loopbreak(ev_loop.get());
+        loop_thread.join();
 
         log::info(log_cat, "Loop shutdown complete");
 
@@ -226,52 +225,12 @@ namespace oxen::quic
 #endif
     }
 
-    void Loop::stop_thread(bool immediate)
+    std::shared_ptr<Ticker> Loop::make_ticker()
     {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-
-        if (loop_thread)
-            immediate ? event_base_loopbreak(ev_loop.get()) : event_base_loopexit(ev_loop.get(), nullptr);
-
-        if (loop_thread and loop_thread->joinable())
-            loop_thread->join();
-    }
-
-    void Loop::clear_old_tickers()
-    {
-        for (auto& [id, list] : tickers)
-        {
-            for (auto itr = list.begin(); itr != list.end();)
-            {
-                if (itr->expired())
-                    itr = list.erase(itr);
-                else
-                    ++itr;
-            }
-        }
-    }
-
-    std::shared_ptr<Ticker> Loop::make_handler(caller_id_t _id)
-    {
-        clear_old_tickers();
+        std::erase_if(tickers, [](auto& wp) { return wp.expired(); });
         auto t = make_shared<Ticker>();
-        tickers[_id].push_back(t);
+        tickers.emplace_back(t);
         return t;
-    }
-
-    void Loop::stop_tickers(caller_id_t id)
-    {
-        if (auto it = tickers.find(id); it != tickers.end())
-        {
-            for (auto& t : it->second)
-            {
-                if (auto tick = t.lock())
-                {
-                    tick->f = nullptr;
-                    tick->stop();
-                }
-            }
-        }
     }
 
     void Loop::setup_job_waker()
@@ -291,7 +250,7 @@ namespace oxen::quic
     void Loop::process_job_queue()
     {
         log::trace(log_cat, "Event loop processing job queue");
-        assert(in_event_loop());
+        assert(inside());
 
         decltype(job_queue) swapped_queue;
 

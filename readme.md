@@ -12,7 +12,7 @@ as new features and capabilities are added that are suitable for production use.
 ### Requirements:
 
 - CMake 3.13+
-- C++17 compiler (such as clang >= 8 or GCC >= 8)
+- C++20 compiler (such as clang >= 10 or GCC >= 10)
 - gnutls (>= 3.7.2)
 - libevent (>= 2.1)
 

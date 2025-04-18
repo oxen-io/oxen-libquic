@@ -325,12 +325,12 @@ namespace oxen::quic
         }
 
         template <typename... Opt>
-        RemoteAddress(uspan remote_pk, Opt&&... opts) : Address{std::forward<Opt>(opts)...}
+        RemoteAddress(std::span<const unsigned char> remote_pk, Opt&&... opts) : Address{std::forward<Opt>(opts)...}
         {
             _remote_pubkey.assign(remote_pk.data(), remote_pk.data() + remote_pk.size());
         }
 
-        uspan view_remote_key() const { return _remote_pubkey; }
+        std::span<const unsigned char> view_remote_key() const { return _remote_pubkey; }
         const std::vector<unsigned char>& get_remote_key() const& { return _remote_pubkey; }
         std::vector<unsigned char>&& get_remote_key() && { return std::move(_remote_pubkey); }
 

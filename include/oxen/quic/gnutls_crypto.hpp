@@ -152,7 +152,7 @@ namespace oxen::quic
     };
 
     // key: remote key to verify, alpn: negotiated alpn's
-    using key_verify_callback = std::function<bool(uspan key, std::string_view alpn)>;
+    using key_verify_callback = std::function<bool(std::span<const unsigned char> key, std::string_view alpn)>;
 
     struct gnutls_callback_wrapper
     {
@@ -339,7 +339,7 @@ namespace oxen::quic
             return gtls_ticket_ptr(new gtls_session_ticket{key->data, key->size, ticket->data, ticket->size});
         }
 
-        static gtls_ticket_ptr make(uspan key, const gnutls_datum_t* ticket)
+        static gtls_ticket_ptr make(std::span<const unsigned char> key, const gnutls_datum_t* ticket)
         {
             return gtls_ticket_ptr(
                     new gtls_session_ticket{key.data(), static_cast<unsigned int>(key.size()), ticket->data, ticket->size});
@@ -348,10 +348,10 @@ namespace oxen::quic
         // Returns a view of the key for this ticket.  The view is valid as long as this
         // gtls_session_ticket object remains alive, and so can be used (for example) as the key of
         // a map containing the object in the value.
-        uspan span() const { return {_key.data(), _key.size()}; }
+        std::span<const unsigned char> span() const { return {_key.data(), _key.size()}; }
 
         // Returns a view of the ticket data.
-        uspan ticket() const { return {_ticket.data(), _ticket.size()}; }
+        std::span<const unsigned char> ticket() const { return {_ticket.data(), _ticket.size()}; }
 
         // Accesses the ticket data pointer as needed by gnutls API
         const gnutls_datum_t* datum() const { return &_data; }
