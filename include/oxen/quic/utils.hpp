@@ -24,23 +24,9 @@ namespace oxen::quic
 
     enum class Splitting { NONE = 0, ACTIVE = 1 };
 
-    class connection_interface;
-
     using time_point = std::chrono::steady_clock::time_point;
 
-    // called when a connection's handshake completes
-    // the server will call this when it sends the final handshake packet
-    // the client will call this when it receives that final handshake packet
-    using connection_established_callback = std::function<void(connection_interface& conn)>;
-
-    // called when a connection closes or times out before the handshake completes
-    using connection_closed_callback = std::function<void(connection_interface& conn, uint64_t ec)>;
-
     using namespace std::literals;
-
-    using cspan = std::span<const char>;
-    using uspan = std::span<const unsigned char>;
-    using bspan = std::span<const std::byte>;
 
 #ifdef _WIN32
     inline constexpr bool IN_HELL = true;
@@ -150,37 +136,22 @@ namespace oxen::quic
     template <template <typename...> class Class, typename... Us>
     inline constexpr bool is_instantiation<Class, Class<Us...>> = true;
 
-    namespace detail
+    template <oxenc::basic_char Out, oxenc::basic_char In, size_t Extent>
+        requires(std::is_const_v<Out> || !std::is_const_v<In>)
+    inline std::span<Out, Extent> reinterpret_span(std::span<In, Extent> in)
     {
-        template <oxenc::basic_char Out, oxenc::basic_char In>
-        inline std::span<const Out> to_span(const In* data, size_t datalen)
-        {
-            return {reinterpret_cast<const Out*>(data), datalen};
-        }
-    }  // namespace detail
-
-    template <oxenc::bt_input_string T>
-    inline bspan str_to_bspan(const T& sv)
-    {
-        return detail::to_span<std::byte>(sv.data(), sv.size());
+        if constexpr (std::is_const_v<Out> && !std::is_const_v<In>)
+            return std::span<Out, Extent>{reinterpret_cast<Out*>(const_cast<const In*>(in.data())), in.size()};
+        else
+            return std::span<Out, Extent>{reinterpret_cast<Out*>(const_cast<In*>(in.data())), in.size()};
     }
-
-    template <oxenc::bt_input_string T>
-    inline uspan str_to_uspan(const T& sv)
+    // Templatize with `same_as` here so that we only match actual string_views and not things
+    // convertible to string_view.
+    template <oxenc::basic_char Out, std::same_as<std::string_view> In>
+        requires std::is_const_v<Out>
+    inline std::span<Out> reinterpret_span(In in)
     {
-        return detail::to_span<unsigned char>(sv.data(), sv.size());
-    }
-
-    template <oxenc::basic_char Out, oxenc::basic_char In>
-    inline std::span<const Out> vec_to_span(const std::vector<In>& v)
-    {
-        return detail::to_span<Out>(v.data(), v.size());
-    }
-
-    template <oxenc::basic_char Out, oxenc::basic_char In>
-    inline std::span<const Out> span_to_span(const std::span<const In>& sp)
-    {
-        return detail::to_span<Out>(sp.data(), sp.size());
+        return reinterpret_span<Out>(std::span{in});
     }
 
     time_point get_time();
@@ -209,30 +180,11 @@ namespace oxen::quic
         return true;
     }
 
-    // Shortcut for a const-preserving `reinterpret_cast`ing c.data() from a std::byte to a uint8_t
-    // pointer, because we need it all over the place in the ngtcp2 API
-    template <typename Container>
-        requires(sizeof(typename std::remove_reference_t<Container>::value_type) == sizeof(uint8_t))
-    auto* u8data(Container&& c)
-    {
-        using u8_sameconst_t =
-                std::conditional_t<std::is_const_v<std::remove_pointer_t<decltype(c.data())>>, const uint8_t, uint8_t>;
-        return reinterpret_cast<u8_sameconst_t*>(c.data());
-    }
-
     struct event_deleter final
     {
         void operator()(::event* e) const;
     };
 
     using event_ptr = std::unique_ptr<::event, event_deleter>;
-
-    // Stringview conversion function to interoperate between bstring_views and any other potential
-    // user supplied type
-    template <oxenc::basic_char CharOut, oxenc::basic_char CharIn>
-    std::basic_string_view<CharOut> convert_sv(std::basic_string_view<CharIn> in)
-    {
-        return {reinterpret_cast<const CharOut*>(in.data()), in.size()};
-    }
 
 }  // namespace oxen::quic

@@ -1,6 +1,6 @@
 --- configure	2024-01-16 20:17:02
 +++ patch-configure.sh	2025-03-26 08:23:34
-@@ -55684,19 +55684,19 @@
+@@ -63130,19 +63130,19 @@
  
    fi
  
@@ -31,61 +31,90 @@
  
       if test $HAVE_TIMEZONE_T = 0; then
 
---- src/gl/time.in.h	2025-03-26 08:33:34
-+++ src/gl/patch-time.in.h	2025-03-26 08:34:22
-@@ -369,8 +369,8 @@
+--- src/gl/time.in.h	2025-02-08 15:53:58
++++ src/gl/patch-time.in.h	2025-04-14 15:15:15
+@@ -494,11 +494,11 @@
     Inspired by NetBSD.  */
  
  /* Represents a time zone.
 -   (timezone_t) NULL stands for UTC.  */
--typedef struct tm_zone *timezone_t;
 +   (rpl_timezone_t) NULL stands for UTC.  */
+ #  if !@HAVE_TZALLOC@
+ #   if !GNULIB_defined_timezone_t
+ #    if !@HAVE_TIMEZONE_T@
+-typedef struct tm_zone *timezone_t;
 +typedef struct tm_zone *rpl_timezone_t;
- 
- /* tzalloc (name)
-    Returns a time zone object for the given time zone NAME.  This object
-@@ -380,14 +380,14 @@
-    would use it the TZ environment variable was unset.
+ #    else
+ typedef struct tm_zone *rpl_timezone_t;
+ #     define timezone_t rpl_timezone_t
+@@ -516,16 +516,16 @@
     May return NULL if NAME is invalid (this is platform dependent) or
     upon memory allocation failure.  */
--_GL_FUNCDECL_SYS (tzalloc, timezone_t, (char const *__name));
+ #  if !@HAVE_TZALLOC@
+-_GL_FUNCDECL_SYS (tzalloc, timezone_t, (char const *__name), );
 -_GL_CXXALIAS_SYS (tzalloc, timezone_t, (char const *__name));
-+_GL_FUNCDECL_SYS (tzalloc, rpl_timezone_t, (char const *__name));
++_GL_FUNCDECL_SYS (tzalloc, rpl_timezone_t, (char const *__name), );
 +_GL_CXXALIAS_SYS (tzalloc, rpl_timezone_t, (char const *__name));
+ #  endif
  
  /* tzfree (tz)
     Frees a time zone object.
     The argument must have been returned by tzalloc().  */
--_GL_FUNCDECL_SYS (tzfree, void, (timezone_t __tz));
+ #  if !@HAVE_TZALLOC@
+-_GL_FUNCDECL_SYS (tzfree, void, (timezone_t __tz), );
 -_GL_CXXALIAS_SYS (tzfree, void, (timezone_t __tz));
-+_GL_FUNCDECL_SYS (tzfree, void, (rpl_timezone_t __tz));
++_GL_FUNCDECL_SYS (tzfree, void, (rpl_timezone_t __tz), );
 +_GL_CXXALIAS_SYS (tzfree, void, (rpl_timezone_t __tz));
+ #  endif
  
  /* localtime_rz (tz, &t, &result)
-    Converts an absolute time T to a broken-down time RESULT, assuming the
-@@ -395,10 +395,10 @@
-    This function is like 'localtime_r', but relies on the argument TZ instead
-    of an implicit global time zone.  */
+@@ -539,21 +539,21 @@
+ #    define localtime_rz rpl_localtime_rz
+ #   endif
+ _GL_FUNCDECL_RPL (localtime_rz, struct tm *,
+-                  (timezone_t __tz, time_t const *restrict __timer,
++                  (rpl_timezone_t __tz, time_t const *restrict __timer,
+                    struct tm *restrict __result),
+                   _GL_ARG_NONNULL ((2, 3)));
+ _GL_CXXALIAS_RPL (localtime_rz, struct tm *,
+-                  (timezone_t __tz, time_t const *restrict __timer,
++                  (rpl_timezone_t __tz, time_t const *restrict __timer,
+                    struct tm *restrict __result));
+ #  else
+ #   if !@HAVE_TZALLOC@
  _GL_FUNCDECL_SYS (localtime_rz, struct tm *,
 -                  (timezone_t __tz, time_t const *restrict __timer,
 +                  (rpl_timezone_t __tz, time_t const *restrict __timer,
-                    struct tm *restrict __result) _GL_ARG_NONNULL ((2, 3)));
+                    struct tm *restrict __result),
+                   _GL_ARG_NONNULL ((2, 3)));
+ #   endif
  _GL_CXXALIAS_SYS (localtime_rz, struct tm *,
 -                  (timezone_t __tz, time_t const *restrict __timer,
 +                  (rpl_timezone_t __tz, time_t const *restrict __timer,
                     struct tm *restrict __result));
+ #  endif
  
- /* mktime_z (tz, &tm)
-@@ -407,16 +407,16 @@
-    This function is like 'mktime', but relies on the argument TZ instead
-    of an implicit global time zone.  */
- _GL_FUNCDECL_SYS (mktime_z, time_t,
--                  (timezone_t __tz, struct tm *restrict __tm)
-+                  (rpl_timezone_t __tz, struct tm *restrict __tm)
+@@ -568,25 +568,25 @@
+ #    define mktime_z rpl_mktime_z
+ #   endif
+ _GL_FUNCDECL_RPL (mktime_z, time_t,
+-                  (timezone_t __tz, struct tm *restrict __tm),
++                  (rpl_timezone_t __tz, struct tm *restrict __tm),
                    _GL_ARG_NONNULL ((2)));
+ _GL_CXXALIAS_RPL (mktime_z, time_t,
+-                  (timezone_t __tz, struct tm *restrict __tm));
++                  (rpl_timezone_t __tz, struct tm *restrict __tm));
+ #  else
+ #   if !@HAVE_TZALLOC@
+ _GL_FUNCDECL_SYS (mktime_z, time_t,
+-                  (timezone_t __tz, struct tm *restrict __tm),
++                  (rpl_timezone_t __tz, struct tm *restrict __tm),
+                   _GL_ARG_NONNULL ((2)));
+ #   endif
  _GL_CXXALIAS_SYS (mktime_z, time_t,
 -                  (timezone_t __tz, struct tm *restrict __tm));
 +                  (rpl_timezone_t __tz, struct tm *restrict __tm));
+ #  endif
  
  /* Time zone abbreviation strings (returned by 'localtime_rz' or 'mktime_z'
     in the 'tm_zone' member of 'struct tm') are valid as long as
@@ -95,156 +124,136 @@
 +     - the 'rpl_timezone_t' argument is not freed through tzfree().  */
  
  # endif
-
---- src/gl/nstrftime.c	2024-01-16 20:16:15
-+++ src/gl/patch-nstrftime.c	2025-03-26 08:35:38
-@@ -388,7 +388,7 @@
  
- #ifdef my_strftime
- # define extra_args , tz, ns
--# define extra_args_spec , timezone_t tz, int ns
-+# define extra_args_spec , rpl_timezone_t tz, int ns
- #else
- # if defined COMPILE_WIDE
- #  define my_strftime wcsftime
 
---- src/gl/parse-datetime.h	2024-01-16 20:16:15
-+++ src/gl/patch-parse-datetime.h	2025-03-26 08:38:48
-@@ -27,4 +27,4 @@
+--- src/gl/parse-datetime.h	2025-02-08 15:53:58
++++ src/gl/patch-parse-datetime.h	2025-04-14 15:06:19
+@@ -32,7 +32,7 @@
  /* same as above, supporting additional flags */
  bool parse_datetime2 (struct timespec *restrict,
                        char const *, struct timespec const *,
 -                      unsigned int flags, timezone_t, char const *);
 +                      unsigned int flags, rpl_timezone_t, char const *);
-
---- src/gl/parse-datetime.c	2024-01-16 20:19:14
-+++ src/gl/patch-parse-datetime.c	2025-03-26 08:37:55
-@@ -3262,7 +3262,7 @@
- static bool
- parse_datetime_body (struct timespec *result, char const *p,
-                      struct timespec const *now, unsigned int flags,
--                     timezone_t tzdefault, char const *tzstring)
-+                     rpl_timezone_t tzdefault, char const *tzstring)
- {
-   struct tm tm;
-   struct tm tm0;
-@@ -3291,7 +3291,7 @@
-   while (c = *p, c_isspace (c))
-     p++;
  
--  timezone_t tz = tzdefault;
-+  rpl_timezone_t tz = tzdefault;
- 
-   /* Store a local copy prior to first "goto".  Without this, a prior use
-      below of RELATIVE_TIME_0 on the RHS might translate to an assignment-
-@@ -3313,7 +3313,7 @@
-           }
-         else if (*s == '"')
-           {
--            timezone_t tz1;
-+            rpl_timezone_t tz1;
-             char *tz1string = tz1buf;
-             char *z;
-             if (TZBUFSIZE < tzsize)
-@@ -3597,7 +3597,7 @@
-               char tz2buf[sizeof "XXX" - 1 + TIME_ZONE_BUFSIZE];
-               tz2buf[0] = tz2buf[1] = tz2buf[2] = 'X';
-               time_zone_str (pc.time_zone, &tz2buf[3]);
--              timezone_t tz2 = tzalloc (tz2buf);
-+              rpl_timezone_t tz2 = tzalloc (tz2buf);
-               if (!tz2)
-                 {
-                   if (debugging (&pc))
-@@ -3935,7 +3935,7 @@
- bool
- parse_datetime2 (struct timespec *result, char const *p,
-                  struct timespec const *now, unsigned int flags,
--                 timezone_t tzdefault, char const *tzstring)
-+                 rpl_timezone_t tzdefault, char const *tzstring)
- {
-   return parse_datetime_body (result, p, now, flags, tzdefault, tzstring);
- }
-@@ -3948,7 +3948,7 @@
-                 struct timespec const *now)
- {
-   char const *tzstring = getenv ("TZ");
--  timezone_t tz = tzalloc (tzstring);
-+  rpl_timezone_t tz = tzalloc (tzstring);
-   if (!tz)
-     return false;
-   bool ok = parse_datetime_body (result, p, now, 0, tz, tzstring);
-
---- src/gl/parse-datetime.y	2024-01-16 20:16:15
-+++ src/gl/patch-parse-datetime.y	2025-03-26 08:39:42
-@@ -1707,7 +1707,7 @@
- static bool
- parse_datetime_body (struct timespec *result, char const *p,
-                      struct timespec const *now, unsigned int flags,
--                     timezone_t tzdefault, char const *tzstring)
-+                     rpl_timezone_t tzdefault, char const *tzstring)
- {
-   struct tm tm;
-   struct tm tm0;
-@@ -1736,7 +1736,7 @@
-   while (c = *p, c_isspace (c))
-     p++;
- 
--  timezone_t tz = tzdefault;
-+  rpl_timezone_t tz = tzdefault;
- 
-   /* Store a local copy prior to first "goto".  Without this, a prior use
-      below of RELATIVE_TIME_0 on the RHS might translate to an assignment-
-@@ -1758,7 +1758,7 @@
-           }
-         else if (*s == '"')
-           {
--            timezone_t tz1;
-+            rpl_timezone_t tz1;
-             char *tz1string = tz1buf;
-             char *z;
-             if (TZBUFSIZE < tzsize)
-@@ -2042,7 +2042,7 @@
-               char tz2buf[sizeof "XXX" - 1 + TIME_ZONE_BUFSIZE];
-               tz2buf[0] = tz2buf[1] = tz2buf[2] = 'X';
-               time_zone_str (pc.time_zone, &tz2buf[3]);
--              timezone_t tz2 = tzalloc (tz2buf);
-+              rpl_timezone_t tz2 = tzalloc (tz2buf);
-               if (!tz2)
-                 {
-                   if (debugging (&pc))
-@@ -2380,7 +2380,7 @@
- bool
- parse_datetime2 (struct timespec *result, char const *p,
-                  struct timespec const *now, unsigned int flags,
--                 timezone_t tzdefault, char const *tzstring)
-+                 rpl_timezone_t tzdefault, char const *tzstring)
- {
-   return parse_datetime_body (result, p, now, flags, tzdefault, tzstring);
- }
-@@ -2393,7 +2393,7 @@
-                 struct timespec const *now)
- {
-   char const *tzstring = getenv ("TZ");
--  timezone_t tz = tzalloc (tzstring);
-+  rpl_timezone_t tz = tzalloc (tzstring);
-   if (!tz)
-     return false;
-   bool ok = parse_datetime_body (result, p, now, 0, tz, tzstring);
-
---- src/gl/strftime.h	2024-01-16 20:16:15
-+++ src/gl/patch-strftime.h	2025-03-26 08:40:38
-@@ -31,7 +31,7 @@
-    if the number is 0.  This errno behavior is in draft POSIX 202x
-    plus some requested changes to POSIX.  */
- size_t nstrftime (char *restrict, size_t, char const *, struct tm const *,
--                  timezone_t __tz, int __ns);
-+                  rpl_timezone_t __tz, int __ns);
  
  #ifdef __cplusplus
- }
 
---- src/gl/time_rz.c	2024-01-16 20:16:17
-+++ src/gl/patch-time_rz.c	2025-03-26 08:42:14
+--- src/gl/parse-datetime.c	2025-02-08 15:56:00
++++ src/gl/patch-parse-datetime.c	2025-04-14 15:07:24
+@@ -3368,7 +3368,7 @@
+ static bool
+ parse_datetime_body (struct timespec *result, char const *p,
+                      struct timespec const *now, unsigned int flags,
+-                     timezone_t tzdefault, char const *tzstring)
++                     rpl_timezone_t tzdefault, char const *tzstring)
+ {
+   struct tm tm;
+   struct tm tm0;
+@@ -3397,7 +3397,7 @@
+   while (c = *p, c_isspace (c))
+     p++;
+ 
+-  timezone_t tz = tzdefault;
++  rpl_timezone_t tz = tzdefault;
+ 
+   /* Store a local copy prior to first "goto".  Without this, a prior use
+      below of RELATIVE_TIME_0 on the RHS might translate to an assignment-
+@@ -3419,7 +3419,7 @@
+           }
+         else if (*s == '"')
+           {
+-            timezone_t tz1;
++            rpl_timezone_t tz1;
+             char *tz1string = tz1buf;
+             char *z;
+             if (TZBUFSIZE < tzsize)
+@@ -3676,7 +3676,7 @@
+               char tz2buf[sizeof "XXX" - 1 + TIME_ZONE_BUFSIZE];
+               tz2buf[0] = tz2buf[1] = tz2buf[2] = 'X';
+               time_zone_str (pc.time_zone, &tz2buf[3]);
+-              timezone_t tz2 = tzalloc (tz2buf);
++              rpl_timezone_t tz2 = tzalloc (tz2buf);
+               if (!tz2)
+                 {
+                   if (debugging (&pc))
+@@ -4014,7 +4014,7 @@
+ bool
+ parse_datetime2 (struct timespec *result, char const *p,
+                  struct timespec const *now, unsigned int flags,
+-                 timezone_t tzdefault, char const *tzstring)
++                 rpl_timezone_t tzdefault, char const *tzstring)
+ {
+   return parse_datetime_body (result, p, now, flags, tzdefault, tzstring);
+ }
+@@ -4027,7 +4027,7 @@
+                 struct timespec const *now)
+ {
+   char const *tzstring = getenv ("TZ");
+-  timezone_t tz = tzalloc (tzstring);
++  rpl_timezone_t tz = tzalloc (tzstring);
+   if (!tz)
+     return false;
+   bool ok = parse_datetime_body (result, p, now, 0, tz, tzstring);
+
+--- src/gl/parse-datetime.y	2025-02-08 15:53:58
++++ src/gl/patch-parse-datetime.y	2025-04-14 15:08:00
+@@ -1746,7 +1746,7 @@
+ static bool
+ parse_datetime_body (struct timespec *result, char const *p,
+                      struct timespec const *now, unsigned int flags,
+-                     timezone_t tzdefault, char const *tzstring)
++                     rpl_timezone_t tzdefault, char const *tzstring)
+ {
+   struct tm tm;
+   struct tm tm0;
+@@ -1775,7 +1775,7 @@
+   while (c = *p, c_isspace (c))
+     p++;
+ 
+-  timezone_t tz = tzdefault;
++  rpl_timezone_t tz = tzdefault;
+ 
+   /* Store a local copy prior to first "goto".  Without this, a prior use
+      below of RELATIVE_TIME_0 on the RHS might translate to an assignment-
+@@ -1797,7 +1797,7 @@
+           }
+         else if (*s == '"')
+           {
+-            timezone_t tz1;
++            rpl_timezone_t tz1;
+             char *tz1string = tz1buf;
+             char *z;
+             if (TZBUFSIZE < tzsize)
+@@ -2054,7 +2054,7 @@
+               char tz2buf[sizeof "XXX" - 1 + TIME_ZONE_BUFSIZE];
+               tz2buf[0] = tz2buf[1] = tz2buf[2] = 'X';
+               time_zone_str (pc.time_zone, &tz2buf[3]);
+-              timezone_t tz2 = tzalloc (tz2buf);
++              rpl_timezone_t tz2 = tzalloc (tz2buf);
+               if (!tz2)
+                 {
+                   if (debugging (&pc))
+@@ -2392,7 +2392,7 @@
+ bool
+ parse_datetime2 (struct timespec *result, char const *p,
+                  struct timespec const *now, unsigned int flags,
+-                 timezone_t tzdefault, char const *tzstring)
++                 rpl_timezone_t tzdefault, char const *tzstring)
+ {
+   return parse_datetime_body (result, p, now, flags, tzdefault, tzstring);
+ }
+@@ -2405,7 +2405,7 @@
+                 struct timespec const *now)
+ {
+   char const *tzstring = getenv ("TZ");
+-  timezone_t tz = tzalloc (tzstring);
++  rpl_timezone_t tz = tzalloc (tzstring);
+   if (!tz)
+     return false;
+   bool ok = parse_datetime_body (result, p, now, 0, tz, tzstring);
+
+--- src/gl/time_rz.c	2025-02-08 15:53:58
++++ src/gl/patch-time_rz.c	2025-04-14 15:09:02
 @@ -19,7 +19,7 @@
  
  /* Although this module is not thread-safe, any races should be fairly
@@ -254,21 +263,25 @@
     needed.  */
  
  #include <config.h>
-@@ -44,10 +44,10 @@
-    used.  */
- enum { ABBR_SIZE_MIN = DEFAULT_MXFAST - offsetof (struct tm_zone, abbrs) };
+@@ -30,7 +30,7 @@
+ #if NEED_TIMEZONE_NULL_SUPPORT          /* Android API level >= 35 */
  
--/* Magic cookie timezone_t value, for local time.  It differs from
--   NULL and from all other timezone_t values.  Only the address
-+/* Magic cookie rpl_timezone_t value, for local time.  It differs from
-+   NULL and from all other rpl_timezone_t values.  Only the address
-    matters; the pointer is never dereferenced.  */
--static timezone_t const local_tz = (timezone_t) 1;
-+static rpl_timezone_t const local_tz = (rpl_timezone_t) 1;
+ struct tm *
+-localtime_rz (timezone_t tz, time_t const *t, struct tm *tm)
++localtime_rz (rpl_timezone_t tz, time_t const *t, struct tm *tm)
+ # undef localtime_rz
+ {
+   if (!tz)
+@@ -40,7 +40,7 @@
+ }
  
- /* Copy to ABBRS the abbreviation at ABBR with size ABBR_SIZE (this
-    includes its trailing null byte).  Append an extra null byte to
-@@ -61,12 +61,12 @@
+ time_t
+-mktime_z (timezone_t tz, struct tm *tm)
++mktime_z (rpl_timezone_t tz, struct tm *tm)
+ # undef mktime_z
+ {
+   if (!tz)
+@@ -81,12 +81,12 @@
  
  /* Return a newly allocated time zone for NAME, or NULL on failure.
     A null NAME stands for wall clock time (which is like unset TZ).  */
@@ -283,16 +296,16 @@
    if (tz)
      {
        tz->next = NULL;
-@@ -86,7 +86,7 @@
-    !HAVE_STRUCT_TM_TM_ZONE && HAVE_TZNAME) if they use the abbreviation.
+@@ -102,7 +102,7 @@
+    abbreviation used by TM, and update *TM to contain the saved abbreviation.
     Return true if successful, false (setting errno) otherwise.  */
  static bool
 -save_abbr (timezone_t tz, struct tm *tm)
 +save_abbr (rpl_timezone_t tz, struct tm *tm)
  {
- #if HAVE_STRUCT_TM_TM_ZONE || HAVE_TZNAME
-   char const *zone = NULL;
-@@ -157,12 +157,12 @@
+ # if HAVE_STRUCT_TM_TM_ZONE
+   char const *zone = tm->tm_zone;
+@@ -152,12 +152,12 @@
  
  /* Free a time zone.  */
  void
@@ -307,9 +320,9 @@
          free (tz);
          tz = next;
        }
-@@ -187,10 +187,10 @@
+@@ -182,10 +182,10 @@
  }
- #endif
+ # endif
  
 -/* Change the environment to match the specified timezone_t value.
 +/* Change the environment to match the specified rpl_timezone_t value.
@@ -320,18 +333,18 @@
  {
    if (setenv_TZ (tz->tz_is_set ? tz->abbrs : NULL) != 0)
      return false;
-@@ -202,8 +202,8 @@
+@@ -197,8 +197,8 @@
     Return LOCAL_TZ if the time zone setting is already correct.
     Otherwise return a newly allocated time zone representing the old
     setting, or NULL (setting errno) on failure.  */
--static timezone_t
+-timezone_t
 -set_tz (timezone_t tz)
-+static rpl_timezone_t
++rpl_timezone_t
 +set_tz (rpl_timezone_t tz)
  {
    char *env_tz = getenv_TZ ();
    if (env_tz
-@@ -212,7 +212,7 @@
+@@ -207,7 +207,7 @@
      return local_tz;
    else
      {
@@ -340,25 +353,25 @@
        if (!old_tz)
          return old_tz;
        if (! change_env (tz))
-@@ -230,7 +230,7 @@
+@@ -225,7 +225,7 @@
     Return true (preserving errno) if successful, false (setting errno)
     otherwise.  */
- static bool
+ bool
 -revert_tz (timezone_t tz)
 +revert_tz (rpl_timezone_t tz)
  {
    if (tz == local_tz)
      return true;
-@@ -248,7 +248,7 @@
+@@ -243,7 +243,7 @@
  
  /* Use time zone TZ to compute localtime_r (T, TM).  */
  struct tm *
 -localtime_rz (timezone_t tz, time_t const *t, struct tm *tm)
 +localtime_rz (rpl_timezone_t tz, time_t const *t, struct tm *tm)
  {
- #ifdef HAVE_LOCALTIME_INFLOOP_BUG
+ # ifdef HAVE_LOCALTIME_INFLOOP_BUG
    /* The -67768038400665599 comes from:
-@@ -269,7 +269,7 @@
+@@ -264,7 +264,7 @@
      return gmtime_r (t, tm);
    else
      {
@@ -367,7 +380,7 @@
        if (old_tz)
          {
            bool abbr_saved = localtime_r (t, tm) && save_abbr (tz, tm);
-@@ -282,13 +282,13 @@
+@@ -277,13 +277,13 @@
  
  /* Use time zone TZ to compute mktime (TM).  */
  time_t
@@ -384,23 +397,21 @@
          {
            struct tm tm_1;
 
---- src/gl/tests/test-nstrftime.c	2024-01-16 20:16:17
-+++ src/gl/tests/patch-test-nstrftime.c	2025-03-26 08:43:33
-@@ -86,7 +86,7 @@
- 
- struct tzalloc_test
- {
--  timezone_t tz;
-+  rpl_timezone_t tz;
-   char const *setting;
+--- src/gl/time-internal.h	2025-02-08 15:53:58
++++ src/gl/patch-time-internal.h	2025-04-14 15:19:18
+@@ -45,10 +45,10 @@
+   char abbrs[FLEXIBLE_ARRAY_MEMBER];
  };
  
-@@ -161,7 +161,7 @@
-     {
-       struct tzalloc_test *tza = LT[i].tza;
-       long lt = LT[i].t;
--      timezone_t tz = tza->tz;
-+      rpl_timezone_t tz = tza->tz;
-       char const *setting;
-       static char const format[] = "%Y-%m-%d %H:%M:%S %z (%Z)";
-       char buf[1000];
+-timezone_t set_tz (timezone_t);
+-bool revert_tz (timezone_t);
++rpl_timezone_t set_tz (rpl_timezone_t);
++bool revert_tz (rpl_timezone_t);
+ 
+-/* Magic cookie timezone_t value, for local time.  It differs from
+-   NULL and from all other timezone_t values.  Only the address
++/* Magic cookie rpl_timezone_t value, for local time.  It differs from
++   NULL and from all other rpl_timezone_t values.  Only the address
+    matters; the pointer is never dereferenced.  */
+-#define local_tz ((timezone_t) 1)
++#define local_tz ((rpl_timezone_t) 1)

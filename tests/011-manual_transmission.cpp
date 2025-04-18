@@ -4,18 +4,17 @@ namespace oxen::quic::test
 {
     TEST_CASE("011 - Manual Transmission: Both ends re-route", "[011][manual][bidi]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
-        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto good_msg = to_span<std::byte>(good_msg_str);
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"sv;
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
-            REQUIRE(view(dat) == view(good_msg));
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
+            REQUIRE(view(dat) == good_msg);
             d_promise.set_value(true);
         };
 
@@ -24,11 +23,13 @@ namespace oxen::quic::test
         Address server_local{};
         Address client_local{};
 
-        opt::manual_routing client_sender{
-                [&](const Path& p, bspan d) { server_endpoint->manually_receive_packet(Packet{p.invert(), d}); }};
+        opt::manual_routing client_sender{[&](const Path& p, std::span<const std::byte> d) {
+            server_endpoint->manually_receive_packet(Packet{p.invert(), d});
+        }};
 
-        opt::manual_routing server_sender{
-                [&](const Path& p, bspan d) { client_endpoint->manually_receive_packet(Packet{p.invert(), d}); }};
+        opt::manual_routing server_sender{[&](const Path& p, std::span<const std::byte> d) {
+            client_endpoint->manually_receive_packet(Packet{p.invert(), d});
+        }};
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -61,14 +62,14 @@ namespace oxen::quic::test
     */
     TEST_CASE("011 - Manual Transmission: Binary endpoints", "[011][manual][binary]")
     {
-        auto vanilla_client_established = callback_waiter{[](connection_interface&) {}};
-        auto manual_client_established = callback_waiter{[](connection_interface&) {}};
-        auto vanilla_server_established = callback_waiter{[](connection_interface&) {}};
-        auto manual_server_established = callback_waiter{[](connection_interface&) {}};
+        auto vanilla_client_established = callback_waiter{[](Connection&) {}};
+        auto manual_client_established = callback_waiter{[](Connection&) {}};
+        auto vanilla_server_established = callback_waiter{[](Connection&) {}};
+        auto manual_server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
-        std::shared_ptr<connection_interface> vanilla_client_ci, vanilla_server_ci, manual_client_ci;
+        std::shared_ptr<Connection> vanilla_client_ci, vanilla_server_ci, manual_client_ci;
 
         std::shared_ptr<Endpoint> manual_client, vanilla_client, manual_server, vanilla_server;
 
@@ -77,19 +78,23 @@ namespace oxen::quic::test
 
         opt::enable_datagrams enable_dgrams{};
 
-        dgram_data_callback vanilla_client_recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
-            manual_client->manually_receive_packet(Packet{Path{manual_client_addr, manual_server_addr}, std::move(data)});
+        dgram_data_callback vanilla_client_recv_dgram_cb = [&](datagram dg) {
+            manual_client->manually_receive_packet(
+                    Packet{Path{manual_client_addr, manual_server_addr}, std::move(dg).extract()});
         };
 
-        dgram_data_callback vanilla_server_recv_dgram_cb = [&](dgram_interface&, std::vector<std::byte> data) {
-            manual_server->manually_receive_packet(Packet{Path{manual_server_addr, manual_client_addr}, std::move(data)});
+        dgram_data_callback vanilla_server_recv_dgram_cb = [&](datagram dg) {
+            manual_server->manually_receive_packet(
+                    Packet{Path{manual_server_addr, manual_client_addr}, std::move(dg).extract()});
         };
 
-        opt::manual_routing manual_client_sender{
-                [&](const Path&, bspan d) { vanilla_client_ci->send_datagram(std::vector<std::byte>{d.begin(), d.end()}); }};
+        opt::manual_routing manual_client_sender{[&](const Path&, std::span<const std::byte> d) {
+            vanilla_client_ci->datagrams()->send(std::vector<std::byte>{d.begin(), d.end()});
+        }};
 
-        opt::manual_routing manual_server_sender{
-                [&](const Path&, bspan d) { vanilla_server_ci->send_datagram(std::vector<std::byte>{d.begin(), d.end()}); }};
+        opt::manual_routing manual_server_sender{[&](const Path&, std::span<const std::byte> d) {
+            vanilla_server_ci->datagrams()->send(std::vector<std::byte>{d.begin(), d.end()});
+        }};
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 

@@ -5,6 +5,7 @@
 #include <array>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 
@@ -67,10 +68,14 @@ namespace oxen::quic
 
         explicit ipv4(const std::string& str);
 
-        constexpr ipv4(uint32_t a) : addr{a} {}
+        explicit constexpr ipv4(uint32_t a) : addr{a} {}
         constexpr ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) :
                 ipv4{uint32_t{a} << 24 | uint32_t{b} << 16 | uint32_t{c} << 8 | uint32_t{d}}
         {}
+        // Constructs from raw 4-bytes in network/big endian order:
+        explicit constexpr ipv4(std::span<const uint8_t, 4> addr) : ipv4{addr[0], addr[1], addr[2], addr[3]} {}
+
+        constexpr ipv4(const in_addr& addr) : addr{oxenc::big_to_host(addr.s_addr)} {}
 
         constexpr std::optional<ipv4> next_ip() const
         {
@@ -116,6 +121,26 @@ namespace oxen::quic
 
         explicit ipv6(const std::string& str);
 
+        ipv6(const in6_addr& addr) : ipv6{addr.s6_addr} {}
+
+        // Network order raw address bytes
+        explicit ipv6(std::span<const uint8_t, 16> addr) :
+                hi{oxenc::load_big_to_host<uint64_t>(addr.data())}, lo{oxenc::load_big_to_host<uint64_t>(addr.data() + 8)}
+        {}
+
+        explicit constexpr ipv6(
+                uint16_t a,
+                uint16_t b = 0x0000,
+                uint16_t c = 0x0000,
+                uint16_t d = 0x0000,
+                uint16_t e = 0x0000,
+                uint16_t f = 0x0000,
+                uint16_t g = 0x0000,
+                uint16_t h = 0x0000) :
+                hi{uint64_t{a} << 48 | uint64_t{b} << 32 | uint64_t{c} << 16 | uint64_t{d}},
+                lo{uint64_t{e} << 48 | uint64_t{f} << 32 | uint64_t{g} << 16 | uint64_t{h}}
+        {}
+
         constexpr std::optional<ipv6> next_ip() const
         {
             // If lo will not overflow, increment and return
@@ -139,23 +164,13 @@ namespace oxen::quic
             return std::nullopt;
         }
 
-        // Network order in6_addr constructor (calls private constructor)
-        ipv6(const in6_addr* addr) : ipv6{addr->s6_addr} {}
-
-        explicit constexpr ipv6(
-                uint16_t a,
-                uint16_t b = 0x0000,
-                uint16_t c = 0x0000,
-                uint16_t d = 0x0000,
-                uint16_t e = 0x0000,
-                uint16_t f = 0x0000,
-                uint16_t g = 0x0000,
-                uint16_t h = 0x0000) :
-                hi{uint64_t{a} << 48 | uint64_t{b} << 32 | uint64_t{c} << 16 | uint64_t{d}},
-                lo{uint64_t{e} << 48 | uint64_t{f} << 32 | uint64_t{g} << 16 | uint64_t{h}}
-        {}
-
-        in6_addr to_in6() const;
+        explicit operator in6_addr() const
+        {
+            in6_addr ret;
+            oxenc::write_host_as_big(hi, &ret.s6_addr[0]);
+            oxenc::write_host_as_big(lo, &ret.s6_addr[8]);
+            return ret;
+        }
 
         constexpr auto operator<=>(const ipv6& a) const { return std::tie(hi, lo) <=> std::tie(a.hi, a.lo); }
 

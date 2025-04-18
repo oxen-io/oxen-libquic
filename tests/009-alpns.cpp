@@ -10,13 +10,13 @@ namespace oxen::quic::test
 
         Address server_local{};
         Address client_local{};
-        opt::handshake_timeout timeout{500ms};
+        opt::handshake_timeout timeout{100ms};
 
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto client_established2 = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto client_established2 = callback_waiter{[](Connection&) {}};
 
         // this has to destroy *after* network, in case it doesn't go off before then
-        auto client_closed = callback_waiter{[](connection_interface&, uint64_t) {}};
+        auto client_closed = callback_waiter{[](Connection&, uint64_t) {}};
 
         Network test_net{};
 

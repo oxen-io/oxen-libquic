@@ -5,15 +5,14 @@ namespace oxen::quic::test
     struct lifetime
     {};
 
-    constexpr int NUM_ITERATIONS{10};
+    constexpr int NUM_ITERATIONS{4};
     constexpr auto INTERVAL{10ms};
     constexpr auto DELAY{2 * NUM_ITERATIONS * INTERVAL};
 
     TEST_CASE("013 - EventHandler event repeater: EventHandler managed lifetime", "[013][repeater][managed]")
     {
         Network test_net{};
-        auto msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto msg = to_span<std::byte>(msg_str);
+        constexpr auto msg = "hello from the other siiiii-iiiiide"sv;
 
         std::promise<void> prom_a, prom_b;
         std::future<void> fut_a = prom_a.get_future(), fut_b = prom_b.get_future();
@@ -22,7 +21,7 @@ namespace oxen::quic::test
 
         std::shared_ptr<Ticker> handler;
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte>) {
             recv_counter += 1;
             if (recv_counter == NUM_ITERATIONS)
             {
@@ -46,7 +45,7 @@ namespace oxen::quic::test
         // client make stream and send; message displayed by server_data_cb
         auto client_stream = conn_interface->open_stream();
 
-        handler = test_net.call_every(INTERVAL, [&]() {
+        handler = test_net.loop()->call_every(INTERVAL, [&]() {
             if (send_counter <= NUM_ITERATIONS)
             {
                 send_counter += 1;
@@ -57,7 +56,7 @@ namespace oxen::quic::test
         handler->start();
 
         REQUIRE(handler->is_running());
-        test_net.call_later(DELAY, [&]() { prom_a.set_value(); });
+        test_net.loop()->call_later(DELAY, [&]() { prom_a.set_value(); });
 
         require_future(fut_a, 5s);
         REQUIRE(recv_counter == send_counter);
@@ -68,7 +67,7 @@ namespace oxen::quic::test
 
         REQUIRE(handler->start());
 
-        test_net.call_later(DELAY, [&]() { prom_b.set_value(); });
+        test_net.loop()->call_later(DELAY, [&]() { prom_b.set_value(); });
 
         require_future(fut_b, 5s);
         REQUIRE(recv_counter == send_counter);
