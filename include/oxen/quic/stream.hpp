@@ -28,7 +28,7 @@ namespace oxen::quic
     class Connection;
 
     // Stream callbacks
-    using stream_data_callback = std::function<void(Stream&, bspan)>;
+    using stream_data_callback = std::function<void(Stream&, std::span<const std::byte>)>;
     using stream_close_callback = std::function<void(Stream&, uint64_t error_code)>;
     using stream_constructor_callback =
             std::function<std::shared_ptr<Stream>(Connection&, Endpoint&, std::optional<int64_t>)>;
@@ -36,7 +36,7 @@ namespace oxen::quic
     using stream_open_callback = std::function<uint64_t(Stream&)>;
     using stream_unblocked_callback = std::function<bool(Stream&)>;
 
-    using stream_buffer = std::deque<std::pair<bspan, std::shared_ptr<void>>>;
+    using stream_buffer = std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>;
 
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
@@ -62,39 +62,80 @@ namespace oxen::quic
 
         const ConnectionID reference_id;
 
-        /** Buffer Watermarking:
-            - Applications can call `::set_watermark(...)` to implement logic to be executed at states dictated by the number
-                of bytes currently unsent.
-            - Application must pass `low` and `high` watermark amounts; an execute-on-low callback can be passed with or
-                without an execute-on-high callback (and vice versa)
-                - The execute-on-low callback will not be executed until the buffer state rises above the `high` value; it
-                    will not be executed again until the buffer state rises once more above the `high` value
-                - The execute-on-high callback will not be executed until the buffer state drops below the `low` value; it
-                    will not be executed again until the buffer state drops once more below the `low` value
-            - Callbacks can be passed with an optional boolean in their opt:: wrapper, indicating "clear after execution";
-                this will ensure the callback is only executed ONCE before being cleared. The default behavior is repeated
-                callback execution
-            - Invoking this function repeatedly will overwrite any currently set thresholds and callbacks
-        */
-        void set_watermark(
-                size_t low, size_t high, std::optional<opt::watermark> low_hook, std::optional<opt::watermark> high_hook);
+        /**
+         * Enables unsent buffer "watermark" threshold callbacks that allow an application to be
+         * notified when too much data has been queued on a stream that can't be sent yet (i.e.
+         * because of connection congestion).  This allows an application to take action as a result
+         * of stream data building up too fast and take other action when the condition resolves
+         * itself.
+         *
+         * In order to make use of this, the application provides "alarm" and "clear" watermark buffer
+         * sizes (in bytes) and two callbacks to be invoked when the watermarks are reached.
+         *
+         * When the stream has at least `alarm` bytes unsent, it triggers the watermark alarm
+         * by calling `on_alarm(stream)` to notify the application of the alarm.  Once triggered,
+         * it remains in alarm watermark state until the unsent stream data falls to (or below)
+         * `clear` bytes unsent, at which point it calls the `on_clear(stream)` to signal that the
+         * alarm is resolved.
+         *
+         * An alternative way to look at the clear/alarm values is that unsent byte levels >=
+         * `alarm` are sufficient to trigger a watermark alarm, and levels > `clear` are sufficient
+         * to sustain (but not trigger, unless also >= `alarm`) a high water mark alarm.
+         *
+         * The clear value must be strictly less than the alarm value; for an alarm with 1-byte
+         * sensitivity, you can set clear = alarm - 1.  A clear value of 0 will not unsound the
+         * alarm until *all* unsent bytes on the stream have been written into QUIC packets that are
+         * on their way to the remote.
+         *
+         * The two callbacks can be nullptr to ignore them, in which case watermark status will
+         * still be tracked (and can be queried via `watermark_status()`) but the callback won't be
+         * invoked.
+         *
+         * Calling this when watermarking is already enabled replaces the existing watermark levels
+         * and callbacks, but does *not* reset the current watermark state.  If watermarking is
+         * currently disabled then the state is initialized to cleared (non-alarm) state.  This call
+         * will immediately (i.e. during the enable_watermarks() call itself) invoke the alarm or
+         * clear callback if the new values warrant a transition from the watermark state before the
+         * call.
+         *
+         * Note that the watermark level is checked immediately after any data on the stream is
+         * sent, and immediately after any new data is queued, and so setting a too low alarm value
+         * could result in lots of false positives triggering when new data is queued, even if that
+         * data might be immediately sendable on the connection.  Typically you want the `alarm`
+         * value to be higher than the amount you would typically send all at once.
+         */
+        void enable_watermarks(
+                size_t alarm, std::function<void(Stream&)> on_alarm, size_t clear, std::function<void(Stream&)> on_clear);
 
         // Clears any currently set watermarks on this stream object
-        void clear_watermarks();
+        void disable_watermarks();
 
-        // Do not call this function from within a watermark callback!
-        bool has_watermarks() const;
+        // Returns the current watermark status: true if watermarks are enabled and currently in the
+        // alarm watermark state; false if enabled and in the no-alarm state; nullopt if watermarks
+        // are disabled.
+        std::optional<bool> watermark_status() const;
 
-        /** Stream Pause:
-            - Applications can call `::pause()` to stop extending the max stream data offset. This has the effect of limiting
-                the inflow by signalling to the sender that they should pause
-            - This is reverted by invoking `::resume()`
-        */
+        /**
+         * Calling `pause()` stops extending the max stream data offset that gets returned to the
+         * remote side of a connection.  By not increasing this offset, the
+         * maximum that the remote is allowed to send to us stops increasing which can then block
+         * the sender from sending any more once the current maximum stream buffer has been sent.
+         * This in particular is useful with watermarking on the other end: a pause in the stream in
+         * client A causes the other side of the stream in client B to back up, trigger B's
+         * watermark and thus propagating whatever is producing data to stop it from sending more
+         * data until things resolve.
+         *
+         * Call `resume()` to unblock the stream again.
+         */
         void pause();
-
-        void resume();
-
         bool is_paused() const;
+
+        /**
+         * Counterpart to pause(): when this is called the stream is resumed and any increase to the
+         * stream data offset that was suppressed by the pause() call are applied to the stream
+         * allowing data to flow again.
+         */
+        void resume();
 
         // Returns true if the stream is usable, i.e. not closing or shutdown.
         bool available() const;
@@ -119,7 +160,7 @@ namespace oxen::quic
         stream_close_callback close_callback;
 
       protected:
-        virtual void receive(bspan data)
+        virtual void receive(std::span<const std::byte> data)
         {
             if (data_callback)
                 data_callback(*this, data);
@@ -148,7 +189,7 @@ namespace oxen::quic
         /// ain't not good enough isn't false.
         virtual void check_timeouts() {}
 
-        void send_impl(bspan data, std::shared_ptr<void> keep_alive) override;
+        void send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive) override;
 
         stream_buffer user_buffers;
 
@@ -176,21 +217,16 @@ namespace oxen::quic
 
         size_t _paused_offset{0};
 
-        bool _is_watermarked{false};
-
-        size_t _high_mark{0};
-        size_t _low_mark{0};
-
-        bool _high_primed{false};
-        bool _low_primed{true};
-
-        opt::watermark _high_water;
-        opt::watermark _low_water;
+        std::optional<std::pair<size_t, size_t>> _watermarking;  // {alarm threshold, all-clear threshold}
+        bool _watermark_alarm{false};
+        std::function<void(Stream&)> _watermark_on_alarm;
+        std::function<void(Stream&)> _watermark_on_clear;
 
         void wrote(size_t bytes) override;
 
-        void append_buffer(bspan buffer, std::shared_ptr<void> keep_alive);
+        void append_buffer(std::span<const std::byte> buffer, std::shared_ptr<void> keep_alive);
 
+        void check_watermark();
         void acknowledge(size_t bytes);
 
         size_t size() const
@@ -245,7 +281,7 @@ namespace oxen::quic
                 single_chunk(chunk_sender& cs, Container&& d) : _chunks{cs.shared_from_this()}, _data{std::move(d)} {}
                 ~single_chunk() { _chunks->queue_next_chunk(); }
 
-                bspan view() const
+                std::span<const std::byte> view() const
                 {
                     if constexpr (is_pointer)
                     {
@@ -305,7 +341,7 @@ namespace oxen::quic
             }
         };
 
-        std::optional<prepared_datagram> pending_datagram(bool) override;
+        std::optional<dgram::prepared> pending_datagram(bool) override;
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called
