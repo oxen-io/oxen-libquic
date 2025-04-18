@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -72,17 +73,19 @@ namespace oxen::quic
 
         static void set_endpoint_local_addr(Endpoint& ep, Address new_local);
 
-        static void enable_dgram_drop(connection_interface& conn);
-        static int disable_dgram_drop(connection_interface& conn);
-        static void enable_dgram_counter(connection_interface& conn);
-        static int disable_dgram_counter(connection_interface& conn);
-        static int get_dgram_debug_counter(connection_interface& conn);
+        static void enable_dgram_drop(Connection& conn);
+        static int disable_dgram_drop(Connection& conn);
+        static void enable_dgram_counter(Connection& conn);
+        static int disable_dgram_counter(Connection& conn);
+        static int get_dgram_debug_counter(Connection& conn);
+
+        static int get_datagram_last_cleared(Datagrams& dg);
 
         // Bumps the connection's next reference id to make it easier to tell which connection is
         // which in log output.
         static void increment_ref_id(Endpoint& ep, uint64_t by = 1);
 
-        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<connection_interface>& conn);
+        static Connection* get_conn(std::shared_ptr<Endpoint>& ep, std::shared_ptr<Connection>& conn);
 
         static UDPSocket::socket_t get_sock(Endpoint& ep);
     };
@@ -114,8 +117,11 @@ namespace oxen::quic
     // of the given seed, if non-empty, and otherwise will generate a random value.
     opt::static_secret generate_static_secret(std::string_view seed_string = ""sv);
 
-    template <typename InChar>
-    inline std::string_view sp_to_sv(std::span<const InChar> sp)
+    inline std::string_view view(std::span<const std::byte> sp)
+    {
+        return {reinterpret_cast<const char*>(sp.data()), sp.size()};
+    }
+    inline std::string_view view(std::span<const unsigned char> sp)
     {
         return {reinterpret_cast<const char*>(sp.data()), sp.size()};
     }
@@ -262,6 +268,23 @@ namespace oxen::quic
         }
     };
 
+    /// Waits for some condition to be satisfied, sleeping between checks.  Returns the result of
+    /// the last f() call as soon as f() returns success or the timeout is reached.  Typically f()
+    /// is a bool-returning function, but anything where `if (val)` can be invoked will be accepted
+    /// (e.g. std::optional or pointer types).
+    template <std::invocable<> Callback>
+    auto wait_for(Callback f, std::chrono::milliseconds timeout = 1s, std::chrono::milliseconds check_interval = 25ms)
+    {
+        auto end = std::chrono::steady_clock::now() + timeout;
+        for (;;)
+        {
+            auto val = f();
+            if (val || std::chrono::steady_clock::now() >= end)
+                return val;
+            std::this_thread::sleep_for(check_interval);
+        }
+    }
+
     // Helper class for persistent zerortt storage.  This loads from disk on construction, and
     // replaces the content on disk whenever a new entry is added.
     struct zerortt_storage
@@ -340,17 +363,19 @@ namespace oxen::quic
     // - construct this object via `auto delayer = packet_delayer::make(10ms);`
     // - construct the endpoint, passing `*delayer` to the `endpoint(...)` call (this object
     //   auto-converts into the appropriate manual routing option).
-    // - call `delayer->init(loop, ep)`, providing a loop and the endpoint (it does not have to be
-    //   the endpoint's loop), which starts the actual underlying socket.
+    // - call `delayer->init(ep)`, providing the endpoint which starts the actual underlying socket,
+    //   using the endpoint's loop for operations.
     class packet_delayer : public std::enable_shared_from_this<packet_delayer>
     {
       public:
         std::atomic<std::chrono::milliseconds> delay;
 
       private:
-        std::shared_ptr<Loop> loop;
         std::shared_ptr<Endpoint> ep;
         std::unique_ptr<UDPSocket> sock;
+        std::deque<std::tuple<int64_t, Path, std::vector<std::byte>>> outgoing;
+        std::deque<std::pair<int64_t, Packet>> incoming;
+        int64_t out_id = 0, in_id = 0;
 
         explicit packet_delayer(std::chrono::milliseconds delay) : delay{delay} {}
 
@@ -365,7 +390,7 @@ namespace oxen::quic
 
         operator opt::manual_routing();
 
-        void init(std::shared_ptr<Loop>, std::shared_ptr<Endpoint> ep);
+        void init(std::shared_ptr<Endpoint> ep);
     };
 
 }  // namespace oxen::quic
