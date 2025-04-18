@@ -76,7 +76,7 @@ int main(int argc, char* argv[])
 
     std::map<ConnectionID, std::map<int64_t, stream_info>> csd;
 
-    stream_data_callback stream_data = [&](Stream& s, bspan data) {
+    stream_data_callback stream_data = [&](Stream& s, std::span<const std::byte> data) {
         auto& sd = csd[s.reference_id];
 
         auto it = sd.find(s.stream_id());

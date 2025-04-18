@@ -1,4 +1,5 @@
 #include "unit_test.hpp"
+#include "utils.hpp"
 
 #ifndef _WIN32
 extern "C"
@@ -17,7 +18,7 @@ namespace oxen::quic::test
         {
             // Standard ownership
             auto standard_neta = std::make_unique<Network>();
-            auto standard_netb = std::make_unique<Network>(standard_neta->create_linked_network());
+            auto standard_netb = std::make_unique<Network>(standard_neta->loop());
             REQUIRE_FALSE(standard_neta == standard_netb);
 
             // Application ownership
@@ -291,8 +292,8 @@ namespace oxen::quic::test
             in6_addr localnet_in6addr = localnet_ipv6.in6().sin6_addr;
 
             ipv6 addr_localnet{0xfdab, 0x1234, 0x0005, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001};
-            ipv6 addr_from_in6addr{&localnet_in6addr};
-            in6_addr localnet_from_ipv6 = addr_from_in6addr.to_in6();
+            ipv6 addr_from_in6addr{localnet_in6addr};
+            auto localnet_from_ipv6 = static_cast<in6_addr>(addr_from_in6addr);
 
             ipv6 weird_addr = Address{weird, 0}.to_ipv6();
 
@@ -330,7 +331,7 @@ namespace oxen::quic::test
 
     TEST_CASE("001 - Handshaking: Incorrect pubkeys", "[001][client][incorrect][pubkeys]")
     {
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -348,9 +349,9 @@ namespace oxen::quic::test
         {
             uint64_t client_error{0}, client_attempt{0};
 
-            auto client_established_2 = callback_waiter{[&client_attempt](connection_interface&) { client_attempt = 1000; }};
+            auto client_established_2 = callback_waiter{[&client_attempt](Connection&) { client_attempt = 1000; }};
 
-            auto client_closed = callback_waiter{[&client_error](connection_interface&, uint64_t) { client_error = 1000; }};
+            auto client_closed = callback_waiter{[&client_error](Connection&, uint64_t) { client_error = 1000; }};
 
             auto client_endpoint = test_net.endpoint(client_local, client_established_2, client_closed);
 
@@ -358,7 +359,7 @@ namespace oxen::quic::test
 
             auto client_ci = client_endpoint->connect(bad_client_remote, client_tls);
 
-            CHECK(not client_established_2.wait(500ms));
+            CHECK(not client_established_2.wait(50ms));
             CHECK(client_attempt != 1000);
             CHECK(client_closed.wait(10s));
             CHECK(client_error == 1000);
@@ -400,8 +401,8 @@ namespace oxen::quic::test
 
     TEST_CASE("001 - Handshaking: Pubkey successes", "[001][client][correct][pubkeys]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -441,15 +442,15 @@ namespace oxen::quic::test
 
     TEST_CASE("001 - Handshaking: Server Validation", "[001][server]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
         server_tls->set_key_verify_callback(
-                [](const uspan& key, std::string_view) { return sp_to_sv(key) == defaults::CLIENT_PUBKEY; });
+                [](std::span<const unsigned char> key, std::string_view) { return view(key) == defaults::CLIENT_PUBKEY; });
 
         Address server_local{};
         Address client_local{};
@@ -471,7 +472,7 @@ namespace oxen::quic::test
         CHECK(client_ci->is_validated());
         CHECK(server_ci->is_validated());
 
-        CHECK(sp_to_sv(server_ci->remote_key()) == defaults::CLIENT_PUBKEY);
+        CHECK(view(server_ci->remote_key()) == defaults::CLIENT_PUBKEY);
     }
 
     TEST_CASE("001 - Handshaking: Types - IPv6", "[001][ipv6]")
@@ -479,8 +480,8 @@ namespace oxen::quic::test
         if (disable_ipv6)
             SKIP("IPv6 not enabled for this test iteration!");
 
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -503,8 +504,8 @@ namespace oxen::quic::test
 
     TEST_CASE("001 - Handshaking: Execution", "[001][handshake][tls][execute]")
     {
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         Network test_net{};
 
@@ -540,8 +541,8 @@ namespace oxen::quic::test
     TEST_CASE("001 - Path local address", "[001][handshake][path][local]")
     {
         Path client_path, server_path;
-        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
-        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+        auto client_established = callback_waiter{[&](Connection& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](Connection& ci) { server_path = ci.path(); }};
 
         Network test_net{};
 
@@ -586,8 +587,8 @@ namespace oxen::quic::test
             SKIP("This test requires 127.0.0.2, which doesn't work under WINE");
 
         Path client_path, server_path;
-        auto client_established = callback_waiter{[&](connection_interface& ci) { client_path = ci.path(); }};
-        auto server_established = callback_waiter{[&](connection_interface& ci) { server_path = ci.path(); }};
+        auto client_established = callback_waiter{[&](Connection& ci) { client_path = ci.path(); }};
+        auto server_established = callback_waiter{[&](Connection& ci) { server_path = ci.path(); }};
 
         Network test_net{};
 
@@ -617,8 +618,8 @@ namespace oxen::quic::test
         // simultaneously and want to coordinate on which of the two connections to keep alive by
         // using `set_close_quietly` on the one to be dropped.
 
-        auto client_established = callback_waiter{[](connection_interface&) {}};
-        auto server_established = callback_waiter{[](connection_interface&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+        auto server_established = callback_waiter{[](Connection&) {}};
 
         // Instead of using randomly generated seeds and pubkeys, hardcoded strings are used to deterministically
         // produce the same test result. The key verify callback compares the pubkeys in lexicographical order,
@@ -630,7 +631,7 @@ namespace oxen::quic::test
 
         Network test_net{};
 
-        std::shared_ptr<connection_interface> server_ci, client_ci;
+        std::shared_ptr<Connection> server_ci, client_ci;
         std::mutex ci_mutex;
 
         auto client_tls = GNUTLSCreds::make_from_ed_keys(C_SEED, C_PUBKEY);
@@ -642,7 +643,7 @@ namespace oxen::quic::test
                                   std::string_view incoming,
                                   std::string_view local,
                                   std::string_view remote,
-                                  std::shared_ptr<connection_interface> local_outbound) -> bool {
+                                  std::shared_ptr<Connection> local_outbound) -> bool {
             defer_i_l_r.push_back({std::string{incoming}, std::string{local}, std::string{remote}});
 
             // If the LHS parameter to std::strcmp appears FIRST in lexicographical order, then rv < 0. As a result,
@@ -658,14 +659,14 @@ namespace oxen::quic::test
             return defer_to_incoming;
         };
 
-        server_tls->set_key_verify_callback([&](uspan key, std::string_view) {
+        server_tls->set_key_verify_callback([&](std::span<const unsigned char> key, std::string_view) {
             std::lock_guard lock{ci_mutex};
-            return defer_hook({reinterpret_cast<const char*>(key.data()), key.size()}, S_PUBKEY, C_PUBKEY, server_ci);
+            return defer_hook(view(key), S_PUBKEY, C_PUBKEY, server_ci);
         });
 
-        client_tls->set_key_verify_callback([&](uspan key, std::string_view) {
+        client_tls->set_key_verify_callback([&](std::span<const unsigned char> key, std::string_view) {
             std::lock_guard lock{ci_mutex};
-            return defer_hook(sp_to_sv(key), C_PUBKEY, S_PUBKEY, client_ci);
+            return defer_hook(view(key), C_PUBKEY, S_PUBKEY, client_ci);
         });
 
         Address server_local{};
@@ -676,7 +677,7 @@ namespace oxen::quic::test
             auto p = std::promise<bool>();
             auto f = p.get_future();
 
-            auto server_closed_ep_level = [&](connection_interface& ci, uint64_t) {
+            auto server_closed_ep_level = [&](Connection& ci, uint64_t) {
                 // The endpoint-level callback will be called for the connection that was initiated by the
                 // client, as the client's pubkey dictates it's connection is to be deferred to. As a result,
                 // the reference ID will be different than that of the connection initiated by the server.
@@ -712,7 +713,7 @@ namespace oxen::quic::test
 
         SECTION("Override connection level callback", "[override][closehook][connection]")
         {
-            auto server_closed_conn_level = callback_waiter{[](connection_interface&, uint64_t) {
+            auto server_closed_conn_level = callback_waiter{[](Connection&, uint64_t) {
                 throw std::runtime_error{"ERROR: THIS CONNECTION SHOULD BE QUIET CLOSING"};
             }};
 
@@ -764,32 +765,37 @@ namespace oxen::quic::test
         uint64_t server_errcode = 4242;
         uint64_t client_errcode = 424242;
 
-        callback_waiter server_conn_closed{
-                [&server_errcode](connection_interface&, uint64_t errcode) { server_errcode = errcode; }};
-        callback_waiter client_conn_closed{
-                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+        callback_waiter server_conn_closed{[&server_errcode](Connection&, uint64_t errcode) { server_errcode = errcode; }};
+        callback_waiter client_conn_closed{[&client_errcode](Connection&, uint64_t errcode) { client_errcode = errcode; }};
 
         auto server_endpoint = net.endpoint(server_local, server_conn_closed);
         auto client_endpoint = net.endpoint(client_local, client_conn_closed);
 
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
 
+        opt::idle_timeout timeout{
+#ifdef __APPLE__
+                500ms
+#else
+                200ms
+#endif
+        };
         SECTION("Client fast timeout")
         {
             server_endpoint->listen(server_tls);
-            auto client_ci = client_endpoint->connect(client_remote, client_tls, opt::idle_timeout{250ms});
+            auto client_ci = client_endpoint->connect(client_remote, client_tls, timeout);
         }
         SECTION("Server fast timeout")
         {
-            server_endpoint->listen(server_tls, opt::idle_timeout{250ms});
+            server_endpoint->listen(server_tls, timeout);
             auto client_ci = client_endpoint->connect(client_remote, client_tls);
         }
 
-        CHECK_FALSE(server_conn_closed.wait(100ms));
+        CHECK_FALSE(server_conn_closed.wait(timeout.timeout / 2));
 
-        CHECK(server_conn_closed.wait(500ms));
+        CHECK(server_conn_closed.wait(timeout.timeout * 2));
         CHECK(server_errcode == CONN_IDLE_CLOSED);
-        CHECK(client_conn_closed.wait(500ms));
+        CHECK(client_conn_closed.wait(timeout.timeout * 2));
         CHECK(client_errcode == CONN_IDLE_CLOSED);
     }
 
@@ -805,8 +811,7 @@ namespace oxen::quic::test
 
         uint64_t client_errcode = 424242;
 
-        callback_waiter client_conn_closed{
-                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+        callback_waiter client_conn_closed{[&client_errcode](Connection&, uint64_t errcode) { client_errcode = errcode; }};
 
 #if 0
         // This code doesn't work: ngtcp2 (at least as of 1.1.0) apparently considers the client to
@@ -831,7 +836,7 @@ namespace oxen::quic::test
         // timeout value).
 
         std::shared_ptr<Endpoint> client_endpoint;
-        std::shared_ptr<connection_interface> client_ci;
+        std::shared_ptr<Connection> client_ci;
 
         auto server_endpoint = net1->endpoint(server_local);
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
@@ -875,12 +880,11 @@ namespace oxen::quic::test
 
         uint64_t client_errcode = 424242;
 
-        callback_waiter client_conn_closed{
-                [&client_errcode](connection_interface&, uint64_t errcode) { client_errcode = errcode; }};
+        callback_waiter client_conn_closed{[&client_errcode](Connection&, uint64_t errcode) { client_errcode = errcode; }};
 
         std::optional<bool> stream_callback_called;
         std::shared_ptr<Endpoint> client_endpoint;
-        std::shared_ptr<connection_interface> client_ci;
+        std::shared_ptr<Connection> client_ci;
 
         auto server_endpoint = net1->endpoint(server_local);
         RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};

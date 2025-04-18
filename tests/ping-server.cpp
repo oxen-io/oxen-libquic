@@ -57,30 +57,28 @@ int main(int argc, char* argv[])
 
     std::shared_ptr<Endpoint> server;
 
-    auto conn_established = [&](connection_interface& ci) {
+    auto conn_established = [&](Connection& ci) {
         log::info(test_cat, "Incoming connection established from {}", ci.remote());
     };
 
-    auto conn_closed = [&](connection_interface& ci, uint64_t) {
-        log::info(test_cat, "Connection from {} closed", ci.remote());
-    };
+    auto conn_closed = [&](Connection& ci, uint64_t) { log::info(test_cat, "Connection from {} closed", ci.remote()); };
 
     auto flake = [rng = std::mt19937_64{std::random_device{}()},
                   flake = std::bernoulli_distribution{flakiness},
                   &flakiness]() mutable -> bool { return flakiness > 0 ? flake(rng) : false; };
-    auto dgram_recv = [&](dgram_interface& d, std::vector<std::byte> in) {
-        if (in.size() != 4)
+    auto dgram_recv = [&](datagram dg) {
+        if (dg.data.size() != 4)
         {
-            log::error(test_cat, "Received invalid ping datagram of size {} (expected 4 bytes); ignoring", in.size());
+            log::error(test_cat, "Received invalid ping datagram of size {} (expected 4 bytes); ignoring", dg.data.size());
             return;
         }
-        auto ping_num = oxenc::load_little_to_host<uint32_t>(in.data());
+        auto ping_num = oxenc::load_little_to_host<uint32_t>(dg.data.data());
         if (flake())
             log::debug(test_cat, "received ping {} but simulating flakiness and not replying", ping_num);
         else
         {
             log::debug(test_cat, "received ping {}, reflecting it", ping_num);
-            d.reply(std::move(in));
+            dg.datagrams.send(std::move(dg).extract());
         }
     };
 

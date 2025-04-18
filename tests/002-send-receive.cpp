@@ -7,15 +7,14 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][execute]")
     {
         Network test_net{};
-        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto good_msg = to_span<std::byte>(good_msg_str);
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"sv;
 
         std::promise<bool> d_promise;
         std::future<bool> d_future = d_promise.get_future();
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE(view(dat) == view(good_msg));
+            REQUIRE(view(dat) == good_msg);
             d_promise.set_value(true);
         };
 
@@ -43,8 +42,7 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][bidirectional]")
     {
         Network test_net{};
-        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto good_msg = to_span<std::byte>(good_msg_str);
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"sv;
 
         std::vector<std::promise<void>> d_promises{2};
         std::vector<std::future<void>> d_futures{2};
@@ -54,9 +52,9 @@ namespace oxen::quic::test
 
         std::atomic<int> index = 0;
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE(view(dat) == view(good_msg));
+            REQUIRE(view(dat) == good_msg);
             d_promises.at(index).set_value();
             index += 1;
         };
@@ -96,8 +94,7 @@ namespace oxen::quic::test
     TEST_CASE("002 - Simple client to server transmission", "[002][simple][2x2]")
     {
         Network test_net{};
-        auto good_msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto good_msg = to_span<std::byte>(good_msg_str);
+        constexpr auto good_msg = "hello from the other siiiii-iiiiide"sv;
 
         std::vector<std::promise<void>> d_promises{2};
         std::vector<std::future<void>> d_futures{2};
@@ -107,9 +104,9 @@ namespace oxen::quic::test
 
         std::atomic<int> index = 0;
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
-            REQUIRE(view(dat) == view(good_msg));
+            REQUIRE(view(dat) == good_msg);
             d_promises.at(index).set_value();
             index += 1;
         };
@@ -157,7 +154,7 @@ namespace oxen::quic::test
         int good = 0, bad = 0;
         std::promise<void> done_receiving;
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan dat) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> dat) {
             log::debug(test_cat, "Server stream data callback -- data received (len {})", dat.size());
 
             static std::vector<std::byte> partial;
@@ -198,7 +195,7 @@ namespace oxen::quic::test
         auto conn_to_a = server_endpoint_b->connect(server_remote_a, server_tls);
         auto stream_to_a = conn_to_a->open_stream();
 
-        SECTION("Sending bspan of long-lived buffer")
+        SECTION("Sending byte span of long-lived buffer")
         {
             for (int i = 0; i < tests; i++)
             {
@@ -217,7 +214,7 @@ namespace oxen::quic::test
                 stream_to_a->send(std::move(copy));
             }
         }
-        SECTION("Sending bspan buffer with managed keep-alive")
+        SECTION("Sending byte span buffer with managed keep-alive")
         {
             for (int i = 0; i < tests; i++)
             {
@@ -250,11 +247,11 @@ namespace oxen::quic::test
         {
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
-                    log::info(test_cat, "Server bparser received: {}", msg.span());
+                    log::info(test_cat, "Server bparser received: {}", msg.body());
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
@@ -279,7 +276,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Server bparser received: {}", msg.span());
+                    log::info(test_cat, "Server bparser received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -287,19 +284,19 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Client bparser received: {}", msg.span());
+                    log::info(test_cat, "Client bparser received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
 
             stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return e.make_shared<BTRequestStream>(c, e);
+                return e.loop.make_shared<BTRequestStream>(c, e);
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -323,7 +320,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Server bparser received: {}", msg.span());
+                    log::info(test_cat, "Server bparser received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -331,13 +328,13 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Client bparser received: {}", msg.span());
+                    log::info(test_cat, "Client bparser received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler(TEST_ENDPOINT, server_bp_cb);
                 return s;
             };
@@ -397,13 +394,13 @@ namespace oxen::quic::test
             };
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler("test"s, server_bp_cb);
                 return s;
             };
 
             stream_constructor_callback client_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                return e.make_shared<BTRequestStream>(c, e);
+                return e.loop.make_shared<BTRequestStream>(c, e);
             };
 
             auto server_endpoint = test_net.endpoint(server_local);
@@ -417,7 +414,7 @@ namespace oxen::quic::test
             auto client_bp = conn_interface->open_stream<BTRequestStream>();
 
             client_bp->command("test"s, "hello"s, client_bp_cb);
-            client_bp->command("test"s, "I need a reply crypto-soon"s, client_bp_cb, 250ms);
+            client_bp->command("test"s, "I need a reply crypto-soon"s, client_bp_cb, 100ms);
             client_bp->command("test"s, "I hate you"s, client_bp_cb);
 
             auto fut = done.get_future();
@@ -451,7 +448,7 @@ namespace oxen::quic::test
         auto server_handler = [&](message msg) {
             if (msg)
             {
-                log::info(test_cat, "Server bparser received: {}", msg.span());
+                log::info(test_cat, "Server bparser received: {}", msg.body());
                 if (msg.body() == req_msg)
                     msg.respond(res_msg);
                 else
@@ -464,7 +461,7 @@ namespace oxen::quic::test
             {
                 std::lock_guard lock{mut};
                 responses++;
-                log::debug(test_cat, "Client bparser received response {}: {}", responses, msg.span());
+                log::debug(test_cat, "Client bparser received response {}: {}", responses, msg.body());
                 if (msg.body() == res_msg)
                     good_responses++;
                 if (responses == num_requests)
@@ -477,7 +474,7 @@ namespace oxen::quic::test
         };
 
         stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-            auto s = e.make_shared<BTRequestStream>(c, e);
+            auto s = e.loop.make_shared<BTRequestStream>(c, e);
             s->register_handler(TEST_ENDPOINT, server_handler);
             return s;
         };
@@ -542,7 +539,7 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     ++responses;
-                    log::debug(test_cat, "Client bparser received response {}: {}", responses.load(), msg.span());
+                    log::debug(test_cat, "Client bparser received response {}: {}", responses.load(), msg.body());
                     if (msg.body() == res_msg)
                         ++good_responses;
                     if (responses == num_requests)
@@ -555,7 +552,7 @@ namespace oxen::quic::test
             };
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler(TEST_ENDPOINT, server_handler);
                 return s;
             };
@@ -590,13 +587,13 @@ namespace oxen::quic::test
 
             auto client_reply_handler = [&](message msg) mutable {
                 if (msg)
-                    log::debug(test_cat, "Client bparser received response: {}", msg.span());
+                    log::debug(test_cat, "Client bparser received response: {}", msg.body());
                 else
                     log::debug(test_cat, "got back a failed message response");
             };
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
-                auto s = e.make_shared<BTRequestStream>(c, e);
+                auto s = e.loop.make_shared<BTRequestStream>(c, e);
                 s->register_handler(TEST_ENDPOINT, server_handler);
                 return s;
             };
@@ -657,10 +654,10 @@ namespace oxen::quic::test
             m.respond("hg-{}"_format(m.endpoint()));
         };
 
-        std::function<void(connection_interface&)> server_conn_est;
+        std::function<void(Connection&)> server_conn_est;
         SECTION("generic handler via constructor")
         {
-            server_conn_est = [&](connection_interface& c) {
+            server_conn_est = [&](Connection& c) {
                 auto s = c.queue_incoming_stream<BTRequestStream>(std::move(handler_generic));
                 s->register_handler("ep1"s, handler1);
                 s->register_handler("ep2"s, handler2);
@@ -668,7 +665,7 @@ namespace oxen::quic::test
         }
         SECTION("generic handler via method")
         {
-            server_conn_est = [&](connection_interface& c) {
+            server_conn_est = [&](Connection& c) {
                 auto s = c.queue_incoming_stream<BTRequestStream>();
                 s->register_handler("ep1"s, handler1);
                 s->register_handler("ep2"s, handler2);
@@ -687,9 +684,9 @@ namespace oxen::quic::test
         std::unordered_multiset<std::string> responses, errors;
         auto resp_handler = [&](message m) {
             if (m)
-                responses.insert(m.body_str());
+                responses.emplace(m.body());
             else
-                errors.insert(m.body_str());
+                errors.emplace(m.body());
             if (responses.size() + errors.size() >= 4)
                 prom.set_value();
         };
@@ -715,13 +712,10 @@ namespace oxen::quic::test
         Address client_local{};
 
         std::thread slow_response;
-        auto server_conn_est = [&](connection_interface& c) {
+        auto server_conn_est = [&](Connection& c) {
             auto s = c.queue_incoming_stream<BTRequestStream>();
             s->register_handler("sleep"s, [&](message m) {
-                slow_response = std::thread{[m = std::move(m)] {
-                    std::this_thread::sleep_for(1s);
-                    m.respond("I'm slow");
-                }};
+                test_net.loop()->call_later(250ms, [m = std::move(m)] { m.respond("I'm slow"); });
             });
         };
 
