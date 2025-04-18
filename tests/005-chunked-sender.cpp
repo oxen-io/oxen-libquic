@@ -18,7 +18,7 @@ namespace oxen::quic::test
         std::promise<void> finished_p;
         std::future<void> finished_f = finished_p.get_future();
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan data) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte> data) {
             std::lock_guard lock{recv_mut};
             received.append(reinterpret_cast<const char*>(data.data()), data.size());
 

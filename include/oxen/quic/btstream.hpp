@@ -80,8 +80,11 @@ namespace oxen::quic
         inline static constexpr auto TYPE_ERROR = "E"sv;
         inline static constexpr auto TYPE_COMMAND = "C"sv;
 
-        void respond(bspan body, bool error = false) const;
-        void respond(std::string_view body, bool error = false) const { respond(str_to_bspan(body), error); }
+        void respond(std::span<const std::byte> body, bool error = false) const;
+        void respond(std::string_view body, bool error = false) const
+        {
+            respond(reinterpret_span<const std::byte>(std::span{body}), error);
+        }
 
         const bool timed_out{false};
         bool is_error() const { return type() == TYPE_ERROR; }
@@ -99,30 +102,21 @@ namespace oxen::quic
         //  }
         explicit operator bool() const { return !timed_out && !is_error(); }
 
-        template <oxenc::basic_char Char = char>
-        std::span<const Char> span() const
-        {
-            return {reinterpret_cast<const Char*>(data.data()), data.size()};
-        }
-
         int64_t rid() const { return req_id; }
+
         std::string_view type() const
         {
             return {reinterpret_cast<const char*>(data.data()) + req_type.first, req_type.second};
         }
+
         std::string_view endpoint() const { return {reinterpret_cast<const char*>(data.data()) + ep.first, ep.second}; }
-        std::string endpoint_str() const { return std::string{endpoint()}; }
 
-        template <oxenc::basic_char Char = char>
-        std::basic_string_view<Char> body() const
+        // Returns a view of the message body as a `C` view: string_view for char, otherwise a
+        // span<const C>.
+        template <oxenc::basic_char C = char>
+        std::conditional_t<std::same_as<char, C>, std::string_view, std::span<const C>> body() const
         {
-            return {reinterpret_cast<const Char*>(data.data()) + req_body.first, req_body.second};
-        }
-
-        template <oxenc::basic_char Char = char>
-        std::basic_string<Char> body_str() const
-        {
-            return std::basic_string<Char>{body<Char>()};
+            return {reinterpret_cast<const C*>(data.data()) + req_body.first, req_body.second};
         }
 
         const ConnectionID& conn_rid() const { return _rid; }
@@ -235,13 +229,13 @@ namespace oxen::quic
                     std::chrono::milliseconds timeout - request timeout (defaults to 10 seconds)
         */
         template <typename... Opt>
-        void command(std::string ep, bspan body, Opt&&... opts)
+        void command(std::string ep, std::span<const std::byte> body, Opt&&... opts)
         {
             auto rid = next_rid++;
             auto req = std::make_shared<sent_request>(*this, encode_command(ep, rid, body), rid, std::forward<Opt>(opts)...);
 
             if (req->cb)
-                endpoint.call([this, r = std::move(req)]() mutable {
+                loop.call([this, r = std::move(req)]() mutable {
                     if (auto* req = add_sent_request(std::move(r)))
                         send(std::move(req->data));
                 });
@@ -252,10 +246,14 @@ namespace oxen::quic
         template <typename... Opt>
         void command(std::string ep, std::string_view body, Opt&&... opts)
         {
-            command(std::move(ep), str_to_bspan(body), std::forward<Opt>(opts)...);
+            command(std::move(ep), reinterpret_span<const std::byte>(body), std::forward<Opt>(opts)...);
         }
 
-        void respond(int64_t rid, bspan body, bool error = false);
+        void respond(int64_t rid, std::span<const std::byte> body, bool error = false);
+        void respond(int64_t rid, std::string_view body, bool error = false)
+        {
+            return respond(rid, reinterpret_span<const std::byte>(body), error);
+        }
 
         /// Registers an individual endpoint to be recognized by this BTRequestStream object.  Can be
         /// called multiple times to set up multiple commands.  See also register_generic_handler.
@@ -279,7 +277,7 @@ namespace oxen::quic
         void check_timeouts() override;
         void check_timeouts(std::optional<std::chrono::steady_clock::time_point> now);
 
-        void receive(bspan data) override;
+        void receive(std::span<const std::byte> data) override;
 
         void closed(uint64_t app_code) override;
 
@@ -293,11 +291,11 @@ namespace oxen::quic
 
         void handle_input(message msg);
 
-        void process_incoming(bspan req);
+        void process_incoming(std::span<const std::byte> req);
 
-        std::string encode_command(std::string_view endpoint, int64_t rid, bspan body);
+        std::string encode_command(std::string_view endpoint, int64_t rid, std::span<const std::byte> body);
 
-        std::string encode_response(int64_t rid, bspan body, bool error);
+        std::string encode_response(int64_t rid, std::span<const std::byte> body, bool error);
 
         sent_request* add_sent_request(std::shared_ptr<sent_request> req);
 
