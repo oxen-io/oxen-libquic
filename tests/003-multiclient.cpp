@@ -28,8 +28,7 @@ namespace oxen::quic::test
     TEST_CASE("003 - Multi-client to server transmission: Execution", "[003][multi-client][execute]")
     {
         Network test_net{};
-        auto msg_str = "hello from the other siiiii-iiiiide"sv;
-        auto msg = to_span<std::byte>(msg_str);
+        constexpr auto msg = "hello from the other siiiii-iiiiide"sv;
 
         std::atomic<int> data_check{0};
         std::vector<std::promise<void>> stream_promises{4};
@@ -47,7 +46,7 @@ namespace oxen::quic::test
 
         auto p_itr = stream_promises.begin();
 
-        stream_data_callback server_data_cb = [&](Stream&, bspan) {
+        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte>) {
             log::debug(test_cat, "Calling server stream data callback... data received...");
             data_check += 1;
             p_itr->set_value();
