@@ -163,12 +163,12 @@ ping_stats run_client(
     std::shared_ptr<Ticker> ticker;
     std::chrono::steady_clock::time_point started, established;
 
-    auto conn_established = [&](connection_interface& ci) {
+    auto conn_established = [&](Connection& ci) {
         established = get_time();
         log::info(test_cat, "Connection established to {} in {}", ci.remote(), friendly_duration(established - started));
     };
 
-    auto conn_closed = [&](connection_interface& ci, uint64_t) {
+    auto conn_closed = [&](Connection& ci, uint64_t) {
         log::info(test_cat, "Disconnected from {}", ci.remote());
 
         all_done->set_value();
@@ -213,15 +213,15 @@ ping_stats run_client(
     // Circular buffer so that we can calculate RTTs even if the responses arrive out of order.
     std::array<std::chrono::steady_clock::time_point, 100> sent_at;
 
-    auto dgram_recv = [&](dgram_interface&, std::vector<std::byte> data) mutable {
-        if (data.size() != 4)
+    auto dgram_recv = [&](datagram dg) {
+        if (dg.data.size() != 4)
         {
-            log::error(test_cat, "Invalid ping response datagram; expected 4 bytes, got {}", data.size());
+            log::error(test_cat, "Invalid ping response datagram; expected 4 bytes, got {}", dg.data.size());
             return;
         }
         auto now = std::chrono::steady_clock::now();
 
-        auto ping_num = oxenc::load_little_to_host<uint32_t>(data.data());
+        auto ping_num = oxenc::load_little_to_host<uint32_t>(dg.data.data());
         stats.received++;
         auto ping_time = now - sent_at[ping_num % sent_at.size()];
         auto rtt = std::chrono::duration<double>{ping_time}.count();
@@ -239,7 +239,8 @@ ping_stats run_client(
 
     log::info(test_cat, "Connecting to {}...", server_addr);
 
-    std::shared_ptr<connection_interface> client_conn;
+    std::shared_ptr<Connection> client_conn;
+    std::shared_ptr<Datagrams> client_dg;
 
     bool multiping = false;
     std::chrono::nanoseconds ping_interval{static_cast<int64_t>(ping_interval_d * 1e9)};
@@ -285,7 +286,9 @@ ping_stats run_client(
             counter.resize(sizeof(ping_num));
             oxenc::write_host_as_little(ping_num, counter.data());
             sent_at[ping_num % sent_at.size()] = std::chrono::steady_clock::now();
-            client_conn->send_datagram(std::move(counter));
+            if (!client_dg)
+                client_dg = client_conn->datagrams();
+            client_dg->send(std::move(counter));
         }
     };
 
@@ -306,7 +309,7 @@ ping_stats run_client(
         send_ping();
         if (ticker)
             ticker->stop();
-        ticker = client_net.call_every(ping_wait, send_ping);
+        ticker = client_net.loop()->call_every(ping_wait, send_ping);
 
         all_done->get_future().wait();
     } while (reconnect);
