@@ -11,13 +11,10 @@ add_library(quic
     datagram.cpp
     endpoint.cpp
     format.cpp
-    gnutls_creds.cpp
     gnutls_crypto.cpp
-    gnutls_session.cpp
     iochannel.cpp
     ip.cpp
     loop.cpp
-    messages.cpp
     network.cpp
     result.cpp
     stream.cpp

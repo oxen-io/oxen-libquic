@@ -76,7 +76,7 @@ namespace oxen::quic
 
         auto& sin = reinterpret_cast<sockaddr_in&>(_sock_addr);
         sin.sin_port = oxenc::host_to_big(port);
-        sin.sin_addr.s_addr = oxenc::host_to_big(v4.addr);
+        sin.sin_addr = static_cast<in_addr>(v4);
 
         update_socklen(sizeof(sockaddr_in));
     }
@@ -87,10 +87,7 @@ namespace oxen::quic
 
         auto& sin6 = reinterpret_cast<sockaddr_in6&>(_sock_addr);
         sin6.sin6_port = oxenc::host_to_big(port);
-
-        auto in6 = v6.to_in6();
-
-        std::memcpy(&sin6.sin6_addr, &in6, sizeof(struct in6_addr));
+        sin6.sin6_addr = static_cast<in6_addr>(v6);
 
         update_socklen(sizeof(sockaddr_in6));
     }
@@ -177,7 +174,7 @@ namespace oxen::quic
         }
         else if (is_ipv6())
         {
-            ipv6 addr{&in6().sin6_addr};
+            ipv6 addr{in6().sin6_addr};
             for (const auto& range : ipv6_nonpublic)
                 if (range.contains(addr))
                     return false;
@@ -195,22 +192,22 @@ namespace oxen::quic
         if (!is_addressable())
             return false;
         if (is_ipv4())
-            return ipv4_loopback.contains(ipv4{oxenc::big_to_host<uint32_t>(in4().sin_addr.s_addr)});
+            return ipv4_loopback.contains(ipv4{in4().sin_addr});
         if (is_ipv4_mapped_ipv6())
             return unmapped_ipv4_from_ipv6().is_public();
         if (is_ipv6())
-            return ipv6{&in6().sin6_addr} == ipv6_loopback;
+            return ipv6{in6().sin6_addr} == ipv6_loopback;
         return false;
     }
 
     ipv4 Address::to_ipv4() const
     {
-        return {oxenc::big_to_host(in4().sin_addr.s_addr)};
+        return {in4().sin_addr};
     }
 
     ipv6 Address::to_ipv6() const
     {
-        return {&in6().sin6_addr};
+        return {in6().sin6_addr};
     }
 
     std::string Address::host() const

@@ -22,11 +22,12 @@ namespace oxen::quic
 
     std::string ipv4::to_string() const
     {
-        char buf[INET_ADDRSTRLEN] = {};
-        uint32_t net = oxenc::host_to_big(addr);
-        inet_ntop(AF_INET, &net, buf, sizeof(buf));
+        auto a = static_cast<in_addr>(*this);
 
-        return "{}"_format(buf);
+        char buf[INET_ADDRSTRLEN] = {};
+        inet_ntop(AF_INET, &a, buf, sizeof(buf));
+
+        return buf;
     }
 
     std::string detail::masked_ipv4::to_string() const
@@ -37,16 +38,6 @@ namespace oxen::quic
     std::string detail::masked_ipv6::to_string() const
     {
         return "{}/{}"_format(ip.to_string(), mask);
-    }
-
-    in6_addr ipv6::to_in6() const
-    {
-        in6_addr ret;
-
-        oxenc::write_host_as_big(hi, &ret.s6_addr[0]);
-        oxenc::write_host_as_big(lo, &ret.s6_addr[8]);
-
-        return ret;
     }
 
     ipv6::ipv6(const std::string& str)
@@ -60,16 +51,12 @@ namespace oxen::quic
 
     std::string ipv6::to_string() const
     {
+        auto addr = static_cast<in6_addr>(*this);
+
         char buf[INET6_ADDRSTRLEN] = {};
-
-        std::array<uint8_t, 16> addr;
-
-        oxenc::write_host_as_big(hi, &addr[0]);
-        oxenc::write_host_as_big(lo, &addr[8]);
-
         inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
 
-        return "{}"_format(buf);
+        return buf;
     }
 
     namespace detail
