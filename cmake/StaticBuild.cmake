@@ -7,6 +7,13 @@ include_guard(GLOBAL)
 
 set(LOCAL_MIRROR "" CACHE STRING "local mirror path/URL for lib downloads")
 
+set(NGTCP2_VERSION 1.13.0 CACHE STRING "ngtcp2 version")
+set(NGTCP2_MIRROR ${LOCAL_MIRROR} https://github.com/ngtcp2/ngtcp2/releases/download/v${NGTCP2_VERSION}
+    CACHE STRING "ngtcp2 mirror(s)")
+set(NGTCP2_SOURCE ngtcp2-${NGTCP2_VERSION}.tar.xz)
+set(NGTCP2_HASH SHA512=e284cb791c56cc342114febe777cd63ad8c00d6d5b0130c474a3dc9f5d4f932926131e4d10a01309de08c364511b8250477c0e88d252f67c231964abf74d82be
+    CACHE STRING "ngtcp2 source hash")
+
 set(GNUTLS_VERSION 3.8.9 CACHE STRING "gnutls version")
 string(REGEX REPLACE "^([0-9]+\\.[0-9]+)\\.[0-9]+$" "\\1" gnutls_version_nopatch "${GNUTLS_VERSION}")
 set(GNUTLS_MIRROR ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v${gnutls_version_nopatch}
@@ -382,6 +389,23 @@ if(WIN32)
     # See GNUTLS gitlab issue 1117:
     target_compile_definitions(gnutls::gnutls INTERFACE GNUTLS_INTERNAL_BUILD)
 endif()
+
+
+build_external(ngtcp2
+    CONFIGURE_COMMAND ./configure ${build_host} --prefix=${DEPS_DESTDIR} --with-pic
+    --enable-lib-only --disable-shared --enable-static
+    --with-gnutls --without-openssl --without-boringssl --without-picotls --without-wolfssl
+    --without-libbrotlienc --without-libbrotlidec --without-libev --without-libnghttp3
+    "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
+    "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
+    DEPENDS gnutls_external
+    BUILD_BYPRODUCTS
+    ${DEPS_DESTDIR}/lib/libngtcp2.a
+    ${DEPS_DESTDIR}/lib/libngtcp2_crypto_gnutls.a
+    ${DEPS_DESTDIR}/include/ngtcp2/ngtcp2.h
+)
+add_static_target(ngtcp2::ngtcp2 ngtcp2_external libngtcp2.a)
+add_static_target(ngtcp2::crypto_gnutls ngtcp2_external libngtcp2_crypto_gnutls.a gnutls::gnutls)
 
 
 # libevent doesn't like --host=arm64-whatever, but is okay with aarch64-whatever
