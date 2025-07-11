@@ -14,12 +14,12 @@ set(NGTCP2_SOURCE ngtcp2-${NGTCP2_VERSION}.tar.xz)
 set(NGTCP2_HASH SHA512=e284cb791c56cc342114febe777cd63ad8c00d6d5b0130c474a3dc9f5d4f932926131e4d10a01309de08c364511b8250477c0e88d252f67c231964abf74d82be
     CACHE STRING "ngtcp2 source hash")
 
-set(GNUTLS_VERSION 3.8.9 CACHE STRING "gnutls version")
+set(GNUTLS_VERSION 3.8.10 CACHE STRING "gnutls version")
 string(REGEX REPLACE "^([0-9]+\\.[0-9]+)\\.[0-9]+$" "\\1" gnutls_version_nopatch "${GNUTLS_VERSION}")
 set(GNUTLS_MIRROR ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v${gnutls_version_nopatch}
     CACHE STRING "gnutls mirror(s)")
 set(GNUTLS_SOURCE gnutls-${GNUTLS_VERSION}.tar.xz)
-set(GNUTLS_HASH SHA512=b3b201671bf4e75325610a0291d4cd36a669718e22b3685246b64bde97b5bd94f463ab376ed817869869714115f4ff11bdc53c32604bb04a8ff8e10daa6d1fc7
+set(GNUTLS_HASH SHA512=d453bd4527af95cb3905ce8753ceafd969e3f442ad1d148544a233ebf13285b999930553a805a0511293cc25390bb6a040260df5544a7c55019640f920ad3d92
     CACHE STRING "gnutls source hash")
 
 set(LIBICONV_VERSION 1.17 CACHE STRING "libiconv version")
@@ -324,10 +324,10 @@ build_external(libunistring
 add_static_target(libunistring::libunistring libunistring_external libunistring.a libiconv::libiconv)
 
 build_external(libidn2
+    # Patch out building the tools because they make a compilation with -flto take a very long time:
+    PATCH_COMMAND patch -p1 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/libidn2-no-tools.patch
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --disable-doc --prefix=${DEPS_DESTDIR} --with-pic
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cflags_arch}" ${cross_rc}
-    BUILD_COMMAND ${_make} -C lib
-    INSTALL_COMMAND ${_make} -C lib install
     DEPENDS libunistring_external
     BUILD_BYPRODUCTS ${DEPS_DESTDIR}/lib/libidn2.a ${DEPS_DESTDIR}/include/idn2.h)
 add_static_target(libidn2::libidn2 libidn2_external libidn2.a libunistring::libunistring)
@@ -336,9 +336,8 @@ build_external(gmp
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}"
         "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}" ${cross_rc} CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp
-    DEPENDS libidn2_external libtasn1_external
 )
-add_static_target(gmp::gmp gmp_external libgmp.a libidn2::libidn2 libtasn1::libtasn1)
+add_static_target(gmp::gmp gmp_external libgmp.a)
 
 build_external(nettle
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --libdir=${DEPS_DESTDIR}/lib
@@ -360,7 +359,7 @@ add_static_target(hogweed::hogweed nettle_external libhogweed.a nettle::nettle)
 # The Android NDK defines `timezone_t` but not a number of related types and GnuTLS assumes if `timezone_t` is defined then all the others will be defined as well (resulting in build errors), so we need to patch GnuTLS to think `HAVE_TIMEZONE_T` is not defined and rename it's internal `timezone_t` so there isn't a name collision
 set(gnutls_patch_commands "")
 if(ANDROID)
-    set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${PROJECT_SOURCE_DIR}/utils/build_scripts/gnutls-android-timezone-t.patch)
+    set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/gnutls-android-timezone-t.patch)
 endif()
 
 build_external(gnutls
@@ -369,15 +368,16 @@ build_external(gnutls
         --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
         --without-zlib --without-brotli --without-zstd --without-libintl-prefix --disable-tests
         --disable-valgrind-tests --disable-full-test-suite --disable-tools
-        "PKG_CONFIG_PATH=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
+        "PKG_CONFIG_LIBDIR=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
         "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
-    DEPENDS nettle_external
+    DEPENDS nettle_external libidn2_external libtasn1_external libunistring_external
     BUILD_BYPRODUCTS
     ${DEPS_DESTDIR}/lib/libgnutls.a
     ${DEPS_DESTDIR}/include/gnutls/gnutls.h
 )
-add_static_target(gnutls::gnutls gnutls_external libgnutls.a hogweed::hogweed)
+add_static_target(gnutls::gnutls gnutls_external libgnutls.a
+    hogweed::hogweed libidn2::libidn2 libtasn1::libtasn1 libunistring::libunistring)
 add_find_package_override(
     GnuTLS
     ${GNUTLS_VERSION}
@@ -393,9 +393,11 @@ endif()
 
 build_external(ngtcp2
     CONFIGURE_COMMAND ./configure ${build_host} --prefix=${DEPS_DESTDIR} --with-pic
+    --with-sysroot=${DEPS_DESTDIR}
     --enable-lib-only --disable-shared --enable-static
     --with-gnutls --without-openssl --without-boringssl --without-picotls --without-wolfssl
     --without-libbrotlienc --without-libbrotlidec --without-libev --without-libnghttp3
+    "PKG_CONFIG_LIBDIR=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
     "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
     "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
     DEPENDS gnutls_external
