@@ -103,6 +103,11 @@ namespace oxen::quic
         _disable_mtu_discovery = true;
     }
 
+    void Endpoint::handle_ep_opt([[maybe_unused]] opt::allow_gso)
+    {
+        _allow_gso = true;
+    }
+
     ConnectionID Endpoint::next_reference_id()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -133,7 +138,7 @@ namespace oxen::quic
         {
             log::debug(log_cat, "Starting new UDP socket on {}", _local);
             socket = std::make_unique<UDPSocket>(
-                    loop.get_event_base(), _local, [this](auto&& packet) { handle_packet(std::move(packet)); });
+                    loop.get_event_base(), _local, _allow_gso, [this](auto&& packet) { handle_packet(std::move(packet)); });
 
             _local = socket->address();
         }
