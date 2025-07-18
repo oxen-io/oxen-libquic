@@ -17,7 +17,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 project(libquic
-    VERSION 1.4.0
+    VERSION 1.5.0
     DESCRIPTION "Modular QUIC library for stream and connection management"
     LANGUAGES ${LANGS})
 
@@ -33,6 +33,7 @@ option(WARNINGS_AS_ERRORS "treat all warnings as errors. turn off for developmen
 option(LIBQUIC_WARN_DEPRECATED "warn deprecated" ON)
 option(LIBQUIC_BUILD_TESTS "Build libquic test suite" ${libquic_IS_TOPLEVEL_PROJECT})
 option(LIBQUIC_BUILD_SPEEDTEST "Build libquic speedtest programs" ${libquic_IS_TOPLEVEL_PROJECT})
+option(LIBQUIC_BUILD_BTREQTEST "Build bt-stream request tester" ${libquic_IS_TOPLEVEL_PROJECT})
 
 # This is mainly useful for system packaging to create libquic.so.x.y instead of just libquic.so:
 option(LIBQUIC_VERSION_SO "Add the project major/minor version into the shared library filename" OFF)
