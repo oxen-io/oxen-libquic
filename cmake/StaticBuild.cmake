@@ -3,14 +3,23 @@
 # Most of these are CACHE STRINGs so that you can override them using -DWHATEVER during cmake
 # invocation to override.
 
+include_guard(GLOBAL)
+
 set(LOCAL_MIRROR "" CACHE STRING "local mirror path/URL for lib downloads")
 
-set(GNUTLS_VERSION 3.8.9 CACHE STRING "gnutls version")
+set(NGTCP2_VERSION 1.13.0 CACHE STRING "ngtcp2 version")
+set(NGTCP2_MIRROR ${LOCAL_MIRROR} https://github.com/ngtcp2/ngtcp2/releases/download/v${NGTCP2_VERSION}
+    CACHE STRING "ngtcp2 mirror(s)")
+set(NGTCP2_SOURCE ngtcp2-${NGTCP2_VERSION}.tar.xz)
+set(NGTCP2_HASH SHA512=e284cb791c56cc342114febe777cd63ad8c00d6d5b0130c474a3dc9f5d4f932926131e4d10a01309de08c364511b8250477c0e88d252f67c231964abf74d82be
+    CACHE STRING "ngtcp2 source hash")
+
+set(GNUTLS_VERSION 3.8.10 CACHE STRING "gnutls version")
 string(REGEX REPLACE "^([0-9]+\\.[0-9]+)\\.[0-9]+$" "\\1" gnutls_version_nopatch "${GNUTLS_VERSION}")
 set(GNUTLS_MIRROR ${LOCAL_MIRROR} https://www.gnupg.org/ftp/gcrypt/gnutls/v${gnutls_version_nopatch}
     CACHE STRING "gnutls mirror(s)")
 set(GNUTLS_SOURCE gnutls-${GNUTLS_VERSION}.tar.xz)
-set(GNUTLS_HASH SHA512=b3b201671bf4e75325610a0291d4cd36a669718e22b3685246b64bde97b5bd94f463ab376ed817869869714115f4ff11bdc53c32604bb04a8ff8e10daa6d1fc7
+set(GNUTLS_HASH SHA512=d453bd4527af95cb3905ce8753ceafd969e3f442ad1d148544a233ebf13285b999930553a805a0511293cc25390bb6a040260df5544a7c55019640f920ad3d92
     CACHE STRING "gnutls source hash")
 
 set(LIBICONV_VERSION 1.17 CACHE STRING "libiconv version")
@@ -20,26 +29,19 @@ set(LIBICONV_SOURCE libiconv-${LIBICONV_VERSION}.tar.gz)
 set(LIBICONV_HASH SHA512=18a09de2d026da4f2d8b858517b0f26d853b21179cf4fa9a41070b2d140030ad9525637dc4f34fc7f27abca8acdc84c6751dfb1d426e78bf92af4040603ced86
     CACHE STRING "libiconv source hash")
 
-set(LIBUNISTRING_VERSION 1.1 CACHE STRING "libunistring version")
+set(LIBUNISTRING_VERSION 1.3 CACHE STRING "libunistring version")
 set(LIBUNISTRING_MIRROR ${LOCAL_MIRROR} https://ftp.gnu.org/gnu/libunistring
     CACHE STRING "libunistring mirror(s)")
 set(LIBUNISTRING_SOURCE libunistring-${LIBUNISTRING_VERSION}.tar.xz)
-set(LIBUNISTRING_HASH SHA512=01a4267bbd301ea5c389b17ee918ae5b7d645da8b2c6c6f0f004ff2dead9f8e50cda2c6047358890a5fceadc8820ffc5154879193b9bb8970f3fb1fea1f411d6
+set(LIBUNISTRING_HASH SHA512=864d42b1d4ae4941fe5c8327d6726ab8e3a35d2d5f9d25ce4859a72ab2f549a7b68f58638cf8767d863f58161d1a4053495d185860964a942d6750e42facf931
     CACHE STRING "libunistring source hash")
 
-set(LIBIDN2_VERSION 2.3.4 CACHE STRING "libidn2 version")
+set(LIBIDN2_VERSION 2.3.8 CACHE STRING "libidn2 version")
 set(LIBIDN2_MIRROR ${LOCAL_MIRROR} https://ftp.gnu.org/gnu/libidn
     CACHE STRING "libidn2 mirror(s)")
 set(LIBIDN2_SOURCE libidn2-${LIBIDN2_VERSION}.tar.gz)
-set(LIBIDN2_HASH SHA512=a6e90ccef56cfd0b37e3333ab3594bb3cec7ca42a138ca8c4f4ce142da208fa792f6c78ca00c01001c2bc02831abcbaf1cf9bcc346a5290fd7b30708f5a462f3
+set(LIBIDN2_HASH SHA512=4d8427c0f115268132f7544e80a808c883ab1406338f6c529b1a586b016d57aedb0857f66166eb8d9f37d70efc9dccf907b673b43b17bcf258c8797db1e829ce
     CACHE STRING "libidn2 source hash")
-
-set(ZSTD_VERSION 1.5.5 CACHE STRING "zstd version")
-set(ZSTD_MIRROR ${LOCAL_MIRROR} https://github.com/facebook/zstd/releases/download/${ZSTD_VERSION}
-    CACHE STRING "zstd mirror(s)")
-set(ZSTD_SOURCE zstd-${ZSTD_VERSION}.tar.gz)
-set(ZSTD_HASH SHA512=99109ec0e07fa65c2101c9cb36be56b672bbd0ee69d265f924718e61f9192ae8385c8d9e4d0c318be9edfa6d849fd3d60e5f164fa120961449429ea3c5dab6b6
-    CACHE STRING "zstd source hash")
 
 set(GMP_VERSION 6.3.0 CACHE STRING "gmp version")
 set(GMP_MIRROR ${LOCAL_MIRROR} https://gmplib.org/download/gmp
@@ -48,18 +50,18 @@ set(GMP_SOURCE gmp-${GMP_VERSION}.tar.xz)
 set(GMP_HASH SHA512=e85a0dab5195889948a3462189f0e0598d331d3457612e2d3350799dba2e244316d256f8161df5219538eb003e4b5343f989aaa00f96321559063ed8c8f29fd2
     CACHE STRING "gmp source hash")
 
-set(NETTLE_VERSION 3.9.1 CACHE STRING "nettle version")
+set(NETTLE_VERSION 3.10.2 CACHE STRING "nettle version")
 set(NETTLE_MIRROR ${LOCAL_MIRROR} https://ftp.gnu.org/gnu/nettle
     CACHE STRING "nettle mirror(s)")
 set(NETTLE_SOURCE nettle-${NETTLE_VERSION}.tar.gz)
-set(NETTLE_HASH SHA512=5939c4b43cf9ff6c6272245b85f123c81f8f4e37089fa4f39a00a570016d837f6e706a33226e4bbfc531b02a55b2756ff312461225ed88de338a73069e031ced
+set(NETTLE_HASH SHA512=bf37ddd7dca8e78488da2a5286dcf16761d527d620572b42f2ad27bb8ee8c12999d92b0272e06f53766e7155a3f4a1ab7ad9c4b1c3caec47c031878b6b1772fb
     CACHE STRING "nettle source hash")
 
-set(LIBTASN1_VERSION 4.19.0 CACHE STRING "libtasn1 version")
+set(LIBTASN1_VERSION 4.20.0 CACHE STRING "libtasn1 version")
 set(LIBTASN1_MIRROR ${LOCAL_MIRROR} https://ftp.gnu.org/gnu/libtasn1
     CACHE STRING "libtasn1 mirror(s)")
 set(LIBTASN1_SOURCE libtasn1-${LIBTASN1_VERSION}.tar.gz)
-set(LIBTASN1_HASH SHA512=287f5eddfb5e21762d9f14d11997e56b953b980b2b03a97ed4cd6d37909bda1ed7d2cdff9da5d270a21d863ab7e54be6b85c05f1075ac5d8f0198997cf335ef4
+set(LIBTASN1_HASH SHA512=0c0660085f5e80537aa3d65197967029be6cc5e27d7029789713902989c1694fdb49421ae0415b79b953e11893bb4bdaada85f7aff847dd0bb4075c91887e7b4
     CACHE STRING "libtasn1 source hash")
 
 set(LIBEVENT_VERSION 2.1.12-stable CACHE STRING "libevent version")
@@ -104,7 +106,7 @@ endfunction()
 # Creates a FindXXX.cmake in the module search path so that find_package(XXX) will load from there
 # instead of trying to load a system one.
 function(add_find_package_override NAME VERSION INCLUDE_DIR LIBRARY LIBRARIES)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindXXX.cmake.template
+    configure_file(${CMAKE_CURRENT_LIST_DIR}/FindXXX.cmake.template
         ${DEPS_CMAKE_MODS}/Find${NAME}.cmake
         @ONLY)
 endfunction()
@@ -322,6 +324,8 @@ build_external(libunistring
 add_static_target(libunistring::libunistring libunistring_external libunistring.a libiconv::libiconv)
 
 build_external(libidn2
+    # Patch out building the tools because they make a compilation with -flto take a very long time:
+    PATCH_COMMAND patch -p1 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/libidn2-no-tools.patch
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --disable-doc --prefix=${DEPS_DESTDIR} --with-pic
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cflags_arch}" ${cross_rc}
     DEPENDS libunistring_external
@@ -332,9 +336,8 @@ build_external(gmp
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}"
         "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}" ${cross_rc} CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp
-    DEPENDS libidn2_external libtasn1_external
 )
-add_static_target(gmp::gmp gmp_external libgmp.a libidn2::libidn2 libtasn1::libtasn1)
+add_static_target(gmp::gmp gmp_external libgmp.a)
 
 build_external(nettle
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --libdir=${DEPS_DESTDIR}/lib
@@ -356,7 +359,7 @@ add_static_target(hogweed::hogweed nettle_external libhogweed.a nettle::nettle)
 # The Android NDK defines `timezone_t` but not a number of related types and GnuTLS assumes if `timezone_t` is defined then all the others will be defined as well (resulting in build errors), so we need to patch GnuTLS to think `HAVE_TIMEZONE_T` is not defined and rename it's internal `timezone_t` so there isn't a name collision
 set(gnutls_patch_commands "")
 if(ANDROID)
-    set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${PROJECT_SOURCE_DIR}/utils/build_scripts/gnutls-android-timezone-t.patch)
+    set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/gnutls-android-timezone-t.patch)
 endif()
 
 build_external(gnutls
@@ -364,16 +367,17 @@ build_external(gnutls
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
         --without-p11-kit --disable-libdane --disable-cxx --without-tpm --without-tpm2 --disable-doc
         --without-zlib --without-brotli --without-zstd --without-libintl-prefix --disable-tests
-        --disable-valgrind-tests --disable-full-test-suite
-        "PKG_CONFIG_PATH=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
+        --disable-valgrind-tests --disable-full-test-suite --disable-tools
+        "PKG_CONFIG_LIBDIR=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
         "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
-    DEPENDS nettle_external
+    DEPENDS nettle_external libidn2_external libtasn1_external libunistring_external
     BUILD_BYPRODUCTS
     ${DEPS_DESTDIR}/lib/libgnutls.a
     ${DEPS_DESTDIR}/include/gnutls/gnutls.h
 )
-add_static_target(gnutls::gnutls gnutls_external libgnutls.a hogweed::hogweed)
+add_static_target(gnutls::gnutls gnutls_external libgnutls.a
+    hogweed::hogweed libidn2::libidn2 libtasn1::libtasn1 libunistring::libunistring)
 add_find_package_override(
     GnuTLS
     ${GNUTLS_VERSION}
@@ -387,6 +391,27 @@ if(WIN32)
 endif()
 
 
+build_external(ngtcp2
+    CONFIGURE_COMMAND ./configure ${build_host} --prefix=${DEPS_DESTDIR} --with-pic
+    --with-sysroot=${DEPS_DESTDIR}
+    --enable-lib-only --disable-shared --enable-static
+    --with-gnutls --without-openssl --without-boringssl --without-picotls --without-wolfssl
+    --without-libbrotlienc --without-libbrotlidec --without-libev --without-libnghttp3
+    "PKG_CONFIG_LIBDIR=${DEPS_DESTDIR}/lib/pkgconfig" "PKG_CONFIG=pkg-config"
+    "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
+    "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
+    DEPENDS gnutls_external
+    BUILD_BYPRODUCTS
+    ${DEPS_DESTDIR}/lib/libngtcp2.a
+    ${DEPS_DESTDIR}/lib/libngtcp2_crypto_gnutls.a
+    ${DEPS_DESTDIR}/include/ngtcp2/ngtcp2.h
+)
+add_static_target(ngtcp2::ngtcp2 ngtcp2_external libngtcp2.a)
+add_static_target(ngtcp2::crypto_gnutls ngtcp2_external libngtcp2_crypto_gnutls.a gnutls::gnutls)
+target_compile_definitions(ngtcp2::ngtcp2 INTERFACE -DNGTCP2_STATICLIB)
+target_link_libraries(ngtcp2::crypto_gnutls INTERFACE ngtcp2::ngtcp2)
+
+
 # libevent doesn't like --host=arm64-whatever, but is okay with aarch64-whatever
 set(libevent_build_host "${build_host}")
 if(libevent_build_host MATCHES "(.*--host=)arm64-(.*)")
@@ -394,7 +419,9 @@ if(libevent_build_host MATCHES "(.*--host=)arm64-(.*)")
 endif()
 
 build_external(libevent
-    CONFIGURE_COMMAND ./configure ${libevent_build_host} --prefix=${DEPS_DESTDIR} --disable-openssl --disable-libevent-regress --disable-samples
+    CONFIGURE_COMMAND ./configure ${libevent_build_host} --prefix=${DEPS_DESTDIR}
+    --enable-static --disable-shared
+    --disable-openssl --disable-libevent-regress --disable-samples
     "CPPFLAGS=-I${DEPS_DESTDIR}/include" "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}"
     "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}" ${cross_rc}
     BUILD_BYPRODUCTS
