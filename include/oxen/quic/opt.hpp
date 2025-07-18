@@ -18,6 +18,15 @@ namespace oxen::quic
         struct disable_mtu_discovery
         {};
 
+        // Allow GSO to be used when sending packets, if supported by the OS (currently only ever
+        // allowed on Linux).  As this is somewhat dependent on hardware/software, it is disabled by
+        // default.
+        //
+        // On systems without GSO support (or with GSO disabled at compile time) this option is
+        // ignored.
+        struct allow_gso
+        {};
+
         struct max_streams
         {
             uint64_t stream_count{DEFAULT_MAX_BIDI_STREAMS};

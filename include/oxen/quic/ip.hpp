@@ -62,7 +62,7 @@ namespace oxen::quic
     struct ipv4
     {
         // host order
-        uint32_t addr;
+        uint32_t addr{0};
 
         constexpr ipv4() = default;
 
@@ -115,7 +115,7 @@ namespace oxen::quic
 
       public:
         // Host order
-        uint64_t hi, lo;
+        uint64_t hi{0}, lo{0};
 
         constexpr ipv6() = default;
 

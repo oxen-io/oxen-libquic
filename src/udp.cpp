@@ -168,8 +168,8 @@ namespace oxen::quic
     }
 #endif
 
-    UDPSocket::UDPSocket(event_base* ev_loop, const Address& addr, receive_callback_t on_receive) :
-            ev_{ev_loop}, receive_callback_{std::move(on_receive)}
+    UDPSocket::UDPSocket(event_base* ev_loop, const Address& addr, bool allow_gso, receive_callback_t on_receive) :
+            gso_{allow_gso}, ev_{ev_loop}, receive_callback_{std::move(on_receive)}
     {
         assert(ev_);
 
@@ -505,9 +505,10 @@ namespace oxen::quic
     // these defines; these shouldn't be set directly but rather through the cmake -DLIBQUIC_SEND
     // option.  At most one of these may be defined.
     //
-    // OXEN_LIBQUIC_UDP_GSO -- use sendmmsg and GSO to batch-send packets.  Only works on
-    // Linux.  Will fall back to SENDMMSG if the required UDP_SEGMENT is not defined (i.e. on older
-    // Linux distros).
+    // OXEN_LIBQUIC_UDP_GSO -- support use either sendmmsg or GSO to batch-send packets.  GSO
+    // support can be opted-in at runtime.  Only works on Linux, and not always (i.e. depends on
+    // hardware and software support).  Will fall back to SENDMMSG if the required UDP_SEGMENT is
+    // not defined (i.e. on older Linux distros), or if GSO is not selected at runtime.
     // CMake option: -DLIBQUIC_SEND=gso
     //
     // OXEN_LIBQUIC_UDP_SENDMMSG -- use sendmmsg (but not GSO) to batch-send packets.  Only works on
@@ -572,114 +573,124 @@ namespace oxen::quic
 
 #ifdef OXEN_LIBQUIC_UDP_GSO
 
-        // With GSO, we use *one* sendmmsg call which can contain multiple batches of packets; each
-        // batch is of size n, where each of the n have the same size.
-        //
-        // We could have up to the full MAX_BATCH, with the worst case being every packet being a
-        // different size than the one before it.
-        alignas(cmsghdr) std::array<
-                std::array<char, CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(uint16_t)) + CMSG_SPACE(sizeof(in6_pktinfo))>,
-                DATAGRAM_BATCH_SIZE>
-                controls{};
-        std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
-        std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
-
-        std::array<mmsghdr, MAX_BATCH> msgs{};
-        std::array<iovec, MAX_BATCH> iovs{};
-
-        unsigned int msg_count = 0;
-        for (size_t i = 0; i < n_pkts; i++)
+        if (gso_)
         {
-            auto& gso_size = gso_sizes[msg_count];
-            auto& gso_count = gso_counts[msg_count];
-            gso_count++;
-            if (gso_size == 0)
-                gso_size = bufsize[i];  // new batch
 
-            if (i < n_pkts - 1 && bufsize[i + 1] == gso_size)
-                continue;  // The next one can be batched with us
+            // With GSO, we use *one* sendmmsg call which can contain multiple batches of packets; each
+            // batch is of size n, where each of the n have the same size.
+            //
+            // We could have up to the full MAX_BATCH, with the worst case being every packet being a
+            // different size than the one before it.
+            alignas(cmsghdr) std::array<
+                    std::array<
+                            char,
+                            CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(uint16_t)) + CMSG_SPACE(sizeof(in6_pktinfo))>,
+                    DATAGRAM_BATCH_SIZE>
+                    controls{};
+            std::array<uint16_t, MAX_BATCH> gso_sizes{};   // Size of each of the packets
+            std::array<uint16_t, MAX_BATCH> gso_counts{};  // Number of packets
 
-            auto& iov = iovs[msg_count];
-            auto& msg = msgs[msg_count];
-            auto& control = controls[msg_count];
-            iov.iov_base = next_buf;
-            iov.iov_len = gso_count * gso_size;
-            next_buf += iov.iov_len;
-            msg_count++;
-            auto& hdr = msg.msg_hdr;
-            hdr.msg_iov = &iov;
-            hdr.msg_iovlen = 1;
-            hdr.msg_name = dest_sa;
-            hdr.msg_namelen = remote.socklen();
-            hdr.msg_control = control.data();
-            hdr.msg_controllen = control.size();
+            std::array<mmsghdr, MAX_BATCH> msgs{};
+            std::array<iovec, MAX_BATCH> iovs{};
 
-            auto* cm = CMSG_FIRSTHDR(&hdr);
-            size_t actual_size = set_ecn_cmsg(cm, ecn, source_ipv4);
-
-            if (set_source_addr)
+            unsigned int msg_count = 0;
+            for (size_t i = 0; i < n_pkts; i++)
             {
-                cm = CMSG_NXTHDR(&hdr, cm);
-                cm->cmsg_level = source_cmsg_level;
-                cm->cmsg_type = source_cmsg_type;
-                cm->cmsg_len = CMSG_LEN(source_addrlen);
-                std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
-                actual_size += CMSG_SPACE(source_addrlen);
-            }
+                auto& gso_size = gso_sizes[msg_count];
+                auto& gso_count = gso_counts[msg_count];
+                gso_count++;
+                if (gso_size == 0)
+                    gso_size = bufsize[i];  // new batch
 
-            if (gso_count > 1)
-            {
-                cm = CMSG_NXTHDR(&hdr, cm);
-                cm->cmsg_level = SOL_UDP;
-                cm->cmsg_type = UDP_SEGMENT;
-                cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
-                actual_size += CMSG_SPACE(sizeof(uint16_t));
-                *reinterpret_cast<uint16_t*>(QUIC_CMSG_DATA(cm)) = gso_size;
-            }
-            hdr.msg_controllen = actual_size;
-        }
+                if (i < n_pkts - 1 && bufsize[i + 1] == gso_size)
+                    continue;  // The next one can be batched with us
 
-        do
-        {
-            rv = sendmmsg(sock_, msgs.data(), msg_count, 0);
-            log::trace(log_cat, "sendmmsg returned {}", rv);
-        } while (rv == -1 && errno == EINTR);
+                auto& iov = iovs[msg_count];
+                auto& msg = msgs[msg_count];
+                auto& control = controls[msg_count];
+                iov.iov_base = next_buf;
+                iov.iov_len = gso_count * gso_size;
+                next_buf += iov.iov_len;
+                msg_count++;
+                auto& hdr = msg.msg_hdr;
+                hdr.msg_iov = &iov;
+                hdr.msg_iovlen = 1;
+                hdr.msg_name = dest_sa;
+                hdr.msg_namelen = remote.socklen();
+                hdr.msg_control = control.data();
+                hdr.msg_controllen = control.size();
 
-        // Figure out number of packets we actually sent:
-        // rv is the number of `msgs` elements that were updated; within each, the `.msg_len` field
-        // has been updated to the number of bytes that were sent (which we need to use to figure
-        // out how many actual batched packets went out from our batch-of-batches).
-#ifndef NDEBUG
-        bool found_unsent = false;
-#endif
-        if (rv >= 0)
-        {
-            for (unsigned int i = 0; i < msg_count; i++)
-            {
-                if (msgs[i].msg_len < iovs[i].iov_len)
+                auto* cm = CMSG_FIRSTHDR(&hdr);
+                size_t actual_size = set_ecn_cmsg(cm, ecn, source_ipv4);
+
+                if (set_source_addr)
                 {
+                    cm = CMSG_NXTHDR(&hdr, cm);
+                    cm->cmsg_level = source_cmsg_level;
+                    cm->cmsg_type = source_cmsg_type;
+                    cm->cmsg_len = CMSG_LEN(source_addrlen);
+                    std::memcpy(CMSG_DATA(cm), &source_addr, source_addrlen);
+                    actual_size += CMSG_SPACE(source_addrlen);
+                }
+
+                if (gso_count > 1)
+                {
+                    cm = CMSG_NXTHDR(&hdr, cm);
+                    cm->cmsg_level = SOL_UDP;
+                    cm->cmsg_type = UDP_SEGMENT;
+                    cm->cmsg_len = CMSG_LEN(sizeof(uint16_t));
+                    actual_size += CMSG_SPACE(sizeof(uint16_t));
+                    *reinterpret_cast<uint16_t*>(QUIC_CMSG_DATA(cm)) = gso_size;
+                }
+                hdr.msg_controllen = actual_size;
+            }
+
+            do
+            {
+                rv = sendmmsg(sock_, msgs.data(), msg_count, 0);
+                log::trace(log_cat, "sendmmsg returned {}", rv);
+            } while (rv == -1 && errno == EINTR);
+
+            // Figure out number of packets we actually sent:
+            // rv is the number of `msgs` elements that were updated; within each, the `.msg_len` field
+            // has been updated to the number of bytes that were sent (which we need to use to figure
+            // out how many actual batched packets went out from our batch-of-batches).
 #ifndef NDEBUG
-                    // Once we encounter some unsent we expect to miss everything after that (i.e. we
-                    // are expecting that contiguous packets 0 through X are accepted and X+1 through
-                    // the end were not): so if this batch was partially sent then we shouldn't have
-                    // been any partial sends before it.
-                    assert(!found_unsent || msgs[i].msg_len == 0);
-                    found_unsent = true;
+            bool found_unsent = false;
+#endif
+            if (rv >= 0)
+            {
+                for (unsigned int i = 0; i < msg_count; i++)
+                {
+                    if (msgs[i].msg_len < iovs[i].iov_len)
+                    {
+#ifndef NDEBUG
+                        // Once we encounter some unsent we expect to miss everything after that (i.e. we
+                        // are expecting that contiguous packets 0 through X are accepted and X+1 through
+                        // the end were not): so if this batch was partially sent then we shouldn't have
+                        // been any partial sends before it.
+                        assert(!found_unsent || msgs[i].msg_len == 0);
+                        found_unsent = true;
 #endif
 
-                    // Partial packets consumed should be impossible:
-                    assert(msgs[i].msg_len % gso_sizes[i] == 0);
-                    sent += msgs[i].msg_len / gso_sizes[i];
-                }
-                else
-                {
-                    assert(!found_unsent);
-                    sent += gso_counts[i];
+                        // Partial packets consumed should be impossible:
+                        assert(msgs[i].msg_len % gso_sizes[i] == 0);
+                        sent += msgs[i].msg_len / gso_sizes[i];
+                    }
+                    else
+                    {
+                        assert(!found_unsent);
+                        sent += gso_counts[i];
+                    }
                 }
             }
-        }
 
-#elif defined(OXEN_LIBQUIC_UDP_SENDMMSG)  // sendmmsg, but not GSO
+            return {io_result{rv < 0 ? errno : 0}, sent};
+        }
+#endif
+
+#if defined(OXEN_LIBQUIC_UDP_GSO) || defined(OXEN_LIBQUIC_UDP_SENDMMSG)
+        // sendmmsg, but either no GSO support, or GSO not enabled at runtime.
 
         std::array<mmsghdr, MAX_BATCH> msgs{};
         std::array<iovec, MAX_BATCH> iovs{};
