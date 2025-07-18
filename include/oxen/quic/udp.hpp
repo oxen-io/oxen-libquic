@@ -94,7 +94,7 @@ namespace oxen::quic
         /// When packets are received they will be fed into the given callback.
         ///
         /// ev_loop must outlive this object.
-        UDPSocket(event_base* ev_loop, const Address& addr, receive_callback_t cb);
+        UDPSocket(event_base* ev_loop, const Address& addr, bool allow_gso, receive_callback_t cb);
 
         /// Non-copyable and non-moveable
         UDPSocket(const UDPSocket& s) = delete;
@@ -144,6 +144,8 @@ namespace oxen::quic
 
         socket_t sock_;
         Address bound_;
+
+        bool gso_;
 
         event_base* ev_ = nullptr;
 
