@@ -4,6 +4,7 @@
 #include <oxen/quic/endpoint.hpp>
 #include <oxen/quic/loop.hpp>
 #include <oxen/quic/opt.hpp>
+#include <oxenc/base32z.h>
 #include <oxenc/bt_serialize.h>
 
 #include <ngtcp2/ngtcp2.h>
@@ -24,7 +25,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -42,7 +43,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -60,7 +61,7 @@ namespace oxen::quic
     void TestHelper::nat_rebinding(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -218,6 +219,10 @@ namespace oxen::quic
         if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(32, true) &&
             oxenc::is_base64(encoded))
             return oxenc::from_base64(encoded);
+        if (encoded.ends_with(".snode"))
+            encoded.remove_suffix(6);
+        if (encoded.size() == oxenc::to_base32z_size(32) && oxenc::is_base32z(encoded))
+            return oxenc::from_base32z(encoded);
         return std::nullopt;
     }
 
@@ -272,8 +277,6 @@ namespace oxen::quic
             bool& enable_0rtt,
             std::filesystem::path& store_0rtt)
     {
-        if (remote_addr.empty())
-            remote_addr = "127.0.0.1:5500";
         remote_pubkey.clear();
         seed_string.clear();
         disable_pmtud = false;
@@ -283,11 +286,13 @@ namespace oxen::quic
 
         cli.add_option("-R,--remote", remote_addr, "Remote address to connect to")
                 ->type_name("IP:PORT")
-                ->capture_default_str();
+                ->capture_default_str()
+                ->check([](const std::string& val) { return val.empty() ? "address cannot be empty" : ""; })
+                ->force_callback();
 
         auto* rem_pubkey = cli.add_option_group("remote pubkey");
         rem_pubkey->add_option("-P,--remote-pubkey", remote_pubkey, "Remote server pubkey")
-                ->type_name("HEX_OR_B64")
+                ->type_name("HEX_OR_B64_OR_B32Z")
                 ->transform([](const std::string& val) -> std::string {
                     if (auto pk = decode_bytes(val))
                         return std::move(*pk);
@@ -562,35 +567,39 @@ namespace oxen::quic
         if (!ep)
             throw std::logic_error{"packet_delayer::init called with nullptr endpoint"};
 
-        sock = std::make_unique<UDPSocket>(ep->loop.get_event_base(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
-            log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
-            auto sself = wself.lock();
-            if (!sself)
-                return;
-            auto& self = *sself;
+        sock = std::make_unique<UDPSocket>(
+                ep->loop.get_event_base(), ep->local(), false, [wself = weak_from_this()](Packet&& pkt) {
+                    log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
+                    auto sself = wself.lock();
+                    if (!sself)
+                        return;
+                    auto& self = *sself;
 
-            pkt.ensure_owned_data();
-            self.incoming.emplace_back(++self.in_id, std::move(pkt));
+                    pkt.ensure_owned_data();
+                    self.incoming.emplace_back(++self.in_id, std::move(pkt));
 
-            self.ep->loop.call_later(self.delay.load(), [wself, id = self.in_id] {
-                auto sself = wself.lock();
-                if (!sself)
-                    return;
-                auto& self = *sself;
+                    self.ep->loop.call_later(self.delay.load(), [wself, id = self.in_id] {
+                        auto sself = wself.lock();
+                        if (!sself)
+                            return;
+                        auto& self = *sself;
 
-                // Process all packets <= out id to ensure delivery order (see extended comment below)
-                while (!self.incoming.empty())
-                {
-                    auto& [pktid, pkt] = self.incoming.front();
-                    if (pktid > id)
-                        break;
-                    log::debug(
-                            log_cat, "completing incoming delayed delivery of {}B packet on path {}", pkt.size(), pkt.path);
-                    self.ep->manually_receive_packet(std::move(pkt));
-                    self.incoming.pop_front();
-                }
-            });
-        });
+                        // Process all packets <= out id to ensure delivery order (see extended comment below)
+                        while (!self.incoming.empty())
+                        {
+                            auto& [pktid, pkt] = self.incoming.front();
+                            if (pktid > id)
+                                break;
+                            log::debug(
+                                    log_cat,
+                                    "completing incoming delayed delivery of {}B packet on path {}",
+                                    pkt.size(),
+                                    pkt.path);
+                            self.ep->manually_receive_packet(std::move(pkt));
+                            self.incoming.pop_front();
+                        }
+                    });
+                });
         ep->set_local(sock->address());
     }
 

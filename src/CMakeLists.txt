@@ -25,7 +25,7 @@ add_library(quic
 
 target_link_libraries(quic
     PUBLIC
-    ngtcp2::crypto
+    ngtcp2::crypto_gnutls
     gnutls::gnutls
     oxen::logging
     libquic_external
