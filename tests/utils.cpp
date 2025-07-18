@@ -4,6 +4,7 @@
 #include <oxen/quic/endpoint.hpp>
 #include <oxen/quic/loop.hpp>
 #include <oxen/quic/opt.hpp>
+#include <oxenc/base32z.h>
 #include <oxenc/bt_serialize.h>
 
 #include <ngtcp2/ngtcp2.h>
@@ -218,6 +219,10 @@ namespace oxen::quic
         if (encoded.size() >= oxenc::to_base64_size(size, false) && encoded.size() <= oxenc::to_base64_size(32, true) &&
             oxenc::is_base64(encoded))
             return oxenc::from_base64(encoded);
+        if (encoded.ends_with(".snode"))
+            encoded.remove_suffix(6);
+        if (encoded.size() == oxenc::to_base32z_size(32) && oxenc::is_base32z(encoded))
+            return oxenc::from_base32z(encoded);
         return std::nullopt;
     }
 
@@ -272,8 +277,6 @@ namespace oxen::quic
             bool& enable_0rtt,
             std::filesystem::path& store_0rtt)
     {
-        if (remote_addr.empty())
-            remote_addr = "127.0.0.1:5500";
         remote_pubkey.clear();
         seed_string.clear();
         disable_pmtud = false;
@@ -283,11 +286,13 @@ namespace oxen::quic
 
         cli.add_option("-R,--remote", remote_addr, "Remote address to connect to")
                 ->type_name("IP:PORT")
-                ->capture_default_str();
+                ->capture_default_str()
+                ->check([](const std::string& val) { return val.empty() ? "address cannot be empty" : ""; })
+                ->force_callback();
 
         auto* rem_pubkey = cli.add_option_group("remote pubkey");
         rem_pubkey->add_option("-P,--remote-pubkey", remote_pubkey, "Remote server pubkey")
-                ->type_name("HEX_OR_B64")
+                ->type_name("HEX_OR_B64_OR_B32Z")
                 ->transform([](const std::string& val) -> std::string {
                     if (auto pk = decode_bytes(val))
                         return std::move(*pk);
