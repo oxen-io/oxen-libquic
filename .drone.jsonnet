@@ -1,18 +1,18 @@
-local default_deps_old_base = [
+local default_deps_old_base = std.set([
   'libevent-dev',
   'libsodium-dev',
   'gnutls-bin',
-];
-local default_deps_base = default_deps_old_base + [
+  'libgnutls28-dev',
+]);
+local default_deps_base_no_ngtcp2 = std.set(default_deps_old_base + [
   'libcli11-dev',
   'libfmt-dev',
   'libspdlog-dev',
-  'libgnutls28-dev',
-];
+]);
+local default_deps_base = std.set(default_deps_base_no_ngtcp2 + ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev']);
 
-local default_deps = ['g++'] + default_deps_base;
-local deps_with_ngtcp2 = default_deps + ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev'];
-local default_deps_old = ['g++'] + default_deps_old_base;
+local default_deps = std.set(['g++'] + default_deps_base);
+local default_deps_old = std.set(['g++'] + default_deps_old_base + ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev']);
 local docker_base = 'registry.oxen.rocks/';
 
 local submodule_commands = [
@@ -229,7 +229,7 @@ local linux_cross_pipeline(name,
 local clang(version) = debian_pipeline(
   'Debian sid/clang-' + version,
   docker_base + 'debian-sid-clang',
-  deps=['clang-' + version] + default_deps_base + ['libngtcp2-dev'],
+  deps=['clang-' + version] + default_deps_base,
   cmake_extra='-DCMAKE_C_COMPILER=clang-' + version + ' -DCMAKE_CXX_COMPILER=clang++-' + version +
               ' -DUSE_LTO=OFF '  // Enabling LTO in oxen-logging makes clang unhappy
 );
@@ -238,7 +238,7 @@ local full_llvm(version, _allow_fail=false) = debian_pipeline(
   'Debian sid/llvm-' + version,
   docker_base + 'debian-sid-clang',
   deps=['clang-' + version, ' lld-' + version, ' libc++-' + version + '-dev', 'libc++abi-' + version + '-dev']
-       + default_deps_base + ['libngtcp2-dev'],
+       + default_deps_base,
   cmake_extra='-DCMAKE_C_COMPILER=clang-' + version +
               ' -DCMAKE_CXX_COMPILER=clang++-' + version +
               ' -DCMAKE_CXX_FLAGS=-stdlib=libc++ ' +
@@ -305,32 +305,30 @@ local mac_builder(name,
   },
 
   // Various debian builds
-  debian_pipeline('Debian sid', docker_base + 'debian-sid', deps=deps_with_ngtcp2),
-  debian_pipeline('Debian sid/Debug', docker_base + 'debian-sid', build_type='Debug', deps=deps_with_ngtcp2),
+  debian_pipeline('Debian sid', docker_base + 'debian-sid'),
+  debian_pipeline('Debian sid/Debug', docker_base + 'debian-sid', build_type='Debug'),
   clang(17),
   full_llvm(17),
   clang(19),
   full_llvm(19),
-  debian_pipeline('Debian sid -GSO', docker_base + 'debian-sid', cmake_extra='-DLIBQUIC_SEND=sendmmsg', deps=deps_with_ngtcp2),
-  debian_pipeline('Debian sid -mmsg', docker_base + 'debian-sid', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF', deps=deps_with_ngtcp2),
-  debian_pipeline('Debian sid -GSO/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmmsg', deps=deps_with_ngtcp2),
-  debian_pipeline('Debian sid -mmsg/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF', deps=deps_with_ngtcp2),
-  debian_pipeline('Debian 11 -mmsg', docker_base + 'debian-bullseye', deps=default_deps_old, extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake']), cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF'),
-  debian_pipeline('Debian 11 -mmsg/Debug', docker_base + 'debian-bullseye', deps=default_deps_old, extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake']), cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF', build_type='Debug'),
-  debian_pipeline('Debian testing (i386)', docker_base + 'debian-testing/i386', deps=deps_with_ngtcp2),
+  debian_pipeline('Debian sid -GSO', docker_base + 'debian-sid', cmake_extra='-DLIBQUIC_SEND=sendmmsg'),
+  debian_pipeline('Debian sid -mmsg', docker_base + 'debian-sid', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF'),
+  debian_pipeline('Debian sid -GSO/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmmsg'),
+  debian_pipeline('Debian sid -mmsg/Debug', docker_base + 'debian-sid', build_type='Debug', cmake_extra='-DLIBQUIC_SEND=sendmsg -DLIBQUIC_RECVMMSG=OFF'),
+  debian_pipeline('Debian testing (i386)', docker_base + 'debian-testing/i386'),
   debian_pipeline('Debian 12 static', docker_base + 'debian-bookworm', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=['g++']),
-  debian_pipeline('Debian 12 bookworm (i386)', docker_base + 'debian-bookworm/i386'),
-  debian_pipeline('Debian 11 bullseye', docker_base + 'debian-bullseye', deps=['g++'], extra_setup=local_gnutls() + debian_backports('bullseye', ['cmake'])),
-  debian_pipeline('Debian 11 static Debug', docker_base + 'debian-bullseye', build_type='Debug', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=default_deps_old, extra_setup=debian_backports('bullseye', ['cmake'])),
-  debian_pipeline('Ubuntu latest', docker_base + 'ubuntu-rolling', deps=deps_with_ngtcp2),
-  debian_pipeline('Ubuntu 24.04 noble', docker_base + 'ubuntu-jammy'),
-  debian_pipeline('Ubuntu 22.04 jammy', docker_base + 'ubuntu-jammy'),
-  debian_pipeline('Ubuntu 20.04 focal', docker_base + 'ubuntu-focal', deps=['g++-10'] + default_deps_old, extra_setup=kitware_repo('focal') + local_gnutls(), cmake_extra='-DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10'),
+  debian_pipeline('Debian 12 (i386)', docker_base + 'debian-bookworm/i386', extra_setup=debian_backports('bookworm', ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev'])),
+  debian_pipeline('Debian 11', docker_base + 'debian-bullseye', deps=default_deps_old, extra_setup=debian_backports('bullseye', ['cmake']), oxen_repo=true),
+  debian_pipeline('Debian 11 static Debug', docker_base + 'debian-bullseye', build_type='Debug', cmake_extra='-DBUILD_STATIC_DEPS=ON', deps=['g++'], extra_setup=debian_backports('bullseye', ['cmake'])),
+  debian_pipeline('Ubuntu latest', docker_base + 'ubuntu-rolling'),
+  debian_pipeline('Ubuntu 24.04 noble', docker_base + 'ubuntu-jammy', oxen_repo=true),
+  debian_pipeline('Ubuntu 22.04 jammy', docker_base + 'ubuntu-jammy', oxen_repo=true),
+  debian_pipeline('Ubuntu 20.04 focal', docker_base + 'ubuntu-focal', deps=['g++-10'] + default_deps_old, extra_setup=kitware_repo('focal'), cmake_extra='-DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10', oxen_repo=true),
 
   // ARM builds (ARM64 and armhf)
-  debian_pipeline('Debian sid (ARM64)', docker_base + 'debian-sid', arch='arm64', jobs=4, deps=deps_with_ngtcp2),
-  debian_pipeline('Debian stable/Debug (ARM64)', docker_base + 'debian-stable', arch='arm64', jobs=4, build_type='Debug', test_0rtt=false),
-  debian_pipeline('Debian stable (armhf)', docker_base + 'debian-stable/arm32v7', arch='arm64', jobs=4),
+  debian_pipeline('Debian sid (ARM64)', docker_base + 'debian-sid', arch='arm64', jobs=4),
+  debian_pipeline('Debian 12/Debug (ARM64)', docker_base + 'debian-bookworm', arch='arm64', jobs=4, build_type='Debug', test_0rtt=false, extra_setup=debian_backports('bookworm', ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev'])),
+  debian_pipeline('Debian 12 (armhf)', docker_base + 'debian-bookworm/arm32v7', arch='arm64', jobs=4, extra_setup=debian_backports('bookworm', ['libngtcp2-dev', 'libngtcp2-crypto-gnutls-dev'])),
 
   // Windows builds (x64)
   windows_cross_pipeline('Windows (x64)', docker_base + 'debian-win32-cross', test_0rtt=false),
