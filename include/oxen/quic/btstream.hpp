@@ -1,3 +1,4 @@
+#pragma once
 #include "connection_ids.hpp"
 #include "endpoint.hpp"  // IWYU pragma: keep
 #include "stream.hpp"
