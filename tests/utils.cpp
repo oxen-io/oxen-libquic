@@ -24,7 +24,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -42,7 +42,7 @@ namespace oxen::quic
     void TestHelper::migrate_connection_immediate(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -60,7 +60,7 @@ namespace oxen::quic
     void TestHelper::nat_rebinding(Connection& conn, Address new_bind)
     {
         auto& current_sock = const_cast<std::unique_ptr<UDPSocket>&>(conn._endpoint.get_socket());
-        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, [&](auto&& packet) {
+        auto new_sock = std::make_unique<UDPSocket>(conn._loop.get_event_base(), new_bind, false, [&](auto&& packet) {
             conn._endpoint.handle_packet(std::move(packet));
         });
 
@@ -562,35 +562,39 @@ namespace oxen::quic
         if (!ep)
             throw std::logic_error{"packet_delayer::init called with nullptr endpoint"};
 
-        sock = std::make_unique<UDPSocket>(ep->loop.get_event_base(), ep->local(), [wself = weak_from_this()](Packet&& pkt) {
-            log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
-            auto sself = wself.lock();
-            if (!sself)
-                return;
-            auto& self = *sself;
+        sock = std::make_unique<UDPSocket>(
+                ep->loop.get_event_base(), ep->local(), false, [wself = weak_from_this()](Packet&& pkt) {
+                    log::debug(log_cat, "incoming {}B udp packet from {}; delaying delivery", pkt.size(), pkt.path);
+                    auto sself = wself.lock();
+                    if (!sself)
+                        return;
+                    auto& self = *sself;
 
-            pkt.ensure_owned_data();
-            self.incoming.emplace_back(++self.in_id, std::move(pkt));
+                    pkt.ensure_owned_data();
+                    self.incoming.emplace_back(++self.in_id, std::move(pkt));
 
-            self.ep->loop.call_later(self.delay.load(), [wself, id = self.in_id] {
-                auto sself = wself.lock();
-                if (!sself)
-                    return;
-                auto& self = *sself;
+                    self.ep->loop.call_later(self.delay.load(), [wself, id = self.in_id] {
+                        auto sself = wself.lock();
+                        if (!sself)
+                            return;
+                        auto& self = *sself;
 
-                // Process all packets <= out id to ensure delivery order (see extended comment below)
-                while (!self.incoming.empty())
-                {
-                    auto& [pktid, pkt] = self.incoming.front();
-                    if (pktid > id)
-                        break;
-                    log::debug(
-                            log_cat, "completing incoming delayed delivery of {}B packet on path {}", pkt.size(), pkt.path);
-                    self.ep->manually_receive_packet(std::move(pkt));
-                    self.incoming.pop_front();
-                }
-            });
-        });
+                        // Process all packets <= out id to ensure delivery order (see extended comment below)
+                        while (!self.incoming.empty())
+                        {
+                            auto& [pktid, pkt] = self.incoming.front();
+                            if (pktid > id)
+                                break;
+                            log::debug(
+                                    log_cat,
+                                    "completing incoming delayed delivery of {}B packet on path {}",
+                                    pkt.size(),
+                                    pkt.path);
+                            self.ep->manually_receive_packet(std::move(pkt));
+                            self.incoming.pop_front();
+                        }
+                    });
+                });
         ep->set_local(sock->address());
     }
 
