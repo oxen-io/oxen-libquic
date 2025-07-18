@@ -1,3 +1,19 @@
+oxen-libquic (1.5.0-1~ubuntu2004) focal; urgency=medium
+
+  * bump oxen-logging
+  * fix missing pragma once
+  * Make default constructed ipv4/6 explicitly 0
+  * Dep and static build updates
+  * De-submodule ngtcp2
+  * update oxenc
+  * Fix static builds, deps, and drone builds
+  * Add bt request stream test script
+  * Disable GSO at runtime by default
+  * 1.5.0 version bump
+  * Fix windows static build
+
+ -- Jason Rhinelander <jason@session.foundation>  Fri, 18 Jul 2025 15:14:30 -0300
+
 oxen-libquic (1.4.0-1~ubuntu2004) focal; urgency=medium
 
   [ Jason Rhinelander ]
