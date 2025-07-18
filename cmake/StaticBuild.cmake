@@ -408,6 +408,8 @@ build_external(ngtcp2
 )
 add_static_target(ngtcp2::ngtcp2 ngtcp2_external libngtcp2.a)
 add_static_target(ngtcp2::crypto_gnutls ngtcp2_external libngtcp2_crypto_gnutls.a gnutls::gnutls)
+target_compile_definitions(ngtcp2::ngtcp2 INTERFACE -DNGTCP2_STATICLIB)
+target_link_libraries(ngtcp2::crypto_gnutls INTERFACE ngtcp2::ngtcp2)
 
 
 # libevent doesn't like --host=arm64-whatever, but is okay with aarch64-whatever

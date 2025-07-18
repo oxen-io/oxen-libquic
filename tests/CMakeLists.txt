@@ -5,7 +5,7 @@ add_subdirectory(CLI11)
 
 add_library(tests_common STATIC utils.cpp)
 target_link_libraries(tests_common PUBLIC
-quic CLI11::CLI11 libquic_internal-warnings gnutls::gnutls)
+    quic CLI11::CLI11 libquic_internal-warnings gnutls::gnutls)
 
 macro(link_test_dep x)
     string(TOUPPER "${x}" BIG_X)
@@ -24,9 +24,9 @@ link_test_dep(hogweed)
 link_test_dep(nettle)
 
 function(extra_linking target)
-if(WIN32 AND NOT BUILD_SHARED_LIBS)
-target_link_libraries(${target} PRIVATE -static)
-endif()
+    if(WIN32 AND NOT BUILD_SHARED_LIBS)
+        target_link_libraries(${target} PRIVATE -static)
+    endif()
 endfunction()
 
 if(LIBQUIC_BUILD_TESTS)
