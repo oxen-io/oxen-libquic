@@ -1864,8 +1864,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_client_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,
@@ -1909,8 +1909,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_server_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,

@@ -77,7 +77,7 @@ namespace oxen::quic
             const quic_cid& cid,
             std::span<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> out)
     {
-        generate_reset_token(static_secret, &cid, out);
+        generate_reset_token(static_secret, cid.ngtcp2(), out);
     }
     std::array<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> generate_reset_token(
             std::span<const uint8_t> static_secret, const ngtcp2_cid* cid)
@@ -89,7 +89,7 @@ namespace oxen::quic
     std::array<uint8_t, NGTCP2_STATELESS_RESET_TOKENLEN> generate_reset_token(
             std::span<const uint8_t> static_secret, const quic_cid& cid)
     {
-        return generate_reset_token(static_secret, &cid);
+        return generate_reset_token(static_secret, cid.ngtcp2());
     }
 
     static constexpr auto STATELESS_HASH_PREFIX = "quic stateless reset hash"sv;

@@ -268,13 +268,13 @@ namespace oxen::quic
 
         void dissociate_reset(const uint8_t* token, Connection& conn);
 
-        void associate_cid(quic_cid qcid, Connection& conn, bool weakly = false);
+        void associate_cid(const quic_cid& qcid, Connection& conn, bool weakly = false);
 
         void associate_cid(const ngtcp2_cid* cid, Connection& conn);
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        void dissociate_cid(quic_cid qcid, Connection& conn);
+        void dissociate_cid(const quic_cid& qcid, Connection& conn);
 
         const std::vector<unsigned char>& static_secret() const { return _static_secret; }
 
@@ -354,7 +354,7 @@ namespace oxen::quic
         void send_or_queue_packet(
                 const Path& p, std::vector<std::byte> buf, uint8_t ecn, std::function<void(io_result)> callback = nullptr);
 
-        void send_stateless_reset(const Packet& pkt, quic_cid& cid);
+        void send_stateless_reset(const Packet& pkt, const quic_cid& cid);
 
         void send_version_negotiation(const ngtcp2_version_cid& vid, Path p);
 
