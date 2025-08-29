@@ -137,8 +137,9 @@ namespace oxen::quic
         if (not _manual_routing)
         {
             log::debug(log_cat, "Starting new UDP socket on {}", _local);
-            socket = std::make_unique<UDPSocket>(
-                    loop.get_event_base(), _local, _allow_gso, [this](auto&& packet) { handle_packet(std::move(packet)); });
+            socket = std::make_unique<UDPSocket>(loop.get_event_base(), _local, _allow_gso, [this](Packet&& packet) {
+                handle_packet(std::move(packet));
+            });
 
             _local = socket->address();
         }
@@ -458,7 +459,7 @@ namespace oxen::quic
             log::warning(
                     log_cat,
                     "Error: Failed to write connection close packet: {}",
-                    (written < 0) ? ngtcp2_strerror(written) : "[Error Unknown: closing pkt is 0 bytes?]"s);
+                    written < 0 ? ngtcp2_strerror(static_cast<int>(written)) : "[Error Unknown: closing pkt is 0 bytes?]"s);
 
             delete_connection(conn);
             return;
@@ -496,10 +497,7 @@ namespace oxen::quic
         const auto& cids = conn.associated_cids();
         log::debug(log_cat, "Deleting {} associated CIDs for connection {}", cids.size(), rid);
         while (not cids.empty())
-        {
-            auto itr = cids.begin();
-            dissociate_cid(&*itr, conn);
-        }
+            dissociate_cid(*cids.begin(), conn);
 
         const auto& resets = conn.associated_reset_tokens();
         log::debug(log_cat, "Deleting {} associated reset tokens for connection {}", resets.size(), rid);
@@ -593,7 +591,7 @@ namespace oxen::quic
         }
     }
 
-    void Endpoint::associate_cid(quic_cid qcid, Connection& conn, bool weakly)
+    void Endpoint::associate_cid(const quic_cid& qcid, Connection& conn, bool weakly)
     {
         assert(loop.inside());
         log::trace(
@@ -611,7 +609,7 @@ namespace oxen::quic
             return associate_cid(quic_cid{*cid}, conn);
     }
 
-    void Endpoint::dissociate_cid(quic_cid qcid, Connection& conn)
+    void Endpoint::dissociate_cid(const quic_cid& qcid, Connection& conn)
     {
         assert(loop.inside());
         log::trace(
@@ -692,7 +690,7 @@ namespace oxen::quic
         return true;
     }
 
-    void Endpoint::send_stateless_reset(const Packet& pkt, quic_cid& cid)
+    void Endpoint::send_stateless_reset(const Packet& pkt, const quic_cid& cid)
     {
         if (pkt.size() <= MIN_STATELESS_RESET_SIZE)
         {
@@ -1051,9 +1049,8 @@ namespace oxen::quic
             // non-error on *partial* success).
             return io_result{EAGAIN};
         }
-        else
-            n_pkts = 0;
 
+        n_pkts = 0;
         return ret;
     }
 
@@ -1107,7 +1104,10 @@ namespace oxen::quic
                 versions.size());
         if (nwrite <= 0)
         {
-            log::warning(log_cat, "Error: Failed to construct version negotiation packet: {}", ngtcp2_strerror(nwrite));
+            log::warning(
+                    log_cat,
+                    "Error: Failed to construct version negotiation packet: {}",
+                    ngtcp2_strerror(static_cast<int>(nwrite)));
             return;
         }
 
