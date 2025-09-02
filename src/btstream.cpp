@@ -49,7 +49,7 @@ namespace oxen::quic
         if (auto ptr = return_sender.lock())
             ptr->respond(req_id, body, error);
         else
-            log::warning(log_cat, "BTRequestStream unable to send response: stream has gone away");
+            log::debug(log_cat, "Dropping response: stream has gone away");
     }
 
     void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
