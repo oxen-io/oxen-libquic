@@ -58,6 +58,19 @@ namespace oxen::quic
             explicit inbound_alpns(std::initializer_list<const char*> alpns) : alpns{alpns.begin(), alpns.end()} {}
             explicit inbound_alpns(std::vector<std::string> alpns) : alpns{std::move(alpns)} {}
         };
+        // Helpers for a singleton ALPN
+        inline alpns alpn(std::string_view alpn)
+        {
+            return alpns{{std::string{alpn}}};
+        }
+        inline outbound_alpns outbound_alpn(std::string_view alpn)
+        {
+            return outbound_alpns{{std::string{alpn}}};
+        }
+        inline inbound_alpns inbound_alpn(std::string_view alpn)
+        {
+            return inbound_alpns{{std::string{alpn}}};
+        }
 
         struct handshake_timeout
         {

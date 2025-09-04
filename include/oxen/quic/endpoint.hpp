@@ -80,9 +80,9 @@ namespace oxen::quic
 
             return loop.call_get([this, &opts..., remote = std::move(remote)]() mutable {
                 // initialize client context and client tls context simultaneously
-                outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
-                _set_context_globals(outbound_ctx);
-                return _connect(std::move(remote));
+                auto outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
+                _assign_context_globals(*outbound_ctx);
+                return _connect(std::move(remote), std::move(outbound_ctx));
             });
         }
 
@@ -185,7 +185,6 @@ namespace oxen::quic
 
         std::vector<unsigned char> _static_secret;
 
-        std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
 
         std::vector<std::string> outbound_alpns;
@@ -199,7 +198,7 @@ namespace oxen::quic
         // Does the non-templated bit of `listen()`
         void _listen();
 
-        std::shared_ptr<Connection> _connect(RemoteAddress remote);
+        std::shared_ptr<Connection> _connect(RemoteAddress remote, std::shared_ptr<IOContext> ctx);
 
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
@@ -293,7 +292,7 @@ namespace oxen::quic
 
         void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec = io_error{0});
 
-        void _set_context_globals(std::shared_ptr<IOContext>& ctx);
+        void _assign_context_globals(IOContext& ctx) const;
 
         void _close_conns(std::optional<Direction> d);
 

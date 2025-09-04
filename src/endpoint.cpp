@@ -160,18 +160,19 @@ namespace oxen::quic
 
     void Endpoint::_listen()
     {
-        _set_context_globals(inbound_ctx);
+        _assign_context_globals(*inbound_ctx);
         _accepting_inbound = true;
 
         log::debug(log_cat, "Inbound context ready for incoming connections");
     }
 
-    std::shared_ptr<Connection> Endpoint::_connect(RemoteAddress remote)
+    std::shared_ptr<Connection> Endpoint::_connect(RemoteAddress remote, std::shared_ptr<IOContext> ctx)
     {
         Path path = Path{_local, std::move(remote)};
 
         auto rid = next_reference_id();
 
+        auto& alpns = ctx->config.out_alpns ? ctx->config.out_alpns->alpns : outbound_alpns;
         for (;;)
         {
             // emplace random CID into lookup keyed to unique reference ID
@@ -187,9 +188,9 @@ namespace oxen::quic
                             it_a->first,
                             quic_cid::random(),
                             std::move(path),
-                            outbound_ctx,
-                            outbound_alpns,
-                            handshake_timeout,
+                            ctx,
+                            alpns,
+                            ctx->config.handshake_timeout.value_or(handshake_timeout),
                             remote.get_remote_key(),
                             nullptr,
                             std::nullopt,
@@ -207,11 +208,11 @@ namespace oxen::quic
         }
     }
 
-    void Endpoint::_set_context_globals(std::shared_ptr<IOContext>& ctx)
+    void Endpoint::_assign_context_globals(IOContext& ctx) const
     {
-        ctx->config.datagram_support = _datagrams;
-        ctx->config.split_packet = _packet_splitting;
-        ctx->config.policy = _policy;
+        ctx.config.datagram_support = _datagrams;
+        ctx.config.split_packet = _packet_splitting;
+        ctx.config.policy = _policy;
     }
 
     std::list<std::shared_ptr<Connection>> Endpoint::get_all_conns(std::optional<Direction> d)
