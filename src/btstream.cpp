@@ -54,12 +54,12 @@ namespace oxen::quic
 
     void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
     {
-        log::debug(log_cat, "Bparser set user-provided close callback!");
+        log::debug(log_cat, "BTRequestStream set user-provided close callback");
         close_callback = std::move(close_cb);
     }
     void BTRequestStream::handle_bp_opt(std::function<void(message m)> request_handler)
     {
-        log::debug(log_cat, "Bparser set generic request handler");
+        log::debug(log_cat, "BTRequestStream set generic request handler");
         generic_handler = std::move(request_handler);
     }
     void BTRequestStream::respond(int64_t rid, std::span<const std::byte> body, bool error)
@@ -100,7 +100,7 @@ namespace oxen::quic
 
     void BTRequestStream::receive(std::span<const std::byte> data)
     {
-        log::trace(log_cat, "bparser recv data callback called!");
+        log::trace(log_cat, "btreqstream recv data callback called!");
 
         if (is_closing())
             return;
@@ -112,13 +112,13 @@ namespace oxen::quic
         catch (const std::exception& e)
         {
             log::error(log_cat, "Exception caught: {}", e.what());
-            close(BPARSER_ERROR_EXCEPTION);
+            close(BTREQ_ERROR_EXCEPTION);
         }
     }
 
     void BTRequestStream::closed(uint64_t app_code)
     {
-        log::debug(log_cat, "bparser closed with {}", quic_strerror(app_code));
+        log::debug(log_cat, "btreqstream closed with {}", quic_strerror(app_code));
 
         // First time out any pending requests, even if they haven't hit the timer, because we're
         // being closed and so they can never be answered.
@@ -135,7 +135,7 @@ namespace oxen::quic
 
     void BTRequestStream::register_generic_handler(std::function<void(message)> request_handler)
     {
-        log::debug(log_cat, "Bparser set generic request handler");
+        log::debug(log_cat, "BTRequestStream set generic request handler");
         loop.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
     }
 
@@ -375,7 +375,7 @@ namespace oxen::quic
 
         if (bad)
         {
-            close(BPARSER_ERROR_EXCEPTION);
+            close(BTREQ_ERROR_EXCEPTION);
             throw std::invalid_argument{bad};
         }
 
