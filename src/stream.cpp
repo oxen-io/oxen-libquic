@@ -269,7 +269,7 @@ namespace oxen::quic
         _unacked_size -= bytes;
 
         // Drop all fully-acked buffers that are no longer needed
-        while (bytes >= user_buffers.front().first.size() && bytes)
+        while (bytes && bytes >= user_buffers.front().first.size())
         {
             bytes -= user_buffers.front().first.size();
             user_buffers.pop_front();
