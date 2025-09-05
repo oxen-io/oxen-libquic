@@ -140,8 +140,7 @@ namespace oxen::quic
         /// such as from an increase in available stream ids resulting from the closure of an
         /// existing stream.  Note that this constructor bypasses the stream constructor callback
         /// for the applicable stream id.
-        template <std::derived_from<Stream> StreamT, typename... Args, typename EndpointDeferred = Endpoint>
-            requires std::derived_from<StreamT, Stream>
+        template <std::derived_from<Stream> StreamT = Stream, typename... Args, typename EndpointDeferred = Endpoint>
         std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
             return std::static_pointer_cast<StreamT>(open_stream_impl([&](Connection& c, EndpointDeferred& e) {

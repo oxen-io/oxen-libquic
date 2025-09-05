@@ -1090,4 +1090,50 @@ namespace oxen::quic::test
         CHECK(conn->num_streams_pending() == 0);
     }
 
+    TEST_CASE("004 - Send empty initial stream data", "[004][streams][empty]")
+    {
+        // When creating a new stream the stream is not opened on the remote until stream data
+        // arrives.  QUIC explicitly allows a 0-length stream frame to be used to serve as a stream
+        // open notification when no data is available.
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        quic::Loop loop;
+
+        std::promise<std::shared_ptr<Connection>> server_conn;
+        auto s_conn_fut = server_conn.get_future();
+        std::shared_ptr<Stream> sserver, sclient;
+
+        std::promise<int64_t> got_sstream, got_cstream;
+        auto fut_sstream = got_sstream.get_future(), fut_cstream = got_cstream.get_future();
+        auto server_endpoint = Endpoint::endpoint(
+                loop, Address{}, [&server_conn](Connection& c) { server_conn.set_value(c.shared_from_this()); });
+
+        server_endpoint->listen(server_tls, [&got_sstream](Stream& s) -> uint64_t {
+            got_sstream.set_value(s.stream_id());
+            return 0;
+        });
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
+
+        auto client_endpoint = Endpoint::endpoint(loop, Address{});
+        auto conn = client_endpoint->connect(client_remote, client_tls, [&got_cstream](Stream& s) -> uint64_t {
+            got_cstream.set_value(s.stream_id());
+            return 0;
+        });
+        auto c_str = conn->open_stream(opt::stream_notify);
+
+        require_future(s_conn_fut);
+        require_future(fut_sstream);
+
+        auto sstream_id = fut_sstream.get();
+        CHECK(sstream_id == 0);
+
+        auto s_str = s_conn_fut.get()->open_stream<BTRequestStream>(opt::stream_notify);
+
+        require_future(fut_cstream);
+        auto cstream_id = fut_cstream.get();
+        CHECK(cstream_id == 1);
+    }
+
 }  // namespace oxen::quic::test

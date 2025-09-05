@@ -52,12 +52,7 @@ namespace oxen::quic
             log::debug(log_cat, "Dropping response: stream has gone away");
     }
 
-    void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
-    {
-        log::debug(log_cat, "BTRequestStream set user-provided close callback");
-        close_callback = std::move(close_cb);
-    }
-    void BTRequestStream::handle_bp_opt(std::function<void(message m)> request_handler)
+    void BTRequestStream::handle_opt(std::function<void(message m)> request_handler)
     {
         log::debug(log_cat, "BTRequestStream set generic request handler");
         generic_handler = std::move(request_handler);

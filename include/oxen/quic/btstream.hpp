@@ -205,9 +205,9 @@ namespace oxen::quic
 
       protected:
         template <typename... Opt>
-        explicit BTRequestStream(Connection& _c, Endpoint& _e, Opt&&... opts) : Stream{_c, _e}
+        BTRequestStream(Connection& c, Endpoint& e, Opt&&... opts) : Stream{c, e, base_ctor{}}
         {
-            ((void)handle_bp_opt(std::forward<Opt>(opts)), ...);
+            (handle_opt(std::forward<Opt>(opts)), ...);
         }
 
       public:
@@ -283,12 +283,11 @@ namespace oxen::quic
         void closed(uint64_t app_code) override;
 
       private:
-        // Optional constructor argument: stream close callback
-        void handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb);
-
         // Optional constructor argument: generic request handler.  Providing it in the constructor
         // is equivalent to calling register_command_fallback() with the lambda.
-        void handle_bp_opt(std::function<void(message m)> request_handler);
+        void handle_opt(std::function<void(message m)> request_handler);
+
+        using Stream::handle_opt;
 
         void handle_input(message msg);
 

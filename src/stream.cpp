@@ -19,16 +19,26 @@
 
 namespace oxen::quic
 {
-    Stream::Stream(Connection& conn, Endpoint& _ep, stream_data_callback data_cb, stream_close_callback close_cb) :
-            IOChannel{conn, _ep},
-            reference_id{conn.reference_id()},
-            data_callback{data_cb},
-            close_callback{std::move(close_cb)}
+    void Stream::handle_opt(stream_data_callback data_cb)
+    {
+        data_callback = std::move(data_cb);
+    }
+    void Stream::handle_opt(stream_close_callback close_cb)
+    {
+        close_callback = std::move(close_cb);
+    }
+    void Stream::handle_opt(opt::stream_notify_t)
+    {
+        _notify = true;
+    }
+    Stream::Stream(Connection& conn, Endpoint& ep, base_ctor) : IOChannel{conn, ep}, reference_id{conn.reference_id()}
     {
         log::trace(log_cat, "Creating Stream object...");
-
+    }
+    void Stream::set_default_callbacks()
+    {
         if (!data_callback)
-            data_callback = conn.get_default_data_callback();
+            data_callback = _conn->get_default_data_callback();
 
         if (!close_callback)
             close_callback = [](Stream&, uint64_t error_code) {
@@ -207,9 +217,7 @@ namespace oxen::quic
 
     void Stream::check_watermark()
     {
-        log::trace(log_cat, "{} called, watermarking {}abled", __PRETTY_FUNCTION__, _watermarking ? "en" : "dis");
-        if (!_watermarking)
-            return;
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         const auto& [alarm_thresh, clear_thresh] = *_watermarking;
         const size_t threshold = _unacked_size + (_watermark_alarm ? clear_thresh + 1 : alarm_thresh);
@@ -243,7 +251,8 @@ namespace oxen::quic
         assert(_conn);
 
         user_buffers.emplace_back(buffer, std::move(keep_alive));
-        check_watermark();
+        if (_watermarking)
+            check_watermark();
 
         if (_ready)
             _conn->packet_io_ready();
@@ -284,7 +293,10 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::trace(log_cat, "Increasing _unacked_size by {}B", bytes);
         _unacked_size += bytes;
-        check_watermark();
+        if (_notify)
+            _notify = false;
+        if (_watermarking)
+            check_watermark();
     }
 
     static auto get_buffer_it(std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>& bufs, size_t offset)
@@ -318,7 +330,15 @@ namespace oxen::quic
         log::trace(log_cat, "unsent: {}", unsent());
 
         if (user_buffers.empty() || unsent() == 0)
+        {
+            if (_notify)
+            {
+                // If this is still set it means the stream is configured to notify the other end,
+                // and we haven't done so yet, so return an empty buffer.
+                nbufs.emplace_back(nullptr, 0);
+            }
             return nbufs;
+        }
 
         auto [it, offset] = get_buffer_it(user_buffers, _unacked_size);
         nbufs.reserve(std::distance(it, user_buffers.end()));

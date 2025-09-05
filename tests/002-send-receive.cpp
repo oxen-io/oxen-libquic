@@ -622,7 +622,7 @@ namespace oxen::quic::test
 
                 std::atomic<uint64_t> close_err = -1;
                 auto stream_close_cb = callback_waiter{[&](Stream&, uint64_t error_code) { close_err = error_code; }};
-                auto str = conn_interface->open_stream<Stream>(nullptr, stream_close_cb);
+                auto str = conn_interface->open_stream<Stream>(stream_close_cb);
 
                 str->send(std::move(payload));
 
