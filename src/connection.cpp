@@ -779,31 +779,26 @@ namespace oxen::quic
         return io_result::ngtcp2(rv);
     }
 
-    // note: this does not need to return anything, it is never called except in on_stream_available
-    // First, we check the list of pending streams on deck to see if they're ready for broadcast. If
-    // so, we move them to the streams map, where they will get picked up by flush_packets and dump
-    // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
-    // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
+    // Called when new streams can be opened to check if we have any previously queued pending
+    // streams waiting to open.
     void Connection::check_pending_streams(uint64_t available)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        uint64_t popped = 0;
 
-        while (!pending_streams.empty() && popped < available)
+        while (available && !pending_streams.empty())
         {
             auto& str = pending_streams.front();
 
-            if (int rv = ngtcp2_conn_open_bidi_stream(*this, &str->_stream_id, str.get()); rv == 0)
-            {
-                auto _id = str->_stream_id;
-                log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", _id);
-                str->set_ready();
-                popped += 1;
-                _streams[_id] = std::move(str);
-                pending_streams.pop_front();
-            }
-            else
+            int rv = ngtcp2_conn_open_bidi_stream(*this, &str->_stream_id, str.get());
+            if (rv != 0)
                 return;
+
+            auto id = str->_stream_id;
+            log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", id);
+            str->set_ready();
+            available--;
+            _streams[id] = std::move(str);
+            pending_streams.pop_front();
         }
     }
 
@@ -893,14 +888,11 @@ namespace oxen::quic
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
             }
-            else
-            {
-                log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
-                stream->set_ready();
-                auto& strm = _streams[stream->_stream_id];
-                strm = std::move(stream);
-                return strm;
-            }
+
+            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
+            stream->set_ready();
+            _streams[stream->_stream_id] = stream;
+            return stream;
         });
     }
 
@@ -1050,7 +1042,8 @@ namespace oxen::quic
             // Start from a random stream so that we aren't favouring early streams by potentially
             // giving them more opportunities to send packets.
             auto mid = std::next(
-                    _streams.begin(), std::uniform_int_distribution<size_t>{0, _streams.size() - 1}(stream_start_rng));
+                    _streams.begin(),
+                    std::uniform_int_distribution<int>{0, static_cast<int>(_streams.size()) - 1}(stream_start_rng));
 
             for (auto it = mid; it != _streams.end(); ++it)
             {
@@ -1249,7 +1242,7 @@ namespace oxen::quic
 
             partially_filled = false;
 
-            if (stream_id > -1 && ndatalen > 0)
+            if (stream_id > -1 && ndatalen >= 0)
             {
                 log::trace(log_cat, "consumed {} bytes from stream {}", ndatalen, stream_id);
                 source->wrote(ndatalen);
@@ -1348,7 +1341,7 @@ namespace oxen::quic
 
         if (auto itr = _stream_queue.find(id); itr != _stream_queue.end())
         {
-            log::debug(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
+            log::debug(log_cat, "Using queued stream object with stream ID {}", id);
 
             auto& s = itr->second;
             s->set_ready();
@@ -1864,8 +1857,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_client_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,
@@ -1909,8 +1902,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_server_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,

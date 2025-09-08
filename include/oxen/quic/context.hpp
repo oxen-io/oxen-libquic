@@ -34,6 +34,8 @@ namespace oxen::quic
         // splitting policy
         Splitting policy{Splitting::NONE};
 
+        std::optional<opt::outbound_alpns> out_alpns;
+
         user_config() = default;
     };
 
@@ -69,6 +71,8 @@ namespace oxen::quic
         void handle_ioctx_opt(opt::keep_alive ka);
         void handle_ioctx_opt(opt::idle_timeout ito);
         void handle_ioctx_opt(opt::handshake_timeout hto);
+        // Overrides the endpoint outbound alpns if given to connect(...):
+        void handle_ioctx_opt(opt::outbound_alpns alpns);
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);

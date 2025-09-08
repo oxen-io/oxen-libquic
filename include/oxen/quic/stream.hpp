@@ -41,6 +41,18 @@ namespace oxen::quic
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
 
+    namespace opt
+    {
+        // Passing `opt::stream_notify` to the stream constructor makes the stream send an empty
+        // stream frame if there is no initial data, to notify the other end that the stream has
+        // opened.  Without this the remote only learns about the stream when the first data arrives
+        // through that stream.  If you intend the stream to be fully bidirection before the
+        // initiator sends anything, you want this option.
+        struct stream_notify_t
+        {};
+        constexpr stream_notify_t stream_notify{};
+    }  // namespace opt
+
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class TestHelper;
@@ -49,10 +61,25 @@ namespace oxen::quic
         friend class Loop;
 
       protected:
-        Stream(Connection& conn,
-               Endpoint& ep,
-               stream_data_callback data_cb = nullptr,
-               stream_close_callback close_cb = nullptr);
+        template <typename... Opts>
+        Stream(Connection& conn, Endpoint& ep, Opts&&... opts) : Stream{conn, ep, base_ctor{}}
+        {
+            (handle_opt(std::forward<Opts>(opts)), ...);
+            set_default_callbacks();
+        }
+
+        struct base_ctor
+        {};
+        // Internal base delegating constructor, used internally and usable by subclasses: this does
+        // *not* assign default data and close callbacks, and should be accompanied by a call to
+        // `set_default_callbacks()` if they are wanted.
+        Stream(Connection& conn, Endpoint& ep, base_ctor);
+
+        void handle_opt(stream_data_callback data_cb);
+        void handle_opt(stream_close_callback close_cb);
+        void handle_opt(opt::stream_notify_t);
+
+        void set_default_callbacks();
 
       public:
         ~Stream() override;
@@ -213,6 +240,7 @@ namespace oxen::quic
         bool _sent_fin{false};
         bool _ready{false};
         bool _paused{false};
+        bool _notify{false};
         int64_t _stream_id;
 
         size_t _paused_offset{0};

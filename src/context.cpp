@@ -2,6 +2,8 @@
 
 #include "internal.hpp"
 
+#include <fmt/ranges.h>
+
 #include <stdexcept>
 
 namespace oxen::quic
@@ -41,6 +43,12 @@ namespace oxen::quic
     {
         config.handshake_timeout = hto.timeout;
         log::trace(log_cat, "User passed connection handshake_timeout config value: {}", config.handshake_timeout->count());
+    }
+
+    void IOContext::handle_ioctx_opt(opt::outbound_alpns alpns)
+    {
+        config.out_alpns.emplace(std::move(alpns));
+        log::trace(log_cat, "User passed connection outbound ALPN override: {}", fmt::join(config.out_alpns->alpns, ","));
     }
 
     void IOContext::handle_ioctx_opt(stream_data_callback func)
