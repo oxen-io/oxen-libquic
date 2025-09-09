@@ -1709,7 +1709,7 @@ namespace oxen::quic
         settings.log_printf = log_printer;
 #endif
         settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;
-        settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
+        settings.cc_algo = NGTCP2_CC_ALGO_BBR;
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
