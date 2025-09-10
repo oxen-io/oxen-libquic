@@ -140,11 +140,22 @@ namespace oxen::quic::test
             CHECK((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 123, 123, 123)));
             CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(11, 0, 0, 0)));
             CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(9, 255, 255, 255)));
+            CHECK((ipv4(10, 0, 0, 0) % 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 0, 0, 0) % 8).contains(ipv4(10, 255, 255, 255)));
+            CHECK((ipv4(10, 123, 45, 67) % 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK((ipv4(10, 255, 255, 255) % 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 255, 255, 255) % 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) % 8).contains(ipv4(11, 0, 0, 0)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) % 8).contains(ipv4(9, 255, 255, 255)));
 
             CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
 
             auto v4_str = "10.0.0.1"s;
 
