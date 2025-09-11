@@ -88,7 +88,7 @@ namespace oxen::quic
         loop.call([this, data, keep_alive = std::move(keep_alive)]() mutable {
             if (!_conn)
             {
-                log::warning(log_cat, "Unable to send datagram: connection has gone away");
+                log::debug(log_cat, "Unable to send datagram: connection has gone away");
                 return;
             }
 
