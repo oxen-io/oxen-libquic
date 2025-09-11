@@ -457,9 +457,12 @@ namespace oxen::quic
 
         if (written <= 0)
         {
-            log::warning(
+            // This error comes up rather frequently under normal operations, as ngtcp2 can decide
+            // that we aren't allowed to send anything right now, so keep it at merely debug log
+            // level.
+            log::debug(
                     log_cat,
-                    "Error: Failed to write connection close packet: {}",
+                    "Failed to write connection close packet: {}",
                     written < 0 ? ngtcp2_strerror(static_cast<int>(written)) : "[Error Unknown: closing pkt is 0 bytes?]"s);
 
             delete_connection(conn);
@@ -1062,7 +1065,7 @@ namespace oxen::quic
 
         if (not _manual_routing and !socket)
         {
-            log::warning(log_cat, "Cannot sent to dead socket for path {}", p);
+            log::warning(log_cat, "Cannot send to dead socket for path {}", p);
             if (callback)
                 callback(io_result{EBADF});
             return;

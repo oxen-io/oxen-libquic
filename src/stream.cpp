@@ -63,7 +63,7 @@ namespace oxen::quic
         loop.call_get([&] {
             if (_is_closing || _is_shutdown || _sent_fin)
             {
-                log::warning(log_cat, "Failed to set watermarks; stream is not active!");
+                log::debug(log_cat, "Failed to set watermarks; stream is not active!");
                 return;
             }
 
@@ -189,7 +189,7 @@ namespace oxen::quic
 
             if (!_conn)
             {
-                log::warning(log_cat, "Stream close ignored: the stream's connection is gone");
+                log::debug(log_cat, "Stream close ignored: the stream's connection is gone");
                 return;
             }
 
