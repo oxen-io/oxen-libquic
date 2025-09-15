@@ -267,7 +267,7 @@ namespace oxen::quic
             accepted = creds.anti_replay_add(
                     std::span<const unsigned char>{key->data, key->size},
                     std::span<const unsigned char>{data->data, data->size},
-                    std::chrono::system_clock::from_time_t(exp_time));
+                    std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::from_time_t(exp_time)));
             log::debug(log_cat, "anti-replay storage {} incoming key", accepted ? "accepted" : "REJECTED");
         }
         catch (const std::exception& e)
@@ -458,7 +458,8 @@ namespace oxen::quic
 
         gnutls_datum_t gticket_data{
                 const_cast<unsigned char*>(ticket_data.data()), static_cast<unsigned int>(ticket_data.size())};
-        auto expiry = std::chrono::system_clock::from_time_t(gnutls_db_check_entry_expire_time(&gticket_data));
+        auto expiry = std::chrono::time_point_cast<std::chrono::seconds>(
+                std::chrono::system_clock::from_time_t(gnutls_db_check_entry_expire_time(&gticket_data)));
         if (expiry.time_since_epoch() == 0s)
         {
             log::error(log_cat, "Unable to store session ticket: failed to extract expiry time from TLS session ticket");

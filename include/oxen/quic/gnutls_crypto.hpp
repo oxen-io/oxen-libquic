@@ -358,8 +358,8 @@ namespace oxen::quic
         gnutls_datum_t* datum() { return &_data; }
     };
 
-    using store_callback = std::function<void(
-            RemoteAddress remote, std::vector<unsigned char> data, std::chrono::system_clock::time_point expiry)>;
+    using store_callback =
+            std::function<void(RemoteAddress remote, std::vector<unsigned char> data, std::chrono::sys_seconds expiry)>;
     using extract_callback = std::function<std::optional<std::vector<unsigned char>>(const RemoteAddress& remote)>;
 
     class GNUTLSCreds : public TLSCreds
@@ -373,9 +373,7 @@ namespace oxen::quic
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string_view sk);
 
         using anti_replay_add_cb = std::function<bool(
-                std::span<const unsigned char> key,
-                std::span<const unsigned char> value,
-                std::chrono::system_clock::time_point expiry)>;
+                std::span<const unsigned char> key, std::span<const unsigned char> value, std::chrono::sys_seconds expiry)>;
 
         ~GNUTLSCreds();
 
