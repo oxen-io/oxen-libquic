@@ -33,76 +33,47 @@ namespace oxen::quic
         });
     }
 
-    /** Static casting to `decltype(timeval::tv_{sec,usec})` makes sure that;
-        - on linux
-            .tv_sec is type __time_t
-            .tv_usec is type __suseconds_t
-        - on OSX    (https://developer.apple.com/documentation/kernel/timeval)
-            .tv_sec is type __darwin_time_t
-                - this is an annoying typedef of `time_t`
-            .tv_usec is type __darwin_suseconds_t
-                - this is an equally annoying typedef for `suseconds_t`
-        Alas, yet again another mac idiosyncrasy...
-     */
     static timeval loop_time_to_timeval(std::chrono::microseconds t)
     {
-        return timeval{
-                .tv_sec = static_cast<decltype(timeval::tv_sec)>(t / 1s),
-                .tv_usec = static_cast<decltype(timeval::tv_usec)>((t % 1s) / 1us)};
+#ifdef _WIN32
+        using suseconds_t = long;
+#endif
+        return timeval{.tv_sec = static_cast<time_t>(t / 1s), .tv_usec = static_cast<suseconds_t>((t % 1s) / 1us)};
     }
 
     bool Ticker::start()
     {
-        if (_is_running)
-            return false;
-
         if (event_add(ev.get(), &interval) != 0)
         {
             log::warning(log_cat, "EventHandler failed to start repeating event!");
             return false;
         }
 
-        _is_running = true;
-
         return true;
     }
 
     bool Ticker::stop()
     {
-        if (not _is_running)
-            return false;
-
         if (event_del(ev.get()) != 0)
         {
             log::warning(log_cat, "EventHandler failed to pause repeating event!");
             return false;
         }
 
-        _is_running = false;
-
         return true;
     }
 
     void Ticker::init_event(
-            ::event_base* loop,
-            std::chrono::microseconds _t,
-            std::function<void()> task,
-            bool one_off,
-            bool start_immediately,
-            bool task_rescheduling)
+            ::event_base* loop, std::chrono::microseconds t, std::function<void()> task, bool start_immediately)
     {
-        f = (one_off or not task_rescheduling) ? std::move(task) : [this, func = std::move(task)] {
-            func();
-            event_del(ev.get());
-            event_add(ev.get(), &interval);
-        };
+        f = std::move(task);
 
-        interval = loop_time_to_timeval(_t);
+        interval = loop_time_to_timeval(t);
 
         ev.reset(event_new(
                 loop,
                 -1,
-                task_rescheduling ? 0 : EV_PERSIST,
+                EV_PERSIST,
                 [](evutil_socket_t, short, void* s) {
                     try
                     {
@@ -122,9 +93,8 @@ namespace oxen::quic
                 },
                 this));
 
-        if (one_off or start_immediately)
-            if (not start())
-                log::warning(log_cat, "Failed to immediately start one-off event!");
+        if (start_immediately and not start())
+            log::warning(log_cat, "Failed to immediately start one-off event!");
     }
 
     Ticker::~Ticker()
@@ -202,6 +172,14 @@ namespace oxen::quic
         log::info(log_cat, "libevent loop is started");
     }
 
+    struct Loop::OneShotDelayed
+    {
+        Loop& loop;
+        std::function<void()> f;
+
+        OneShotDelayed(Loop& loop, std::function<void()> f) : loop{loop}, f{std::move(f)} {}
+    };
+
     Loop::~Loop()
     {
         log::debug(log_cat, "Shutting down loop...");
@@ -214,6 +192,10 @@ namespace oxen::quic
                 tick->stop();
             }
         }
+
+        for (auto* ods : delayed_events)
+            delete ods;
+        delayed_events.clear();
 
         event_base_loopbreak(ev_loop.get());
         loop_thread.join();
@@ -233,8 +215,32 @@ namespace oxen::quic
         return t;
     }
 
+    std::shared_ptr<Wakeable> Loop::make_wakeable(std::function<void()> callback)
+    {
+        auto w = make_shared<Wakeable>();
+        w->f = std::move(callback);
+        w->ev.reset(event_new(
+                ev_loop.get(),
+                -1,
+                0,
+                [](evutil_socket_t, short, void* w) {
+                    auto* wakeable = static_cast<Wakeable*>(w);
+                    if (wakeable->f)
+                        wakeable->f();
+                },
+                w.get()));
+        return w;
+    }
+
+    void Wakeable::wake()
+    {
+        event_active(ev.get(), 0, 0);
+    }
+
     void Loop::setup_job_waker()
     {
+        // Almost identical to the generic make_wakeable, except that we avoid the std::function and
+        // its implicit virtual function call.
         job_waker.reset(event_new(
                 ev_loop.get(),
                 -1,
@@ -245,6 +251,29 @@ namespace oxen::quic
                 },
                 this));
         assert(job_waker);
+    }
+
+    void Loop::add_oneshot_event(std::chrono::microseconds delay, std::function<void()> hook)
+    {
+        auto* handler = new OneShotDelayed{*this, std::move(hook)};
+        delayed_events.push_back(handler);
+        auto& h = *handler;
+        const auto delay_tv = loop_time_to_timeval(delay);
+        event_base_once(
+                get_event_base(),
+                -1,
+                EV_TIMEOUT,
+                [](evutil_socket_t, short, void* e) mutable {
+                    auto* h = static_cast<OneShotDelayed*>(e);
+                    if (h->f)
+                        h->f();
+                    auto& de = h->loop.delayed_events;
+                    if (auto it = std::find(de.begin(), de.end(), h); it != de.end())
+                        de.erase(it);
+                    delete h;
+                },
+                &h,
+                &delay_tv);
     }
 
     void Loop::process_job_queue()
