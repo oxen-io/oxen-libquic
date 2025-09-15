@@ -311,11 +311,17 @@ namespace oxen::quic
     void GNUTLSCreds::enable_inbound_0rtt(
             std::chrono::milliseconds anti_replay_window,
             std::chrono::seconds ticket_validity,
+            size_t max_early,
             anti_replay_add_cb anti_replay_add_,
             std::span<const unsigned char> master_key)
     {
         if (inbound_0rtt())
             throw std::logic_error{"Inbound 0-RTT is already enabled for this GNUTLSCreds instance"};
+
+        if (max_early == 0)
+            max_early_data = 32_ki;
+        else
+            max_early_data = max_early;
 
         session_ticket_key.sensitive = true;
         session_ticket_key.reset();
@@ -699,7 +705,7 @@ namespace oxen::quic
                     gnutls_db_set_cache_expiration(session, creds.session_ticket_expiration);
 
                 gnutls_anti_replay_enable(session, creds.anti_replay);
-                gnutls_record_set_max_early_data_size(session, 1048576);
+                gnutls_record_set_max_early_data_size(session, creds.max_early_data);
                 if (auto rv = gnutls_session_ticket_enable_server(session, creds.session_ticket_key); rv != 0)
                     log::error(
                             log_cat,
