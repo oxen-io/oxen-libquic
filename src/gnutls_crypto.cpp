@@ -441,6 +441,10 @@ namespace oxen::quic
         session_extract = std::move(extract);
         log::debug(log_cat, "0-RTT support enabled for outbound connections");
     }
+    void GNUTLSCreds::enable_outbound_0rtt()
+    {
+        enable_outbound_0rtt(nullptr, nullptr);
+    }
 
     void GNUTLSCreds::store_session_ticket(Connection& conn, RemoteAddress addr, std::span<const unsigned char> ticket_data)
     {

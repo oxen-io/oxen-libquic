@@ -552,7 +552,8 @@ namespace oxen::quic
           available; the `store` function will still be given session tickets even if 0-RTT was not
           used for the connection.
          */
-        void enable_outbound_0rtt(store_callback store = {}, extract_callback extract = {});
+        void enable_outbound_0rtt(store_callback store, extract_callback extract);
+        void enable_outbound_0rtt();
 
         /// Returns true if outbound 0-RTT callbacks have been configured.
         bool outbound_0rtt() const override { return static_cast<bool>(session_extract); }
