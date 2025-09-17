@@ -1625,7 +1625,7 @@ namespace oxen::quic
 
     std::string_view Connection::selected_alpn() const
     {
-        return _loop.call_get([this]() { return get_session()->selected_alpn(); });
+        return _loop.call_get([this]() { return handshaked ? get_session()->selected_alpn() : ""sv; });
     }
 
     uint64_t Connection::get_streams_available_impl() const

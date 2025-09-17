@@ -310,6 +310,8 @@ namespace oxen::quic
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
+        // Returns the connection's negotiated ALPN.  Only available after connection handshake;
+        // before that this will return an empty string.
         std::string_view selected_alpn() const;
 
         size_t get_max_datagram_piece() const;
