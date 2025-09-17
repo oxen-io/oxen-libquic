@@ -133,23 +133,7 @@ namespace oxen::quic
         }
     };
 
-    struct gtls_key final : std::array<unsigned char, GNUTLS_KEY_SIZE>
-    {
-        gtls_key() = default;
-        gtls_key(const unsigned char* data, size_t size) { write(data, size); }
-        explicit gtls_key(std::string_view data) : gtls_key{reinterpret_cast<const unsigned char*>(data.data()), data.size()}
-        {}
-        explicit gtls_key(std::span<const unsigned char> data) : gtls_key{data.data(), data.size()} {}
-
-        //  Writes to the internal buffer holding the gnutls key
-        void write(const unsigned char* buf, size_t size)
-        {
-            if (size != GNUTLS_KEY_SIZE)
-                throw std::invalid_argument{"GNUTLS key must be 32 bytes!"};
-
-            std::memcpy(data(), buf, size);
-        }
-    };
+    using gtls_key = std::array<unsigned char, GNUTLS_KEY_SIZE>;
 
     // key: remote key to verify, alpn: negotiated alpn's
     using key_verify_callback = std::function<bool(std::span<const unsigned char> key, std::string_view alpn)>;
@@ -367,10 +351,17 @@ namespace oxen::quic
         friend class GNUTLSSession;
 
         GNUTLSCreds(std::string_view ed_seed, std::string_view ed_pubkey);
+        GNUTLSCreds();
 
       public:
+        // Construct a credentials object from a Ed25519 seed and pubkey.  (The seed may optionally
+        // be a combined seed+pk libsodium 64-byte value; only the first 32 bytes are used).
         static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string_view seed, std::string_view pubkey);
+        // Construct a credentials object from a Ed25519 combined seed/pubkey value.
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string_view sk);
+        // Constructs a no-credentials object.  This object may *only* be used for client
+        // connections, and will fail if the server is configured to require a client certificate.
+        static std::shared_ptr<GNUTLSCreds> make_unauthenticated();
 
         using anti_replay_add_cb = std::function<bool(
                 std::span<const unsigned char> key,
@@ -555,14 +546,19 @@ namespace oxen::quic
         /// Returns true if outbound 0-RTT callbacks have been configured.
         bool outbound_0rtt() const override { return static_cast<bool>(session_extract); }
 
+        bool has_credentials() const override { return has_creds; }
+
       private:
         gnutls_pcert_st pcrt;
         gnutls_privkey_t pkey;
-        const bool using_raw_pk{false};
+        const bool using_raw_pk{true};  // Currently always true, but might get changed in the future
+        bool has_creds{false};
 
         gnutls_certificate_credentials_t cred;
 
-        key_verify_callback key_verify;
+        key_verify_callback client_key_verify;
+        bool ccert_required = false;
+        bool ccert_requested = false;
 
         gnutls_priority_t priority_cache;
 
@@ -588,7 +584,42 @@ namespace oxen::quic
 
         void load_keys(x509_loader& seed, x509_loader& pk);
 
-        void set_key_verify_callback(key_verify_callback cb) { key_verify = std::move(cb); }
+        /// Called to require an incoming connection to provide a certificate, to be verified by the
+        /// given callback which returns true to allow the connection, false to reject it.  Clients
+        /// without a certificate will be unable to establish a connection.
+        ///
+        /// This callback will *not* be invoked for 0-RTT connections (which are considered to be
+        /// resumptions of an existing connection, rather than a whole new one, and so do not verify
+        /// keys again).
+        ///
+        /// If `cb` is unset, a certificate will still be required, but any valid pubkey will be
+        /// allowed.
+        ///
+        /// This call does nothing when using the Creds object for an outgoing connection.
+        void require_client_keys(key_verify_callback cb);
+
+        /// Called to request a certificate from an incoming connection.  If the client does not
+        /// provide one, the verify callback will be called with an empty `key` argument to allow
+        /// the callback to decide whether to allow the no-pubkey connection (for example, based on
+        /// the negotiated ALPN passed to the verify function).  If a client key is available, it is
+        /// passed (as it would be with require_client_keys()).
+        ///
+        /// An omitted callback will allow all connections, but unlike `disable_client_keys()` it
+        /// still requests the pubkeys and so the pubkeys of clients will still be available when
+        /// provided by the client via `remote_key()`.
+        ///
+        /// As with `require_client_keys`, accepted 0-RTT re-established connections bypass this
+        /// call.
+        ///
+        /// This call only has an effect on incoming connections.
+        void request_client_keys(key_verify_callback cb);
+
+        /// Call to disable requiring or requesting of client certificates.  All incoming
+        /// connections will be accepted regardless of pubkey, client certs will not be requested,
+        /// and `remote_key()` will be empty for all incoming connections.
+        ///
+        /// This is the default is none of request/require/disable_client_keys is called.
+        void disable_client_keys();
     };
 
     class GNUTLSSession : public TLSSession
@@ -603,10 +634,13 @@ namespace oxen::quic
 
         std::string _selected_alpn{};
         std::optional<gtls_key> _expected_remote_key;
-        gtls_key _remote_key{};
+        std::optional<gtls_key> _remote_key;
         std::optional<std::vector<unsigned char>> _0rtt_tp_data;
 
-        void set_selected_alpn();
+        bool _loaded_remote_key = false;
+        bool _loaded_alpn = false;
+        void load_selected_alpn();
+        void load_remote_key();
 
       public:
         GNUTLSSession(
@@ -631,9 +665,9 @@ namespace oxen::quic
             return gnutls_session_get_flags(session) & GNUTLS_SFLAGS_EARLY_DATA;
         }
 
-        std::span<const unsigned char> remote_key() const override { return _remote_key; }
+        std::span<const unsigned char> remote_key() override;
 
-        std::string_view selected_alpn() const override { return _selected_alpn; }
+        std::string_view selected_alpn() override;
 
         bool validate_remote_key();
 
@@ -643,13 +677,3 @@ namespace oxen::quic
     };
 
 }  // namespace oxen::quic
-
-// gtls_key hasher
-template <>
-struct std::hash<oxen::quic::gtls_key>
-{
-    size_t operator()(const oxen::quic::gtls_key& key) const
-    {
-        return std::hash<std::string_view>{}(std::string_view{reinterpret_cast<const char*>(key.data()), key.size()});
-    }
-};

@@ -106,6 +106,10 @@ namespace oxen::quic
         TLSSession* get_session() const { return tls_session.get(); }
         TLSCreds* get_creds() const { return tls_creds.get(); }
 
+        // Returns the remote pubkey, if known (and empty otherwise).  For a client this is known
+        // from construction; for a server, this is known only after handshake completes, but even
+        // then might not be known if a client pubkey is not required for incoming connections (see
+        // GNUTLSCreds).
         std::span<const unsigned char> remote_key() const;
 
         Direction direction() const { return dir; }
@@ -297,6 +301,12 @@ namespace oxen::quic
         bool is_inbound() const { return not is_outbound(); }
         std::string direction_str() { return is_inbound() ? "SERVER"s : "CLIENT"s; }
 
+        // Returns true if handshaking has finished on this connection.
+        bool is_handshaked() const { return handshaked; }
+        // Returns true if handshaking is finished on this connection and confirmed on the server.
+        // (For incoming connections, this will always be the same as is_handshaked()).
+        bool is_handshake_confirmed() const { return handshake_confirmed; }
+
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
@@ -305,9 +315,6 @@ namespace oxen::quic
         size_t get_max_datagram_piece() const;
 
         std::optional<size_t> max_datagram_size_changed();
-
-        // True if the connection has been accepted and the remote pubkey successfully verified.
-        bool is_validated() const { return _is_validated; }
 
         const ConnectionID& reference_id() const { return _ref_id; }
 
@@ -318,12 +325,7 @@ namespace oxen::quic
       private:
         void packet_io_ready();
         void halt_events();
-        void set_closing() { closing = true; }
-        void set_draining() { draining = true; }
         stream_data_callback get_default_data_callback() const;
-
-        // This mutator is called from the gnutls code after cert verification (if it is successful)
-        void set_validated();
 
         connection_established_callback conn_established_cb;
         connection_closed_callback conn_closed_cb;
@@ -339,6 +341,7 @@ namespace oxen::quic
         const std::unordered_set<hashed_reset_token>& associated_reset_tokens() const { return _associated_resets; }
 
         int client_handshake_completed();
+        void client_handshake_confirmed();
 
         int server_handshake_completed();
 
@@ -402,8 +405,6 @@ namespace oxen::quic
         mutable std::atomic<bool> _max_dgram_size_changed{true};
 
         std::atomic<bool> _close_quietly{false};
-        std::atomic<bool> _is_validated{false};
-
         std::vector<unsigned char> remote_pubkey{};
 
         void revert_early_channels();
@@ -439,6 +440,8 @@ namespace oxen::quic
 
         bool draining = false;
         bool closing = false;
+        bool handshaked = false;
+        bool handshake_confirmed = false;
 
         // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
         // then the given `make_stream` gets invoked to create a default stream.

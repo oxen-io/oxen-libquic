@@ -272,7 +272,7 @@ namespace oxen::quic
             return;
 
         conn.halt_events();
-        conn.set_draining();
+        conn.draining = true;
 
         const auto* err = ngtcp2_conn_get_ccerr(conn);
 
@@ -415,7 +415,7 @@ namespace oxen::quic
             return;
 
         // mark connection as closing so that if we re-enter we won't try closing a second time
-        conn.set_closing();
+        conn.closing = true;
         conn.halt_events();
 
         if (ec.ngtcp2_code() == NGTCP2_ERR_IDLE_CLOSE)
@@ -494,7 +494,7 @@ namespace oxen::quic
         const auto& rid = conn.reference_id();
 
         conn.halt_events();
-        conn.set_closing();
+        conn.closing = true;
 
         log::debug(log_cat, "Deleting associated CIDs for connection {}", rid);
 

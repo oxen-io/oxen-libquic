@@ -3,6 +3,7 @@
 #include "context.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "iochannel.hpp"
 #include "result.hpp"
@@ -201,6 +202,8 @@ namespace oxen::quic
             // server should never call this, as it "confirms" on handshake completed
             assert(conn->is_outbound());
             log::trace(log_cat, "HANDSHAKE CONFIRMED on CLIENT connection");
+
+            conn->client_handshake_confirmed();
 
             if (conn->conn_established_cb)
                 conn->conn_established_cb(*conn);
@@ -494,6 +497,8 @@ namespace oxen::quic
 
     int Connection::client_handshake_completed()
     {
+        handshaked = true;
+
         if (tls_creds->outbound_0rtt())
         {
             const bool accepted = tls_session->get_early_data_accepted();
@@ -518,9 +523,18 @@ namespace oxen::quic
 
         return 0;
     }
+    void Connection::client_handshake_confirmed()
+    {
+        handshake_confirmed = true;
+    }
 
     int Connection::server_handshake_completed()
     {
+        handshaked = true;
+        handshake_confirmed = true;
+        auto key = get_session()->remote_key();
+        remote_pubkey.assign(key.begin(), key.end());  // Can be empty if client key not required
+
         if (tls_creds->inbound_0rtt())
         {
             log::debug(log_cat, "Server handshake completed and we support 0-RTT, sending TLS tickets");
@@ -566,17 +580,6 @@ namespace oxen::quic
         log::debug(log_cat, "Server successfully submitted regular token on handshake completion...");
 
         return 0;
-    }
-
-    void Connection::set_validated()
-    {
-        _is_validated = true;
-
-        if (is_inbound())
-        {
-            auto key = get_session()->remote_key();
-            remote_pubkey.assign(key.begin(), key.end());
-        }
     }
 
     void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
@@ -1787,6 +1790,16 @@ namespace oxen::quic
             _packet_splitting{context->config.split_packet},
             tls_creds{context->tls_creds}
     {
+        if (is_outbound())
+        {
+            if (!tls_creds)
+                tls_creds = GNUTLSCreds::make_unauthenticated();
+        }
+        else
+        {
+            assert(tls_creds && tls_creds->has_credentials());
+        }
+
         // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
         //  - If this is an outbound, steal the callback to be used once. Outbound connections
         //    generate a new IOContext for each call to `::connect(...)`
