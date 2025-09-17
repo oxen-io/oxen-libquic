@@ -359,8 +359,9 @@ namespace oxen::quic
         static std::shared_ptr<GNUTLSCreds> make_from_ed_keys(std::string_view seed, std::string_view pubkey);
         // Construct a credentials object from a Ed25519 combined seed/pubkey value.
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string_view sk);
-        // Constructs a no-credentials object.  This object may *only* be used for client
-        // connections, and will fail if the server is configured to require a client certificate.
+        // Constructs a no-credentials object.  This object may *only* be used for outbound
+        // connections, and connections using it will fail if the server is configured to require a
+        // client certificate.
         static std::shared_ptr<GNUTLSCreds> make_unauthenticated();
 
         using anti_replay_add_cb = std::function<bool(
