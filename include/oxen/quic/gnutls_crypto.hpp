@@ -358,8 +358,8 @@ namespace oxen::quic
         gnutls_datum_t* datum() { return &_data; }
     };
 
-    using store_callback = std::function<void(
-            RemoteAddress remote, std::vector<unsigned char> data, std::chrono::system_clock::time_point expiry)>;
+    using store_callback =
+            std::function<void(RemoteAddress remote, std::vector<unsigned char> data, std::chrono::sys_seconds expiry)>;
     using extract_callback = std::function<std::optional<std::vector<unsigned char>>(const RemoteAddress& remote)>;
 
     class GNUTLSCreds : public TLSCreds
@@ -373,9 +373,7 @@ namespace oxen::quic
         static std::shared_ptr<GNUTLSCreds> make_from_ed_seckey(std::string_view sk);
 
         using anti_replay_add_cb = std::function<bool(
-                std::span<const unsigned char> key,
-                std::span<const unsigned char> value,
-                std::chrono::system_clock::time_point expiry)>;
+                std::span<const unsigned char> key, std::span<const unsigned char> value, std::chrono::sys_seconds expiry)>;
 
         ~GNUTLSCreds();
 
@@ -440,6 +438,9 @@ namespace oxen::quic
             negative durations will use gnutls's default (6h).  The maximum validity period allowed
             by GNUTLS is one week (604800 seconds).
 
+          - max_early_data -- the maximum early data size for inbound connections.  If omitted or 0
+            then this uses the default (currently 32kiB).
+
           - anti_replay_add -- this optional callback allows for manual storage and retrieval of
             anti-replay data.  It is passed three values: a key, a value, and the earliest time at
             which the key may be expired.  If given a nullptr or empty func then default internal
@@ -483,6 +484,7 @@ namespace oxen::quic
         void enable_inbound_0rtt(
                 std::chrono::milliseconds anti_replay_window = 0s,
                 std::chrono::seconds ticket_validity = 0s,
+                size_t max_early_data = 0,
                 anti_replay_add_cb anti_replay_add = nullptr,
                 std::span<const unsigned char> master_key = {});
 
@@ -550,7 +552,8 @@ namespace oxen::quic
           available; the `store` function will still be given session tickets even if 0-RTT was not
           used for the connection.
          */
-        void enable_outbound_0rtt(store_callback store = {}, extract_callback extract = {});
+        void enable_outbound_0rtt(store_callback store, extract_callback extract);
+        void enable_outbound_0rtt();
 
         /// Returns true if outbound 0-RTT callbacks have been configured.
         bool outbound_0rtt() const override { return static_cast<bool>(session_extract); }
@@ -570,6 +573,7 @@ namespace oxen::quic
         int session_ticket_expiration = 0;
         gnutls_anti_replay_t anti_replay = nullptr;
         anti_replay_add_cb anti_replay_add;
+        size_t max_early_data = 32_ki;
         store_callback session_store;
         extract_callback session_extract;
 

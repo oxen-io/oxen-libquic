@@ -267,7 +267,7 @@ namespace oxen::quic
             accepted = creds.anti_replay_add(
                     std::span<const unsigned char>{key->data, key->size},
                     std::span<const unsigned char>{data->data, data->size},
-                    std::chrono::system_clock::from_time_t(exp_time));
+                    std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::from_time_t(exp_time)));
             log::debug(log_cat, "anti-replay storage {} incoming key", accepted ? "accepted" : "REJECTED");
         }
         catch (const std::exception& e)
@@ -311,11 +311,17 @@ namespace oxen::quic
     void GNUTLSCreds::enable_inbound_0rtt(
             std::chrono::milliseconds anti_replay_window,
             std::chrono::seconds ticket_validity,
+            size_t max_early,
             anti_replay_add_cb anti_replay_add_,
             std::span<const unsigned char> master_key)
     {
         if (inbound_0rtt())
             throw std::logic_error{"Inbound 0-RTT is already enabled for this GNUTLSCreds instance"};
+
+        if (max_early == 0)
+            max_early_data = 32_ki;
+        else
+            max_early_data = max_early;
 
         session_ticket_key.sensitive = true;
         session_ticket_key.reset();
@@ -435,6 +441,10 @@ namespace oxen::quic
         session_extract = std::move(extract);
         log::debug(log_cat, "0-RTT support enabled for outbound connections");
     }
+    void GNUTLSCreds::enable_outbound_0rtt()
+    {
+        enable_outbound_0rtt(nullptr, nullptr);
+    }
 
     void GNUTLSCreds::store_session_ticket(Connection& conn, RemoteAddress addr, std::span<const unsigned char> ticket_data)
     {
@@ -458,7 +468,8 @@ namespace oxen::quic
 
         gnutls_datum_t gticket_data{
                 const_cast<unsigned char*>(ticket_data.data()), static_cast<unsigned int>(ticket_data.size())};
-        auto expiry = std::chrono::system_clock::from_time_t(gnutls_db_check_entry_expire_time(&gticket_data));
+        auto expiry = std::chrono::time_point_cast<std::chrono::seconds>(
+                std::chrono::system_clock::from_time_t(gnutls_db_check_entry_expire_time(&gticket_data)));
         if (expiry.time_since_epoch() == 0s)
         {
             log::error(log_cat, "Unable to store session ticket: failed to extract expiry time from TLS session ticket");
@@ -698,7 +709,7 @@ namespace oxen::quic
                     gnutls_db_set_cache_expiration(session, creds.session_ticket_expiration);
 
                 gnutls_anti_replay_enable(session, creds.anti_replay);
-                gnutls_record_set_max_early_data_size(session, 1048576);
+                gnutls_record_set_max_early_data_size(session, creds.max_early_data);
                 if (auto rv = gnutls_session_ticket_enable_server(session, creds.session_ticket_key); rv != 0)
                     log::error(
                             log_cat,
