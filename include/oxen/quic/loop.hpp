@@ -52,7 +52,7 @@ namespace oxen::quic
     /// An event loop task that can be fired multiple times, but is triggered manually when needed
     /// to schedule a callback call on the event loop.  Unlike using `call`/`call_soon`, calls to
     /// trigger/wake the event are idempotent: i.e. the event will be called only once regardless of
-    /// how many wakeups there were prior to the call.  Once called, it will not be schedule again
+    /// how many wakeups there were prior to the call.  Once called, it will not be scheduled again
     /// until triggered at least once more.
     ///
     /// Construct via Loop::make_wakeable().

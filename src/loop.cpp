@@ -193,8 +193,8 @@ namespace oxen::quic
             }
         }
 
-        for (auto* ods : delayed_events)
-            delete ods;
+        for (auto* osd : delayed_events)
+            delete osd;
         delayed_events.clear();
 
         event_base_loopbreak(ev_loop.get());
