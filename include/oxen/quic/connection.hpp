@@ -310,8 +310,9 @@ namespace oxen::quic
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
-        // Returns the connection's negotiated ALPN.  Only available after connection handshake;
-        // before that this will return an empty string.
+        // Returns the connection's negotiated ALPN.  Only available after the connection is
+        // established (typically once handshaked, but can be earlier for an incoming 0-RTT
+        // connection).  Before that this will return an empty string.
         std::string_view selected_alpn() const;
 
         size_t get_max_datagram_piece() const;
@@ -444,6 +445,13 @@ namespace oxen::quic
         bool closing = false;
         bool handshaked = false;
         bool handshake_confirmed = false;
+
+        // There are multiple points at which we can call the conn_established_cb: in a normal 1-RTT
+        // connection, it happens after handshake completes, but with 0-RTT it can happen when early
+        // stream or datagram data is received *before* handshake completes.  check_established() is
+        // called from the various locations, and invokes the callback the first time it is called.
+        void check_established();
+        bool establish_hook_called = false;
 
         // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
         // then the given `make_stream` gets invoked to create a default stream.
