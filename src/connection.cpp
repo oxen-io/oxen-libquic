@@ -1354,6 +1354,8 @@ namespace oxen::quic
             assert(ins);
             return 0;
         }
+        else if (id == next_incoming_stream_id)
+            next_incoming_stream_id += 4;
 
         auto stream = construct_stream(nullptr, id);
 
