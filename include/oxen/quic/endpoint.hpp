@@ -54,7 +54,9 @@ namespace oxen::quic
         template <typename... Opt>
         void listen(Opt&&... opts)
         {
-            check_for_tls_creds<Opt...>();
+            static_assert(
+                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                    "listen() requires exactly one std::shared_ptr<TLSCreds> argument");
 
             loop.call_get([&opts..., this]() {
                 if (inbound_ctx)
@@ -70,7 +72,9 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Connection> connect(RemoteAddress remote, Opt&&... opts)
         {
-            check_for_tls_creds<Opt...>();
+            static_assert(
+                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) <= 1,
+                    "connect() requires at most one std::shared_ptr<TLSCreds> argument");
 
             if (not _manual_routing and !remote.is_addressable())
                 throw std::invalid_argument("Address must be addressable to connect");
@@ -370,14 +374,6 @@ namespace oxen::quic
         //     else.
         std::pair<Connection*, bool> accept_initial_connection(const Packet& pkt);
         Connection* check_stateless_reset(const Packet& pkt);
-
-        template <typename... Opt>
-        static constexpr void check_for_tls_creds()
-        {
-            static_assert(
-                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
-                    "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
-        }
     };
 
 }  // namespace oxen::quic

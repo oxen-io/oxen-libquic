@@ -241,4 +241,249 @@ namespace oxen::quic::test
         CHECK(stream_time < expected_rtt * SIMULATED_RTT + RTT_BUFFER);
     }
 
+    TEST_CASE("014 - 0-RTT early data conn established callback", "[014][0rtt][conn-established]")
+    {
+        // This test makes sure that the connection established connection gets called for early
+        // stream data *before* the stream construction happens.
+
+        if (disable_0rtt)
+            SKIP("0-RTT tests not enabled for this test iteration!");
+
+        Loop loop;
+
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        server_tls->enable_inbound_0rtt();
+        client_tls->enable_outbound_0rtt();
+
+        server_tls->require_client_keys(nullptr);
+
+        Address server_local{LOCALHOST, 0};
+        Address client_local{LOCALHOST, 0};
+
+        std::promise<ConnectionID> s_est_prom;
+        std::optional<bool> s_est_first;
+        std::promise<void> s_str_prom;
+        std::string estcb_alpn, estcb_remote_pk;
+
+        auto server_endpoint = Endpoint::endpoint(loop, server_local, opt::inbound_alpns{"foo41", "foo42", "foo43"});
+        server_endpoint->listen(
+                server_tls,
+                [&s_est_prom, &s_est_first, &estcb_alpn, &estcb_remote_pk](Connection& c) {
+                    if (!s_est_first)
+                        s_est_first = true;
+                    estcb_alpn = c.selected_alpn();
+                    estcb_remote_pk = oxenc::to_hex(view(c.remote_key()));
+                    s_est_prom.set_value(c.reference_id());
+                },
+                [&s_est_first, &s_str_prom](Stream&) {
+                    if (!s_est_first)
+                        s_est_first = false;
+                    s_str_prom.set_value();
+                    return 0;
+                }
+
+        );
+
+        auto client_endpoint = Endpoint::endpoint(loop, client_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, server_endpoint->local()};
+        std::promise<void> c_est_prom;
+        auto conn =
+                client_endpoint->connect(client_remote, client_tls, opt::outbound_alpn("foo42"), [&c_est_prom](Connection&) {
+                    c_est_prom.set_value();
+                });
+
+        require_future(c_est_prom.get_future());
+        auto s_connid_fut = s_est_prom.get_future();
+        require_future(s_connid_fut);
+
+        CHECK(conn->selected_alpn() == "foo42");
+        CHECK(oxenc::to_hex(conn->remote_key()) == oxenc::to_hex(defaults::SERVER_PUBKEY));
+
+        auto sconn = server_endpoint->get_conn(s_connid_fut.get());
+        CHECK(sconn->selected_alpn() == "foo42");
+        CHECK(oxenc::to_hex(sconn->remote_key()) == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+        CHECK(estcb_alpn == "foo42");
+        CHECK(estcb_remote_pk == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+
+        // TLS tickets can arrive just after the handshake confirmed packet, so add a tiny
+        // extra wait to allow for them to arrive.
+        std::this_thread::sleep_for(5ms);
+
+        // Now we close and reopen the connection, as it should now have 0-RTT data.
+        conn->close_connection();
+        conn.reset();
+
+        std::this_thread::sleep_for(5ms);
+
+        s_est_prom = {};
+        c_est_prom = {};
+        s_est_first.reset();
+        estcb_alpn = "";
+        estcb_remote_pk = "";
+
+        conn = client_endpoint->connect(client_remote, client_tls, opt::outbound_alpn("foo42"), [&c_est_prom](Connection&) {
+            c_est_prom.set_value();
+        });
+
+        auto str = conn->open_stream();
+        str->send("hello");
+
+        require_future(c_est_prom.get_future());
+        s_connid_fut = s_est_prom.get_future();
+        require_future(s_connid_fut);
+
+        CHECK(conn->selected_alpn() == "foo42");
+        CHECK(oxenc::to_hex(conn->remote_key()) == oxenc::to_hex(defaults::SERVER_PUBKEY));
+
+        sconn = server_endpoint->get_conn(s_connid_fut.get());
+        CHECK(sconn->selected_alpn() == "foo42");
+        CHECK(oxenc::to_hex(sconn->remote_key()) == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+        require_future(s_str_prom.get_future());
+
+        CHECK(s_est_first.has_value());
+        // The server's conn establish should get fired before the stream:
+        CHECK(*s_est_first);
+        CHECK(estcb_alpn == "foo42");
+        CHECK(estcb_remote_pk == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+    }
+
+    TEST_CASE("014 - 0-RTT with key verification", "[014][0rtt][key-verify]")
+    {
+        if (disable_0rtt)
+            SKIP("0-RTT tests not enabled for this test iteration!");
+
+        Loop loop;
+
+        std::atomic<bool> bad_foo = false;
+        std::shared_ptr<GNUTLSCreds> client_tls, server_tls;
+        std::promise<std::vector<unsigned char>> key_prom;
+        bool expect_pubkey = true, expect_key_prom = true;
+        SECTION("With client keys required")
+        {
+            std::tie(client_tls, server_tls) = defaults::tls_creds_from_ed_keys();
+            server_tls->require_client_keys(
+                    [&key_prom, &bad_foo](std::span<const unsigned char> key, std::string_view alpn) {
+                        key_prom.set_value(std::vector<unsigned char>{key.begin(), key.end()});
+                        if (alpn != "foo42")
+                            bad_foo = true;
+                        return true;
+                    });
+        }
+        SECTION("With optional client keys provided")
+        {
+            std::tie(client_tls, server_tls) = defaults::tls_creds_from_ed_keys();
+            server_tls->request_client_keys(
+                    [&key_prom, &bad_foo](std::span<const unsigned char> key, std::string_view alpn) {
+                        key_prom.set_value(std::vector<unsigned char>{key.begin(), key.end()});
+                        if (alpn != "foo42")
+                            bad_foo = true;
+                        return true;
+                    });
+        }
+        SECTION("With optional client keys omitted")
+        {
+            server_tls = GNUTLSCreds::make_from_ed_keys(defaults::SERVER_SEED, defaults::SERVER_PUBKEY);
+            server_tls->request_client_keys(
+                    [&key_prom, &bad_foo](std::span<const unsigned char> key, std::string_view alpn) {
+                        key_prom.set_value(std::vector<unsigned char>{key.begin(), key.end()});
+                        if (alpn != "foo42")
+                            bad_foo = true;
+                        return true;
+                    });
+            client_tls = GNUTLSCreds::make_unauthenticated();
+            expect_pubkey = false;
+        }
+        SECTION("Without client keys requested")
+        {
+            server_tls = GNUTLSCreds::make_from_ed_keys(defaults::SERVER_SEED, defaults::SERVER_PUBKEY);
+            client_tls = GNUTLSCreds::make_unauthenticated();
+            expect_pubkey = false;
+            expect_key_prom = false;
+        }
+
+        server_tls->enable_inbound_0rtt();
+        client_tls->enable_outbound_0rtt();
+
+        Address server_local{LOCALHOST, 0};
+        Address client_local{LOCALHOST, 0};
+
+        std::promise<ConnectionID> s_est_prom;
+        auto server_endpoint = Endpoint::endpoint(loop, server_local, opt::inbound_alpns{"foo41", "foo42", "foo43"});
+
+        server_endpoint->listen(server_tls, [&s_est_prom](Connection& c) { s_est_prom.set_value(c.reference_id()); });
+
+        auto client_endpoint = Endpoint::endpoint(loop, client_local);
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, server_endpoint->local()};
+        std::promise<void> c_est_prom;
+        auto conn =
+                client_endpoint->connect(client_remote, client_tls, opt::outbound_alpn("foo42"), [&c_est_prom](Connection&) {
+                    c_est_prom.set_value();
+                });
+
+        require_future(c_est_prom.get_future());
+        auto s_connid_fut = s_est_prom.get_future();
+        require_future(s_connid_fut);
+        auto key_fut = key_prom.get_future();
+        // The key verify callback should only get called if the client actually has a key to
+        // provide:
+        if (expect_key_prom)
+            require_future(key_fut);
+        else
+            CHECK(key_fut.wait_for(0s) == std::future_status::timeout);
+
+        REQUIRE(conn->selected_alpn() == "foo42");
+        REQUIRE(oxenc::to_hex(conn->remote_key()) == oxenc::to_hex(defaults::SERVER_PUBKEY));
+
+        auto sconn = server_endpoint->get_conn(s_connid_fut.get());
+        REQUIRE(sconn->selected_alpn() == "foo42");
+        if (expect_key_prom)
+        {
+            if (expect_pubkey)
+                REQUIRE(oxenc::to_hex(view(key_fut.get())) == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+            else
+                REQUIRE(oxenc::to_hex(view(key_fut.get())) == "");
+        }
+        if (expect_pubkey)
+            REQUIRE(oxenc::to_hex(sconn->remote_key()) == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+        else
+            REQUIRE(oxenc::to_hex(sconn->remote_key()) == "");
+
+        // TLS tickets can arrive just after the handshake confirmed packet, so add a tiny
+        // extra wait to allow for them to arrive.
+        std::this_thread::sleep_for(5ms);
+
+        // Now we close and reopen the connection, as it should now have 0-RTT data.
+        conn->close_connection();
+        conn.reset();
+
+        std::this_thread::sleep_for(5ms);
+
+        s_est_prom = {};
+        c_est_prom = {};
+        key_prom = {};
+        conn = client_endpoint->connect(client_remote, client_tls, opt::outbound_alpn("foo42"), [&c_est_prom](Connection&) {
+            c_est_prom.set_value();
+        });
+
+        require_future(c_est_prom.get_future());
+
+        s_connid_fut = s_est_prom.get_future();
+        require_future(s_connid_fut);
+        // The key verify callback does *not* get called for 0-RTT:
+        CHECK(key_prom.get_future().wait_for(0s) == std::future_status::timeout);
+
+        REQUIRE(conn->selected_alpn() == "foo42");
+        REQUIRE(oxenc::to_hex(conn->remote_key()) == oxenc::to_hex(defaults::SERVER_PUBKEY));
+
+        sconn = server_endpoint->get_conn(s_connid_fut.get());
+        REQUIRE(sconn->selected_alpn() == "foo42");
+        if (expect_pubkey)
+            REQUIRE(oxenc::to_hex(sconn->remote_key()) == oxenc::to_hex(defaults::CLIENT_PUBKEY));
+        else
+            REQUIRE(oxenc::to_hex(sconn->remote_key()) == "");
+
+        REQUIRE(!bad_foo.load());
+    }
+
 }  //  namespace oxen::quic::test

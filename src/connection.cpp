@@ -3,6 +3,7 @@
 #include "context.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "iochannel.hpp"
 #include "result.hpp"
@@ -155,7 +156,7 @@ namespace oxen::quic
             if (rv == 0)
             {
                 // We store the client initial DCID as that will be used by 0-RTT packets that
-                // arrive before the handshake completes.  However, since we didn't get the safely
+                // arrive before the handshake completes.  However, since we didn't get to safely
                 // choose this, we only set if it not already used (so that a possible collision
                 // between the temporary dcid and some scid we generated properly yields to the
                 // latter).
@@ -183,10 +184,7 @@ namespace oxen::quic
             {
                 rv = conn->server_handshake_completed();
 
-                if (conn->conn_established_cb)
-                    conn->conn_established_cb(*conn);
-                else
-                    conn->endpoint().connection_established(*conn);
+                conn->check_established();
             }
             else
                 rv = conn->client_handshake_completed();
@@ -202,10 +200,9 @@ namespace oxen::quic
             assert(conn->is_outbound());
             log::trace(log_cat, "HANDSHAKE CONFIRMED on CLIENT connection");
 
-            if (conn->conn_established_cb)
-                conn->conn_established_cb(*conn);
-            else
-                conn->endpoint().connection_established(*conn);
+            conn->client_handshake_confirmed();
+
+            conn->check_established();
 
             return 0;
         }
@@ -492,8 +489,23 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::check_established()
+    {
+        if (establish_hook_called)
+            return;
+        establish_hook_called = true;
+        auto key = get_session()->remote_key();
+        remote_pubkey.assign(key.begin(), key.end());  // Can be empty if client key not required
+        if (conn_established_cb)
+            conn_established_cb(*this);
+        else
+            endpoint().connection_established(*this);
+    }
+
     int Connection::client_handshake_completed()
     {
+        handshaked = true;
+
         if (tls_creds->outbound_0rtt())
         {
             const bool accepted = tls_session->get_early_data_accepted();
@@ -518,9 +530,16 @@ namespace oxen::quic
 
         return 0;
     }
+    void Connection::client_handshake_confirmed()
+    {
+        handshake_confirmed = true;
+    }
 
     int Connection::server_handshake_completed()
     {
+        handshaked = true;
+        handshake_confirmed = true;
+
         if (tls_creds->inbound_0rtt())
         {
             log::debug(log_cat, "Server handshake completed and we support 0-RTT, sending TLS tickets");
@@ -566,17 +585,6 @@ namespace oxen::quic
         log::debug(log_cat, "Server successfully submitted regular token on handshake completion...");
 
         return 0;
-    }
-
-    void Connection::set_validated()
-    {
-        _is_validated = true;
-
-        if (is_inbound())
-        {
-            auto key = get_session()->remote_key();
-            remote_pubkey.assign(key.begin(), key.end());
-        }
     }
 
     void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
@@ -1337,6 +1345,12 @@ namespace oxen::quic
 
     int Connection::stream_opened(int64_t id)
     {
+        if (!establish_hook_called)
+        {
+            log::debug(log_cat, "Early stream opened before handshake completed; firing established cb");
+            check_established();
+        }
+
         log::trace(log_cat, "New stream ID:{}", id);
 
         if (auto itr = _stream_queue.find(id); itr != _stream_queue.end())
@@ -1351,6 +1365,8 @@ namespace oxen::quic
             assert(ins);
             return 0;
         }
+        else if (id == next_incoming_stream_id)
+            next_incoming_stream_id += 4;
 
         auto stream = construct_stream(nullptr, id);
 
@@ -1543,6 +1559,12 @@ namespace oxen::quic
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
 
+        if (!establish_hook_called)
+        {
+            log::debug(log_cat, "Early datagram received before handshake completed; firing established cb");
+            check_established();
+        }
+
         assert(dgrams);  // This callback shouldn't have been set up if we don't have datagrams
 
         std::optional<std::vector<std::byte>> maybe_data;
@@ -1622,7 +1644,8 @@ namespace oxen::quic
 
     std::string_view Connection::selected_alpn() const
     {
-        return _loop.call_get([this]() { return get_session()->selected_alpn(); });
+        return _loop.call_get(
+                [this]() { return (handshaked or establish_hook_called) ? get_session()->selected_alpn() : ""sv; });
     }
 
     uint64_t Connection::get_streams_available_impl() const
@@ -1787,6 +1810,16 @@ namespace oxen::quic
             _packet_splitting{context->config.split_packet},
             tls_creds{context->tls_creds}
     {
+        if (is_outbound())
+        {
+            if (!tls_creds)
+                tls_creds = GNUTLSCreds::make_unauthenticated();
+        }
+        else
+        {
+            assert(tls_creds && tls_creds->has_credentials());
+        }
+
         // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
         //  - If this is an outbound, steal the callback to be used once. Outbound connections
         //    generate a new IOContext for each call to `::connect(...)`

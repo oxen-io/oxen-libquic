@@ -863,7 +863,7 @@ namespace oxen::quic::test
             REQUIRE(msg.body() == TEST_BODY);
         }};
 
-        server_tls->set_key_verify_callback([&](std::span<const unsigned char>, std::string_view) {
+        server_tls->require_client_keys([&](std::span<const unsigned char>, std::string_view) {
             // In order to test the queueing ability of streams, we need to attempt to send things
             // from the client side PRIOR to connection completion. Using the TLS verification callback
             // is the improper and hacky way to do this, but will function fine for the purposes of this

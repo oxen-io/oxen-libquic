@@ -10,8 +10,10 @@ namespace oxen::quic
 {
     void IOContext::_init()
     {
-        if (tls_creds == nullptr)
-            throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
+        if (dir == Direction::INBOUND && (!tls_creds || !tls_creds->has_credentials()))
+            throw std::logic_error{"listen() requires full TLS credentials"};
+        // For outbound we allow no creds; connect will create a default, non-credential object if
+        // we give it a outbound null creds.
 
         log::debug(log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
     }

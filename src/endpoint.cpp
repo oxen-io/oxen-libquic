@@ -272,7 +272,7 @@ namespace oxen::quic
             return;
 
         conn.halt_events();
-        conn.set_draining();
+        conn.draining = true;
 
         const auto* err = ngtcp2_conn_get_ccerr(conn);
 
@@ -385,6 +385,14 @@ namespace oxen::quic
         {
             conn.close_all_streams();
 
+            if (conn.is_inbound() && !conn.is_handshake_confirmed()) {
+                // For inbound connections we fire the connection-established callback immediately
+                // after setting handshaked to true, so if we *haven't* done that yet, don't call
+                // the close callback because other the first time the application would learn of
+                // the connection is by a close callback firing on a connection it has never seen
+                // before (other than, perhaps, a key verification callback).
+                return;
+            }
             // prioritize connection level callback over endpoint level
             if (conn.conn_closed_cb)
             {
@@ -415,7 +423,7 @@ namespace oxen::quic
             return;
 
         // mark connection as closing so that if we re-enter we won't try closing a second time
-        conn.set_closing();
+        conn.closing = true;
         conn.halt_events();
 
         if (ec.ngtcp2_code() == NGTCP2_ERR_IDLE_CLOSE)
@@ -494,7 +502,7 @@ namespace oxen::quic
         const auto& rid = conn.reference_id();
 
         conn.halt_events();
-        conn.set_closing();
+        conn.closing = true;
 
         log::debug(log_cat, "Deleting associated CIDs for connection {}", rid);
 

@@ -115,12 +115,7 @@ namespace oxen::quic
         return "<< UNKNOWN >>";
     }
 
-    void conn_set_validated(Connection& c)
-    {
-        c.set_validated();
-    }
-
-    // Return value: 0 is pass, negative is fail
+    // Return value: 0 is pass, non-zero to terminate.
     extern "C" int cert_verify_callback_gnutls(gnutls_session_t session)
     {
         log::debug(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -128,23 +123,17 @@ namespace oxen::quic
 
         GNUTLSSession& tls_session = GNUTLSSession::from(conn);
 
-        auto local_name = (conn.is_outbound()) ? "CLIENT" : "SERVER";
-
-        //  true: Peer provided a valid cert; connection is accepted and marked validated
-        //  false: Peer either provided an invalid cert or no cert; connection is rejected
         bool success = tls_session.validate_remote_key();
-        if (success)
-            conn_set_validated(conn);
-
-        auto err = "Quic {} was {}able to validate peer certificate; {} connection!"_format(
-                local_name, success ? "" : "un", success ? "accepting" : "rejecting");
 
         if (success)
-            log::debug(log_cat, "{}", err);
+            log::debug(log_cat, "{} certificate validated successfully", conn.is_outbound() ? "Server" : "Client");
         else
-            log::error(log_cat, "{}", err);
+            log::error(
+                    log_cat,
+                    "{} certificate validation failed; rejecting connection",
+                    conn.is_outbound() ? "Server" : "Client");
 
-        return !success;
+        return success ? 0 : 1;
     }
 
     void GNUTLSCreds::load_keys(x509_loader& s, x509_loader& pk)
@@ -162,7 +151,33 @@ namespace oxen::quic
             log::warning(log_cat, "Privkey import failed!");
     }
 
-    GNUTLSCreds::GNUTLSCreds(std::string_view ed_seed, std::string_view ed_pubkey) : using_raw_pk{true}
+    static constexpr auto* PRIORITY =
+            "NORMAL:+ECDHE-PSK:+PSK:+ECDHE-ECDSA:+AES-128-CCM-8:+CTYPE-CLI-ALL:+CTYPE-SRV-ALL:+SHA256";
+
+    GNUTLSCreds::GNUTLSCreds()
+    {
+        log::trace(log_cat, "Initializing GNUTLSCreds from Ed25519 keypair");
+        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
+        {
+            log::warning(log_cat, "gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
+            throw std::runtime_error("gnutls credential allocation failed");
+        }
+
+        const char* err{nullptr};
+        if (auto rv = gnutls_priority_init(&priority_cache, PRIORITY, &err); rv < 0)
+        {
+            if (rv == GNUTLS_E_INVALID_REQUEST)
+                log::warning(log_cat, "gnutls_priority_init error: {}", err);
+            else
+                log::warning(log_cat, "gnutls_priority_init error: {}", gnutls_strerror(rv));
+
+            throw std::runtime_error("gnutls key exchange algorithm priority setup failed");
+        }
+
+        gnutls_certificate_set_verify_function(cred, cert_verify_callback_gnutls);
+    }
+
+    GNUTLSCreds::GNUTLSCreds(std::string_view ed_seed, std::string_view ed_pubkey) : GNUTLSCreds{}
     {
         log::trace(log_cat, "Initializing GNUTLSCreds from Ed25519 keypair");
 
@@ -181,40 +196,13 @@ namespace oxen::quic
 
         // LOAD KEYS HERE
         load_keys(seed, pubkey);
-
-        if (auto rv = gnutls_certificate_allocate_credentials(&cred); rv < 0)
-        {
-            log::warning(log_cat, "gnutls_certificate_allocate_credentials failed: {}", gnutls_strerror(rv));
-            throw std::runtime_error("gnutls credential allocation failed");
-        }
-
-        [[maybe_unused]] constexpr auto usage_flags = GNUTLS_KEY_DIGITAL_SIGNATURE | GNUTLS_KEY_NON_REPUDIATION |
-                                                      GNUTLS_KEY_KEY_ENCIPHERMENT | GNUTLS_KEY_DATA_ENCIPHERMENT |
-                                                      GNUTLS_KEY_KEY_AGREEMENT | GNUTLS_KEY_KEY_CERT_SIGN;
+        has_creds = true;
 
         if (auto rv = gnutls_certificate_set_key(cred, NULL, 0, &pcrt, 1, pkey); rv < 0)
         {
             log::warning(log_cat, "gnutls import of raw Ed keys failed: {}", gnutls_strerror(rv));
             throw std::runtime_error("gnutls import of raw Ed keys failed");
         }
-
-        // clang format keeps changing this arbitrarily, so disable for this line
-        // clang-format off
-        constexpr auto* priority = "NORMAL:+ECDHE-PSK:+PSK:+ECDHE-ECDSA:+AES-128-CCM-8:+CTYPE-CLI-ALL:+CTYPE-SRV-ALL:+SHA256";
-        // clang-format on
-
-        const char* err{nullptr};
-        if (auto rv = gnutls_priority_init(&priority_cache, priority, &err); rv < 0)
-        {
-            if (rv == GNUTLS_E_INVALID_REQUEST)
-                log::warning(log_cat, "gnutls_priority_init error: {}", err);
-            else
-                log::warning(log_cat, "gnutls_priority_init error: {}", gnutls_strerror(rv));
-
-            throw std::runtime_error("gnutls key exchange algorithm priority setup failed");
-        }
-
-        gnutls_certificate_set_verify_function(cred, cert_verify_callback_gnutls);
     }
 
     GNUTLSCreds::~GNUTLSCreds()
@@ -228,7 +216,7 @@ namespace oxen::quic
     std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_keys(std::string_view seed, std::string_view pubkey)
     {
         // would use make_shared, but I want GNUTLSCreds' constructor to be private
-        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(seed, pubkey)};
+        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds{seed, pubkey}};
         return p;
     }
 
@@ -240,8 +228,33 @@ namespace oxen::quic
         auto pk = sk.substr(GNUTLS_KEY_SIZE);
         sk = sk.substr(0, GNUTLS_KEY_SIZE);
 
-        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds(sk, pk)};
+        std::shared_ptr<GNUTLSCreds> p{new GNUTLSCreds{sk, pk}};
         return p;
+    }
+
+    std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_unauthenticated()
+    {
+        return std::shared_ptr<GNUTLSCreds>(new GNUTLSCreds{});
+    }
+
+    void GNUTLSCreds::require_client_keys(key_verify_callback cb)
+    {
+        client_key_verify = std::move(cb);
+        ccert_required = true;
+        ccert_requested = false;
+    }
+
+    void GNUTLSCreds::request_client_keys(key_verify_callback cb)
+    {
+        client_key_verify = std::move(cb);
+        ccert_required = false;
+        ccert_requested = true;
+    }
+
+    void GNUTLSCreds::disable_client_keys()
+    {
+        client_key_verify = nullptr;
+        ccert_required = ccert_requested = false;
     }
 
     std::unique_ptr<TLSSession> GNUTLSCreds::make_session(
@@ -252,7 +265,11 @@ namespace oxen::quic
     {
         std::optional<gtls_key> exp_key;
         if (expected_key)
-            exp_key.emplace(*expected_key);
+        {
+            if (expected_key->size() != GNUTLS_KEY_SIZE)
+                throw std::invalid_argument{"Invalid GNUTLS expected pubkey"};
+            std::memcpy(exp_key.emplace().data(), expected_key->data(), expected_key->size());
+        }
         return std::make_unique<GNUTLSSession>(*this, ctx, c, alpns, std::move(exp_key));
     }
 
@@ -724,8 +741,9 @@ namespace oxen::quic
                 throw std::runtime_error("ngtcp2_crypto_gnutls_configure_client_session failed");
             }
 
-            // server always requests cert from client
-            gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUIRE);
+            if (creds.ccert_required || creds.ccert_requested)
+                gnutls_certificate_server_set_request(
+                        session, creds.ccert_required ? GNUTLS_CERT_REQUIRE : GNUTLS_CERT_REQUEST);
         }
         else
         {
@@ -818,47 +836,27 @@ namespace oxen::quic
             log::error(log_cat, "gnutls_session_ticket_send failed: {}", gnutls_strerror(rv));
     }
 
-    void GNUTLSSession::set_selected_alpn()
+    void GNUTLSSession::load_selected_alpn()
     {
         gnutls_datum_t _alpn{};
-
         if (auto rv = gnutls_alpn_get_selected_protocol(session, &_alpn); rv < 0)
         {
-            auto err = "{} called, but ALPN negotiation incomplete."_format(__PRETTY_FUNCTION__);
+            auto err = "ALPN negotiation incomplete";
             log::error(log_cat, "{}", err);
-            throw std::logic_error(err);
+            throw std::logic_error{err};
         }
-
-        _selected_alpn.resize(_alpn.size);
-        std::memmove(_selected_alpn.data(), _alpn.data, _alpn.size);
+        _selected_alpn = {reinterpret_cast<const char*>(_alpn.data), _alpn.size};
+        _loaded_alpn = true;
     }
 
-    //  In our new cert verification scheme, the logic proceeds as follows.
-    //
-    //  - Upon every connection, the local endpoint will request certificates from ALL peers
-    //  - IF: the local endpoint provided a key_verify callback
-    //      - IF: the peer provides a certificate:
-    //          - If the certificate is accepted, then the connection is allowed and the
-    //            connection is marked as "validated"
-    //          - If the certificate is rejected, then the connection is refused
-    //        ELSE:
-    //          - The connection is refused
-    //    ELSE: the remote pubkey is compared against the pubkey in the address upon connection
-    //      - If the pubkey matches, then the connection is allowed and the connection is
-    //        marked as "validated"
-    //      - If the pubkeys don't match, then the connection is refused
-    //
-    //  Return values:
-    //       true: The connection is accepted and marked "validated"
-    //       false: The connection is refused
-    //
-    bool GNUTLSSession::validate_remote_key()
+    void GNUTLSSession::load_remote_key()
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
+        _loaded_remote_key = true;
+
         assert(creds.using_raw_pk);
 
         const auto local_name = _is_client ? "CLIENT"sv : "SERVER"sv;
-        bool success = false;
 
         log::debug(
                 log_cat,
@@ -869,34 +867,33 @@ namespace oxen::quic
 
         auto cert_type = gnutls_certificate_type_get2(session, GNUTLS_CTYPE_PEERS);
 
-        // this function is only for raw pubkey mode, and should not be called otherwise
-        if (cert_type != GNUTLS_CRT_RAWPK)
-        {
-            log::error(
-                    log_cat,
-                    "{} called, but remote cert type is not raw pubkey (type: {}).",
-                    __PRETTY_FUNCTION__,
-                    translate_cert_type(cert_type));
-            return success;
-        }
-
         uint32_t cert_list_size = 0;
         const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
 
         // The peer did not return a certificate
         if (cert_list_size == 0)
         {
-            log::debug(log_cat, "Quic {} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
-            return success;
+            log::debug(log_cat, "Quic {} called {}, but peer's cert list is empty.", local_name, __PRETTY_FUNCTION__);
+            return;
         }
 
-        if (cert_list_size != 1)
+        // this function is only for raw pubkey mode, and should not be called otherwise
+        if (cert_type != GNUTLS_CRT_RAWPK)
         {
+            log::warning(
+                    log_cat,
+                    "{} called, but remote cert type is not raw pubkey (type: {}).",
+                    __PRETTY_FUNCTION__,
+                    translate_cert_type(cert_type));
+            return;
+        }
+
+
+        if (cert_list_size != 1)
             log::debug(
                     log_cat,
                     "Quic {} received peers cert list with more than one entry; choosing first item and proceeding...",
                     local_name);
-        }
 
         const auto* cert_data = cert_list[0].data + CERT_HEADER_SIZE;
         auto cert_size = cert_list[0].size - CERT_HEADER_SIZE;
@@ -909,42 +906,77 @@ namespace oxen::quic
                 buffer_printer{std::span{cert_data, cert_size}});
 
         // pubkey comes as 12 bytes header + 32 bytes key
-        _remote_key.write(cert_data, cert_size);
+        if (cert_size != GNUTLS_KEY_SIZE)
+        {
+            log::warning(log_cat, "Rejecting remote key: invalid key size {} != expected {}", cert_size, GNUTLS_KEY_SIZE);
+            return;
+        }
 
-        set_selected_alpn();
+        std::memcpy(_remote_key.emplace().data(), cert_data, cert_size);
+    }
+
+    std::span<const unsigned char> GNUTLSSession::remote_key()
+    {
+        if (!_loaded_remote_key)
+            load_remote_key();
+        if (_remote_key)
+            return *_remote_key;
+        return {};
+    }
+
+    std::string_view GNUTLSSession::selected_alpn()
+    {
+        if (!_loaded_alpn)
+            load_selected_alpn();
+        return _selected_alpn;
+    }
+
+    // Called to verify a remote key during connection establishing *if* a remote key is provided:
+    // - server must always provide a key
+    // - clients must provide a key if require_client_keys() was called on the server, and may
+    //   provide one if request_client_keys() was called on the server, and otherwise don't provide
+    //   one.
+    //
+    // 0-RTT connections (which are resumption of an earlier connection) do not call this at all.
+    //
+    //  Return values:
+    //       true: The connection is accepted and marked "validated"
+    //       false: The connection is refused
+    //
+    bool GNUTLSSession::validate_remote_key()
+    {
+        load_remote_key();
+        load_selected_alpn();
 
         if (_is_client)
         {
             // Client does validation through a remote pubkey provided when calling endpoint::connect
-            success = _remote_key == _expected_remote_key;
-
-            log::debug(
-                    log_cat,
-                    "Quic {} {}successfully validated remote key! {} connection",
-                    local_name,
-                    success ? "" : "un",
-                    success ? "accepting" : "rejecting");
-
+            bool success = !_expected_remote_key || *_remote_key == _expected_remote_key;
+            if (success)
+                log::debug(log_cat, "Client successfully validated server pubkey; accepting connection");
+            else
+                log::warning(
+                        log_cat,
+                        "Mismatch during server pubkey verification: expected {}, got {}",
+                        oxenc::to_hex(_expected_remote_key->begin(), _expected_remote_key->end()),
+                        oxenc::to_hex(_remote_key->begin(), _remote_key->end()));
             return success;
         }
-        else
+
+        // Server does validation through optional callback
+        if (!_remote_key && creds.ccert_required)
         {
-            // Server does validation through callback
-            log::debug(
-                    log_cat,
-                    "Quic {}: {} key verify callback{}",
-                    local_name,
-                    creds.key_verify ? "calling" : "did not provide",
-                    creds.key_verify ? "" : "; accepting connection");
-
-            // Key verify cb will return true on success, false on fail. Since this is only called if a client has
-            // provided a certificate and is only called by the server, we can assume the following returns:
-            //      true: the certificate was verified, and the connection is marked as validated
-            //      false: the certificate was not verified, and the connection is rejected
-            success = (creds.key_verify) ? creds.key_verify(_remote_key, selected_alpn()) : true;
-
-            return success;
+            log::debug(log_cat, "Rejecting incoming connection: required client key not provided");
+            return false;
         }
+        if (!creds.client_key_verify)
+        {
+            log::debug(log_cat, "Accepting incoming connection with pubkey (without key verification callback)");
+            return true;
+        }
+        bool success = creds.client_key_verify(remote_key(), selected_alpn());
+        log::debug(log_cat, "Key verify callback {} incoming connection", success ? "accepted" : "rejected");
+        return success;
     }
 
 }  //  namespace oxen::quic
