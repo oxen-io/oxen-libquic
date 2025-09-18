@@ -856,6 +856,16 @@ namespace oxen::quic
 
         auto cert_type = gnutls_certificate_type_get2(session, GNUTLS_CTYPE_PEERS);
 
+        uint32_t cert_list_size = 0;
+        const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
+
+        // The peer did not return a certificate
+        if (cert_list_size == 0)
+        {
+            log::debug(log_cat, "Quic {} called {}, but peer's cert list is empty.", local_name, __PRETTY_FUNCTION__);
+            return;
+        }
+
         // this function is only for raw pubkey mode, and should not be called otherwise
         if (cert_type != GNUTLS_CRT_RAWPK)
         {
@@ -867,15 +877,6 @@ namespace oxen::quic
             return;
         }
 
-        uint32_t cert_list_size = 0;
-        const gnutls_datum_t* cert_list = gnutls_certificate_get_peers(session, &cert_list_size);
-
-        // The peer did not return a certificate
-        if (cert_list_size == 0)
-        {
-            log::debug(log_cat, "Quic {} called {}, but peers cert list is empty.", local_name, __PRETTY_FUNCTION__);
-            return;
-        }
 
         if (cert_list_size != 1)
             log::debug(
