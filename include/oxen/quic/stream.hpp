@@ -241,6 +241,7 @@ namespace oxen::quic
         bool _ready{false};
         bool _paused{false};
         bool _notify{false};
+        bool _had_notify{false};
         int64_t _stream_id;
 
         size_t _paused_offset{0};

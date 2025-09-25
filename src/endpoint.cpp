@@ -385,7 +385,8 @@ namespace oxen::quic
         {
             conn.close_all_streams();
 
-            if (conn.is_inbound() && !conn.is_handshake_confirmed()) {
+            if (conn.is_inbound() && !conn.is_handshake_confirmed())
+            {
                 // For inbound connections we fire the connection-established callback immediately
                 // after setting handshaked to true, so if we *haven't* done that yet, don't call
                 // the close callback because other the first time the application would learn of
