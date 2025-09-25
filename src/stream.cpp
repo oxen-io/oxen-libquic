@@ -30,6 +30,7 @@ namespace oxen::quic
     void Stream::handle_opt(opt::stream_notify_t)
     {
         _notify = true;
+        _had_notify = true;
     }
     Stream::Stream(Connection& conn, Endpoint& ep, base_ctor) : IOChannel{conn, ep}, reference_id{conn.reference_id()}
     {
@@ -318,6 +319,8 @@ namespace oxen::quic
         assert(loop.inside());
         log::trace(log_cat, "Stream (ID:{}) reverting after early data rejected...", _stream_id);
         _unacked_size = 0;
+        if (_had_notify)
+            _notify = true;
         log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
     }
 

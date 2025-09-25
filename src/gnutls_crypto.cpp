@@ -888,7 +888,6 @@ namespace oxen::quic
             return;
         }
 
-
         if (cert_list_size != 1)
             log::debug(
                     log_cat,

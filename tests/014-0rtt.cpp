@@ -486,4 +486,118 @@ namespace oxen::quic::test
         REQUIRE(!bad_foo.load());
     }
 
+    TEST_CASE("014 - Send empty initial 0RTT stream data", "[014][0rtt][streams][empty]")
+    {
+        // This is the same test as the opt::stream_notify test in 004-streams.cpp, except here
+        // applied to a 0-RTT stream: when creating a new stream the stream is not opened on the
+        // remote until stream data arrives.  QUIC explicitly allows a 0-length stream frame to be
+        // used to serve as a stream open notification when no data is available.
+        //
+        // This tests that same test but with:
+        // - early data
+        // - rejected early data
+
+        if (disable_0rtt)
+            SKIP("0-RTT tests not enabled for this test iteration!");
+
+        Loop loop;
+
+        std::shared_ptr<GNUTLSCreds> client_tls, server_tls;
+        std::tie(client_tls, server_tls) = defaults::tls_creds_from_ed_keys();
+        server_tls->require_client_keys(nullptr);
+        server_tls->enable_inbound_0rtt();
+        client_tls->enable_outbound_0rtt();
+
+        Address server_local{LOCALHOST, 0};
+        Address client_local{LOCALHOST, 0};
+
+        std::promise<ConnectionID> s_est_prom;
+        auto server_endpoint = Endpoint::endpoint(loop, server_local, opt::inbound_alpn("foo"));
+
+        std::shared_ptr<Stream> incoming_stream;
+
+        std::shared_ptr<quic::Stream> s_str;
+        server_endpoint->listen(server_tls, [&s_est_prom, &incoming_stream](Connection& c) {
+            incoming_stream = c.queue_incoming_stream();
+            s_est_prom.set_value(c.reference_id());
+        });
+
+        auto client_endpoint = Endpoint::endpoint(loop, client_local);
+        std::promise<void> c_est_prom;
+        auto conn = client_endpoint->connect(
+                RemoteAddress{defaults::SERVER_PUBKEY, server_endpoint->local()},
+                client_tls,
+                opt::outbound_alpn("foo"),
+                [&c_est_prom](Connection&) { c_est_prom.set_value(); });
+        conn->open_stream(opt::stream_notify);
+
+        auto s_est_fut = s_est_prom.get_future();
+        require_future(s_est_fut);
+
+        REQUIRE(incoming_stream->is_ready());
+        REQUIRE(incoming_stream->stream_id() == 0);
+
+        auto c_est_fut = c_est_prom.get_future();
+        require_future(c_est_fut);
+
+        // At this point we just made a 1-RTT connection on a 0-RTT enabled server, so this is
+        // likely no different than what the 004 test accomplishes (except with 0rtt flipped on but
+        // not actually used yet):
+
+        incoming_stream.reset();
+
+        // TLS tickets can arrive just after the handshake confirmed packet, so add a tiny
+        // extra wait to allow for them to arrive.
+        std::this_thread::sleep_for(5ms);
+
+        // Now we close and reopen the connection, as it should now have 0-RTT data.
+        conn->close_connection();
+        conn.reset();
+
+        std::this_thread::sleep_for(5ms);
+
+        SECTION("With 0-RTT early data accepted")
+        {
+            // Do nothing
+        }
+        SECTION("With 0-RTT early data rejected")
+        {
+            // Restart the server with a new creds object so that there will be a new 0RTT key and
+            // early data will be rejected
+            auto addr = server_endpoint->local();
+            server_endpoint.reset();
+
+            std::tie(std::ignore, server_tls) = defaults::tls_creds_from_ed_keys();
+            server_tls->require_client_keys(nullptr);
+            server_tls->enable_inbound_0rtt();
+
+            server_endpoint = Endpoint::endpoint(loop, addr, opt::inbound_alpn("foo"));
+            server_endpoint->listen(server_tls, [&s_est_prom, &incoming_stream](Connection& c) {
+                incoming_stream = c.queue_incoming_stream();
+                s_est_prom.set_value(c.reference_id());
+            });
+        }
+
+        s_est_prom = {};
+        s_est_fut = s_est_prom.get_future();
+        c_est_prom = {};
+        c_est_fut = c_est_prom.get_future();
+
+        loop.call_get([&] {
+            conn = client_endpoint->connect(
+                    RemoteAddress{defaults::SERVER_PUBKEY, server_endpoint->local()},
+                    client_tls,
+                    opt::outbound_alpn("foo"),
+                    [&c_est_prom](Connection&) { c_est_prom.set_value(); });
+
+            std::promise<size_t> received;
+            auto cstream = conn->open_stream(opt::stream_notify);
+        });
+
+        require_future(s_est_fut);
+        require_future(c_est_fut);
+        REQUIRE(incoming_stream->is_ready());
+        REQUIRE(incoming_stream->stream_id() == 0);
+    }
+
 }  //  namespace oxen::quic::test
