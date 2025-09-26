@@ -29,6 +29,7 @@ namespace oxen::quic
         std::chrono::milliseconds idle_timeout{DEFAULT_IDLE_TIMEOUT};
         // datagram support
         bool datagram_support{false};
+        size_t dgram_queue_limit{std::numeric_limits<size_t>::max()};
         // datagram splitting support
         bool split_packet{false};
         // splitting policy

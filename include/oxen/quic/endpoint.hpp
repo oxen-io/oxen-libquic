@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <future>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -178,6 +180,7 @@ namespace oxen::quic
         bool _packet_splitting{false};
         Splitting _policy{Splitting::NONE};
         int _rbufsize{4096};
+        size_t _dgram_queue_limit{std::numeric_limits<size_t>::max()};
 
         opt::manual_routing _manual_routing;
         bool _disable_mtu_discovery{false};
