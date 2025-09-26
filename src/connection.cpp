@@ -1834,7 +1834,10 @@ namespace oxen::quic
 
         if (context->config.datagram_support)
             dgrams = _loop.make_shared<Datagrams>(
-                    *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
+                    *this,
+                    _endpoint,
+                    context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb,
+                    context->config.dgram_queue_limit);
         pseudo_stream = _loop.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 

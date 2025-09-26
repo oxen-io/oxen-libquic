@@ -9,13 +9,15 @@
 namespace oxen::quic
 {
 
-    Datagrams::Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
+    Datagrams::Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb, size_t dgram_queue_limit_) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
             rbufsize{endpoint.datagram_bufsize()},
             recv_buffer{*this},
             _packet_splitting(_conn->packet_splitting_enabled())
     {
+        if (dgram_queue_limit_)
+            dgram_queue_limit = dgram_queue_limit_;
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
@@ -89,6 +91,12 @@ namespace oxen::quic
             if (!_conn)
             {
                 log::debug(log_cat, "Unable to send datagram: connection has gone away");
+                return;
+            }
+
+            if (unsent_impl() > dgram_queue_limit)
+            {
+                log::trace(log_cat, "Dropping datagram, queue over limit.");
                 return;
             }
 
