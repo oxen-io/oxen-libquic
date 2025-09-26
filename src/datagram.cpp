@@ -239,6 +239,10 @@ namespace oxen::quic
             {
                 // Early data accepted, so now we can discard all the sent packets (which will be
                 // everything up, but not including, `early_data_head`).
+                [[maybe_unused]] size_t old_unsent = unsent_bytes;
+                for (auto pkt_itr = buf.begin(); pkt_itr < buf.begin() + *early_data_head; pkt_itr++)
+                    unsent_bytes -= pkt_itr->size();
+                assert(unsent_bytes <= old_unsent);  // in case I'm dumb and the loop above is one too many
                 buf.erase(buf.begin(), buf.begin() + *early_data_head);
             }
             early_data_head.reset();
@@ -246,6 +250,7 @@ namespace oxen::quic
 
         void queue::emplace(std::span<const std::byte> payload, uint16_t base_dgid, std::shared_ptr<void> keepalive)
         {
+            unsent_bytes += payload.size();
             buf.emplace_back(payload, base_dgid, std::move(keepalive));
         }
 
@@ -409,7 +414,10 @@ namespace oxen::quic
                 if (early_data_head)
                     ++*early_data_head;
                 else
+                {
+                    unsent_bytes -= buf.front().size();
                     buf.pop_front();
+                }
             }
 
             last_i = std::numeric_limits<size_t>::max();
@@ -417,10 +425,7 @@ namespace oxen::quic
 
         size_t queue::pending_bytes() const
         {
-            size_t bytes = 0;
-            for (auto it = buf.begin() + early_data_head.value_or(0); it != buf.end(); ++it)
-                bytes += it->unsent_size();
-            return bytes;
+            return unsent_bytes;
         }
 
         storage::storage(std::span<const std::byte> payload, uint16_t base_dgid, std::shared_ptr<void> keepalive) :

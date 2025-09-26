@@ -283,6 +283,8 @@ namespace oxen::quic
             size_t last_i = std::numeric_limits<size_t>::max();
             SendStatus last_sent = SendStatus::Unsent;
 
+            size_t unsent_bytes{0};
+
             std::deque<storage> buf{};
         };
     }  // namespace dgram
