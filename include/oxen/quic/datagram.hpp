@@ -347,7 +347,7 @@ namespace oxen::quic
         dgram_data_callback dgram_data_cb;
 
         // Maximum datagram size queued per connection.  Will need tuning.
-        size_t dgram_queue_limit = 2'000'000;
+        size_t dgram_queue_limit = std::numeric_limits<size_t>::max();
 
         /// Datagram Numbering:
         /// Each datagram ID is comprised of a 16 bit quantity consisting of a 14 bit counter, and
