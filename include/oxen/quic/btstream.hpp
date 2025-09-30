@@ -34,9 +34,9 @@ namespace oxen::quic
     // request sizes
     inline constexpr long long MAX_REQ_LEN = 10_M;
 
-    // maximum length of the bencoded request length string, including the `:`.  This must be large
-    // enough to hold `MAX_REQ_LEN` followed by a `:`.
-    inline constexpr size_t MAX_REQ_LEN_ENCODED = 9;  // "10000000:"
+    // maximum length of the bencoded request length string that we parse, including the `:`.  This
+    // must be at least as large as needed to hold `MAX_REQ_LEN` followed by a `:`.
+    inline constexpr size_t MAX_REQ_LEN_ENCODED = 10;  // "999999999:"
 
     class BTRequestStream;
 
@@ -180,6 +180,38 @@ namespace oxen::quic
         }
     };
 
+    /// Accumulates digits from a `123:DATA`.  If req completes the size prefix this removes the
+    /// parsed size from the (possibly) concatenated partial + req.  If req is insufficient (for
+    /// example, if it only contains "12") then the input is appended to partial to be reused in the
+    /// next call to `request_accumulator`, and nullopt is returned.  In either case, req is
+    /// prefix-shortened by the consumed digits and colon (and will be empty when nullopt is
+    /// returned, i.e. all data accumulated).
+    ///
+    /// If req does not contain a valid numeric prefix then this throws a std::invalid_argument (req
+    /// will not modified).
+    ///
+    /// This function is designed to be able to be called multiple times: the incoming stream data
+    /// could be sliced at any arbitrary point, and so calling it multiple times accumulates
+    /// additional digits until it has accumulated a full `N:` prefix.
+    ///
+    /// This function currently allows a maximum 9-digit prefix length (i.e. 999999999:).
+    ///
+    /// This method is used internally by BTRequestStream to process requests and responses, but is
+    /// also provided for external use for custom streams with similar parsing requirements.
+    std::optional<size_t> prefix_accumulator(std::string& partial, std::span<const std::byte>& req);
+
+    /// Accumulates data from a stream until reaching the given size.  This is typically used
+    /// immediately after `prefix_accumulator` to accumulate the amount of data indicated by the
+    /// prefix.  If the incoming data does not complete the size, it is appended to `buf` for a
+    /// repeated call to continue to accumulate (or complete).
+    ///
+    /// `req` is reduced by the size of accumulated data (which might, for instance, be the
+    /// beginning of the next request).
+    ///
+    /// Returns true if `buf` has been filled to the requested size, false if more data is needed.
+    /// In both cases, `req` is prefix-reduced by the size of the accumulated data.
+    bool data_accumulator(std::vector<std::byte>& buf, std::span<const std::byte>& req, size_t size);
+
     class BTRequestStream : public Stream
     {
         friend class TestHelper;
@@ -298,8 +330,6 @@ namespace oxen::quic
         std::string encode_response(int64_t rid, std::span<const std::byte> body, bool error);
 
         sent_request* add_sent_request(std::shared_ptr<sent_request> req);
-
-        size_t parse_length(std::string_view req);
 
         size_t num_pending_impl() const { return user_buffers.size(); }
 
