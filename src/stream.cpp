@@ -32,6 +32,11 @@ namespace oxen::quic
         _notify = true;
         _had_notify = true;
     }
+    void Stream::handle_opt(opt::stream_fin_callback fcb)
+    {
+        log::trace(log_cat, "{} fin callback", fcb.cb ? "Setting" : "Not setting (callback is nullptr)");
+        fin_callback = std::move(fcb.cb);
+    }
     Stream::Stream(Connection& conn, Endpoint& ep, base_ctor) : IOChannel{conn, ep}, reference_id{conn.reference_id()}
     {
         log::trace(log_cat, "Creating Stream object...");
@@ -62,7 +67,7 @@ namespace oxen::quic
                     "Invalid enable_watermarks() call: alarm watermark ({}) must be > clear watermark ({})"_format(
                             alarm, clear)};
         loop.call_get([&] {
-            if (_is_closing || _is_shutdown || _sent_fin)
+            if (_is_closing || _send_fin)
             {
                 log::debug(log_cat, "Failed to set watermarks; stream is not active!");
                 return;
@@ -138,9 +143,13 @@ namespace oxen::quic
         return loop.call_get([this]() { return _paused; });
     }
 
-    bool Stream::available() const
+    bool Stream::writable() const
     {
-        return loop.call_get([this] { return !(_is_closing || _is_shutdown || _sent_fin); });
+        return loop.call_get([this] { return !(_is_closing || _send_fin || _sent_fin); });
+    }
+    bool Stream::readable() const
+    {
+        return loop.call_get([this] { return !(_is_closing || _received_fin); });
     }
 
     bool Stream::is_ready() const
@@ -157,9 +166,19 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> Stream::get_stream()
+    void Stream::on_fin()
     {
-        return shared_from_this();
+        _received_fin = true;
+        if (fin_callback)
+            fin_callback(*this);
+    }
+
+    void Stream::send_fin()
+    {
+        loop.call([this] {
+            _send_fin = true;
+            _conn->packet_io_ready();
+        });
     }
 
     void Stream::close(uint64_t app_err_code)
@@ -172,21 +191,18 @@ namespace oxen::quic
         loop.call([this, app_err_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-            if (_is_shutdown)
-                log::trace(log_cat, "Stream is already shutting down");
-            else if (_is_closing)
+            if (_is_closing)
                 log::trace(log_cat, "Stream is already closing");
             else
             {
-                _is_closing = _is_shutdown = true;
+                _send_fin = _is_closing = true;
                 if (_conn)
                 {
                     log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
                     ngtcp2_conn_shutdown_stream(*_conn, 0, _stream_id, app_err_code);
                 }
             }
-            if (_is_shutdown)
-                data_callback = nullptr;
+            data_callback = nullptr;
 
             if (!_conn)
             {
@@ -196,6 +212,19 @@ namespace oxen::quic
 
             _conn->packet_io_ready();
         });
+    }
+
+    void Stream::set_data_callback(stream_data_callback cb)
+    {
+        loop.call_get([&] { data_callback = std::move(cb); });
+    }
+    void Stream::set_close_callback(stream_close_callback cb)
+    {
+        loop.call_get([&] { close_callback = std::move(cb); });
+    }
+    void Stream::set_fin_callback(std::function<void(Stream&)> cb)
+    {
+        loop.call_get([&] { fin_callback = std::move(cb); });
     }
 
     void Stream::closed(uint64_t app_code)
@@ -213,7 +242,7 @@ namespace oxen::quic
         }
 
         _conn = nullptr;
-        _is_closing = _is_shutdown = true;
+        _send_fin = _is_closing = true;
     }
 
     void Stream::check_watermark()
@@ -324,11 +353,12 @@ namespace oxen::quic
         log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
     }
 
-    std::vector<ngtcp2_vec> Stream::pending()
+    std::pair<std::vector<ngtcp2_vec>, bool> Stream::pending(size_t bytes)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        std::vector<ngtcp2_vec> nbufs{};
+        std::pair<std::vector<ngtcp2_vec>, bool> ret;
+        auto& [nbufs, more] = ret;
 
         log::trace(log_cat, "unsent: {}", unsent());
 
@@ -340,22 +370,25 @@ namespace oxen::quic
                 // and we haven't done so yet, so return an empty buffer.
                 nbufs.emplace_back(nullptr, 0);
             }
-            return nbufs;
+            more = false;
+            return ret;
         }
 
         auto [it, offset] = get_buffer_it(user_buffers, _unacked_size);
-        nbufs.reserve(std::distance(it, user_buffers.end()));
         auto& temp = nbufs.emplace_back();
         temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
         temp.len = it->first.size() - offset;
-        while (++it != user_buffers.end())
+        size_t total = temp.len;
+        for (++it; it != user_buffers.end() && total < bytes; ++it)
         {
             auto& temp = nbufs.emplace_back();
             temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
             temp.len = it->first.size();
+            total += temp.len;
         }
 
-        return nbufs;
+        more = it != user_buffers.end();
+        return ret;
     }
 
     void Stream::send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive)
@@ -390,9 +423,9 @@ namespace oxen::quic
             }
             // else send() was already inside the event loop and thus `this` is still valid
 
-            if (_is_closing || _is_shutdown || _sent_fin)
+            if (_is_closing || _send_fin || _sent_fin)
             {
-                log::debug(log_cat, "Stream {} is closing/shutting down, dropping send data", _stream_id);
+                log::debug(log_cat, "Stream {} is already finalized, dropping send data", _stream_id);
                 return;
             }
             else if (!_conn || _conn->is_closing() || _conn->is_draining())
@@ -432,12 +465,6 @@ namespace oxen::quic
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val)
     {
         log::trace(log_cat, "{}:{} -- {}{}", file, lineno, message, val);
-    }
-
-    std::optional<dgram::prepared> Stream::pending_datagram(bool)
-    {
-        log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
-        return std::nullopt;
     }
 
 }  // namespace oxen::quic

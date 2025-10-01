@@ -1,6 +1,7 @@
 #include "context.hpp"
 
 #include "internal.hpp"
+#include "stream.hpp"
 
 #include <fmt/ranges.h>
 
@@ -69,6 +70,12 @@ namespace oxen::quic
     {
         log::trace(log_cat, "IO context stored stream open callback");
         stream_close_cb = std::move(func);
+    }
+
+    void IOContext::handle_ioctx_opt(opt::stream_fin_callback cb)
+    {
+        log::trace(log_cat, "IO context stored stream fin callback, {}", !!cb.cb);
+        stream_fin_cb = std::move(cb);
     }
 
     void IOContext::handle_ioctx_opt(stream_constructor_callback func)

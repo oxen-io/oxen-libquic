@@ -507,7 +507,7 @@ namespace oxen::quic
         void stream_closed(int64_t id, uint64_t app_code);
         void close_all_streams();
         void check_pending_streams(uint64_t available);
-        int recv_datagram(std::span<const std::byte> data, bool fin);
+        int recv_datagram(std::span<const std::byte> data);
         int ack_datagram(uint64_t dgram_id);
         int recv_token(const uint8_t* token, size_t tokenlen);
 

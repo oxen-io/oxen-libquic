@@ -1,3 +1,4 @@
+#include "oxen/quic/stream.hpp"
 #include "unit_test.hpp"
 
 namespace oxen::quic::test
@@ -1082,10 +1083,10 @@ namespace oxen::quic::test
 
         auto s1 = conn->open_stream();
         CHECK(s1->is_closing());
-        CHECK_FALSE(s1->available());
+        CHECK_FALSE(s1->writable());
         auto s2 = conn->queue_incoming_stream();
         CHECK(s2->is_closing());
-        CHECK_FALSE(s2->available());
+        CHECK_FALSE(s2->writable());
         CHECK(conn->num_streams_active() == 0);
         CHECK(conn->num_streams_pending() == 0);
     }
@@ -1134,6 +1135,127 @@ namespace oxen::quic::test
         require_future(fut_cstream);
         auto cstream_id = fut_cstream.get();
         CHECK(cstream_id == 1);
+    }
+
+    TEST_CASE("004 - Stream FIN", "[004][streams][fin]")
+    {
+        auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
+
+        quic::Loop loop;
+
+        std::promise<std::shared_ptr<Connection>> server_conn;
+        auto s_conn_fut = server_conn.get_future();
+        std::shared_ptr<Stream> sserver, sclient;
+
+        std::promise<int64_t> got_sstream, got_cstream;
+        auto fut_sstream = got_sstream.get_future(), fut_cstream = got_cstream.get_future();
+        auto server_endpoint = Endpoint::endpoint(
+                loop, Address{}, [&server_conn](Connection& c) { server_conn.set_value(c.shared_from_this()); });
+
+        std::unordered_map<int64_t, std::string> received;
+
+        std::promise<void> s0_fin, s1_fin, c0_fin, c1_fin;
+        server_endpoint->listen(
+                server_tls,
+                [&](Stream& s) -> uint64_t {
+                    s.set_data_callback([&](Stream& s, std::span<const std::byte> data) {
+                        received[s.stream_id()] += std::string_view{reinterpret_cast<const char*>(data.data()), data.size()};
+                    });
+                    got_sstream.set_value(s.stream_id());
+                    return 0;
+                },
+                opt::stream_fin_callback{[&](Stream&) { s0_fin.set_value(); }});
+
+        RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
+
+        auto client_endpoint = Endpoint::endpoint(loop, Address{});
+        auto conn = client_endpoint->connect(client_remote, client_tls, [&](Stream& s) -> uint64_t {
+            s.set_data_callback([&](Stream& s, std::span<const std::byte> data) {
+                received[s.stream_id()] += std::string_view{reinterpret_cast<const char*>(data.data()), data.size()};
+            });
+            s.set_fin_cb([&](Stream&) { c1_fin.set_value(); });
+            got_cstream.set_value(s.stream_id());
+            return 0;
+        });
+
+        auto c_str = conn->open_stream(opt::stream_fin_callback{[&](Stream&) { c0_fin.set_value(); }});
+        c_str->send("a");
+
+        require_future(s_conn_fut);
+        require_future(fut_sstream);
+
+        auto sstream_id = fut_sstream.get();
+        CHECK(sstream_id == 0);
+
+        auto s_str = s_conn_fut.get()->open_stream();
+        s_str->set_fin_cb([&](Stream&) { s1_fin.set_value(); });
+        s_str->send("z");
+
+        require_future(fut_cstream);
+        auto cstream_id = fut_cstream.get();
+        CHECK(cstream_id == 1);
+
+        auto s0_fin_fut = s0_fin.get_future();
+        auto s1_fin_fut = s1_fin.get_future();
+        auto c0_fin_fut = c0_fin.get_future();
+        auto c1_fin_fut = c1_fin.get_future();
+
+        std::string payload;
+
+        bool client_to_server;
+        SECTION("Client to server, small data")
+        {
+            client_to_server = true;
+            payload.resize(100, '#');
+        }
+        SECTION("Client to server, big data")
+        {
+            client_to_server = true;
+            payload.resize(10000, '#');
+        }
+        SECTION("Client to server, no data")
+        {
+            client_to_server = true;
+        }
+        SECTION("Server to client, small data")
+        {
+            client_to_server = false;
+            payload.resize(100, '#');
+        }
+        SECTION("Server to client, big data")
+        {
+            client_to_server = false;
+            payload.resize(10000, '#');
+        }
+        SECTION("Server to client, no data")
+        {
+            client_to_server = false;
+        }
+
+        auto& sender_str = client_to_server ? c_str : s_str;
+
+        if (payload.empty())
+            sender_str->send_fin();
+        else
+            loop.call([&] {
+                sender_str->send(payload, nullptr);
+                sender_str->send_fin();
+            });
+
+        auto& fin_fut = client_to_server ? s0_fin_fut : c1_fin_fut;
+        require_future(fin_fut);
+
+        CHECK(received.size() == 2);
+        REQUIRE(received.contains(0));
+        REQUIRE(received.contains(1));
+
+        auto& buf = received[client_to_server ? 0 : 1];
+        CHECK(buf.size() == 1 + payload.size());
+        CHECK(buf.starts_with(client_to_server ? "a" : "z"));
+        CHECK(buf.ends_with(payload));
+
+        auto& other = received[client_to_server ? 1 : 0];
+        CHECK(other == (client_to_server ? "z" : "a"));
     }
 
 }  // namespace oxen::quic::test

@@ -3,6 +3,7 @@
 #include "address.hpp"
 #include "connection.hpp"
 #include "connection_ids.hpp"
+#include "context.hpp"
 #include "crypto.hpp"
 #include "datagram.hpp"
 #include "loop.hpp"
@@ -18,7 +19,6 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
-#include <future>
 #include <list>
 #include <map>
 #include <memory>
@@ -35,8 +35,6 @@ struct event_base;
 
 namespace oxen::quic
 {
-    struct IOContext;
-
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
       public:
