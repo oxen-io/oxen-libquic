@@ -210,7 +210,10 @@ namespace oxen::quic
         log::trace(log_cat, "Entered {}", __PRETTY_FUNCTION__);
         if (anti_replay)
             gnutls_anti_replay_deinit(anti_replay);
-        gnutls_certificate_free_credentials(cred);
+        if (cred)
+            gnutls_certificate_free_credentials(cred);
+        if (priority_cache)
+            gnutls_priority_deinit(priority_cache);
     }
 
     std::shared_ptr<GNUTLSCreds> GNUTLSCreds::make_from_ed_keys(std::string_view seed, std::string_view pubkey)

@@ -558,13 +558,13 @@ namespace oxen::quic
         const bool using_raw_pk{true};  // Currently always true, but might get changed in the future
         bool has_creds{false};
 
-        gnutls_certificate_credentials_t cred;
+        gnutls_certificate_credentials_t cred{nullptr};
 
         key_verify_callback client_key_verify;
         bool ccert_required = false;
         bool ccert_requested = false;
 
-        gnutls_priority_t priority_cache;
+        gnutls_priority_t priority_cache{nullptr};
 
         gtls_datum session_ticket_key{};
         int session_ticket_expiration = 0;
