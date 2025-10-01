@@ -77,11 +77,10 @@ namespace oxen::quic
         }
 
         static int on_recv_datagram(
-                ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
+                ngtcp2_conn* /* conn */, uint32_t /*flags*/, const uint8_t* data, size_t datalen, void* user_data)
         {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return static_cast<Connection*>(user_data)->recv_datagram(
-                    {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+            return static_cast<Connection*>(user_data)->recv_datagram({reinterpret_cast<const std::byte*>(data), datalen});
         }
 
         static int on_recv_token(ngtcp2_conn* /* conn */, const uint8_t* token, size_t tokenlen, void* user_data)
@@ -820,7 +819,8 @@ namespace oxen::quic
         if (!stream && default_stream)
             stream = default_stream(*this, _endpoint);
         if (!stream)
-            stream = _loop.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+            stream = _loop.make_shared<Stream>(
+                    *this, _endpoint, context->stream_data_cb, context->stream_close_cb, context->stream_fin_cb);
 
         return stream;
     }
@@ -1103,27 +1103,33 @@ namespace oxen::quic
             ngtcp2_ssize nwrite = 0;
             ngtcp2_ssize ndatalen;
             uint32_t flags = 0;
-            int64_t stream_id = -10;
+            int64_t stream_id;
 
             auto* source = channels.front();
             channels.pop_front();  // Pop it off; if this stream should be checked again, append just
                                    // before streams_end_it.
 
+            const bool is_stream = source->is_stream();
+
             // this block will execute all "real" streams plus the "pseudo stream" of ID -1 to finish
             // off any packets that need to be sent
-            if (source->is_stream())
+            if (is_stream)
             {
-                std::vector<ngtcp2_vec> bufs = source->pending();
+                auto* s = static_cast<Stream*>(source);
+                auto [bufs, more] = s->pending(MAX_PMTUD_UDP_PAYLOAD);
 
-                stream_id = source->stream_id();
+                stream_id = s->stream_id();
 
+                flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
+
+                bool sending_fin = false;
                 if (stream_id != -1)
                 {
-                    if (source->is_closing() && !source->sent_fin() && source->unsent() == 0)
+                    if (s->_send_fin && !more)
                     {
                         log::trace(log_cat, "Sending FIN");
                         flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
-                        source->set_fin(true);
+                        sending_fin = true;
                     }
                     else if (bufs.empty())
                     {
@@ -1139,11 +1145,23 @@ namespace oxen::quic
                         buf_pos,
                         MAX_PMTUD_UDP_PAYLOAD,
                         &ndatalen,
-                        flags |= NGTCP2_WRITE_STREAM_FLAG_MORE,
+                        flags,
                         stream_id,
                         bufs.data(),
                         bufs.size(),
                         ts);
+
+                if (sending_fin && ndatalen >= 0)
+                {
+                    // If we're trying to send the FIN bit and ngtcp2 accepted data from us then
+                    // whether we *actually* send the FIN bit depends on whether ngtcp2 actually
+                    // consumed all the data we offered:
+                    size_t total = 0;
+                    for (auto& b : bufs)
+                        total += b.len;
+                    if (static_cast<size_t>(ndatalen) == total)
+                        s->_sent_fin = true;
+                }
 
                 log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
             }
@@ -1157,9 +1175,10 @@ namespace oxen::quic
 
                 datagram_waiting = true;  // This will remain true only if we have datagrams pending
                                           // but accept none of them into the packet.
+                flags = NGTCP2_WRITE_DATAGRAM_FLAG_MORE;
                 for (;;)
                 {
-                    auto dgram = dgrams->pending_datagram(partially_filled);
+                    auto dgram = dgrams->pending(partially_filled);
                     if (!dgram)
                     {
                         datagram_waiting = false;
@@ -1174,7 +1193,7 @@ namespace oxen::quic
                             buf_pos,
                             MAX_PMTUD_UDP_PAYLOAD,
                             &accepted,
-                            flags |= NGTCP2_WRITE_DATAGRAM_FLAG_MORE,
+                            flags,
                             dgram->id,
                             dgram->data(),
                             dgram->size(),
@@ -1198,7 +1217,7 @@ namespace oxen::quic
             // congested
             if (nwrite == 0)
             {
-                bool congested = source->is_stream() && stream_id != -1;
+                bool congested = is_stream && stream_id != -1;
                 log::trace(
                         log_cat,
                         "Done writing: {}",
@@ -1227,12 +1246,12 @@ namespace oxen::quic
                 {
                     partially_filled = true;
 
-                    if (source->is_stream())
+                    if (is_stream)
                     {
                         log::trace(log_cat, "Consumed {} bytes from stream {} and have space left", ndatalen, stream_id);
                         assert(ndatalen >= 0);
                         if (stream_id != -1)
-                            source->wrote(ndatalen);
+                            static_cast<Stream*>(source)->wrote(ndatalen);
                     }
                     else
                     {
@@ -1250,10 +1269,10 @@ namespace oxen::quic
 
             partially_filled = false;
 
-            if (stream_id > -1 && ndatalen >= 0)
+            if (is_stream && stream_id != -1 && ndatalen >= 0)
             {
                 log::trace(log_cat, "consumed {} bytes from stream {}", ndatalen, stream_id);
-                source->wrote(ndatalen);
+                static_cast<Stream*>(source)->wrote(ndatalen);
             }
 
             // success
@@ -1392,7 +1411,7 @@ namespace oxen::quic
     void Connection::stream_execute_close(Stream& stream, uint64_t app_code)
     {
         const bool was_closing = stream._is_closing;
-        stream._is_closing = stream._is_shutdown = true;
+        stream._is_closing = true;
 
         stream.disable_watermarks();
 
@@ -1483,9 +1502,14 @@ namespace oxen::quic
         if (data.size() == 0)
         {
             log::debug(
-                    log_cat,
-                    "Stream (ID: {}) received empty fin frame, bypassing user-supplied data callback",
-                    str->_stream_id);
+                    log_cat, "Stream (ID: {}) received empty frame, bypassing user-supplied data callback", str->_stream_id);
+
+            if (fin)
+            {
+                log::info(log_cat, "Stream ID: {} sent FIN bit (in empty stream frame)", str->_stream_id);
+                str->on_fin();
+            }
+
             return 0;
         }
 
@@ -1533,8 +1557,8 @@ namespace oxen::quic
 
         if (fin)
         {
-            log::info(log_cat, "Stream {} closed by remote", str->_stream_id);
-            // no clean up, close_cb called after this
+            log::info(log_cat, "Stream {} sent FIN bit", str->_stream_id);
+            str->on_fin();
         }
         else
         {
@@ -1555,7 +1579,7 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::recv_datagram(std::span<const std::byte> data, bool fin)
+    int Connection::recv_datagram(std::span<const std::byte> data)
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
 
@@ -1631,12 +1655,6 @@ namespace oxen::quic
                 _endpoint.close_connection(*this, io_error{DATAGRAM_ERROR_EXCEPTION});
                 return NGTCP2_ERR_CALLBACK_FAILURE;
             }
-        }
-
-        if (fin)
-        {
-            log::debug(log_cat, "Connection (CID: {}) received FIN from remote", _source_cid);
-            // TODO: no clean up, as close cb is called after? Or just for streams
         }
 
         return 0;

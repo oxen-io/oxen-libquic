@@ -22,9 +22,6 @@ namespace oxen::quic
     class Endpoint;
     class Datagrams;
 
-    // The pseudo "stream id" we use to indicate the datagram channel:
-    inline constexpr int64_t DATAGRAM_PSEUDO_STREAM_ID = std::numeric_limits<int64_t>::min();
-
     namespace dgram
     {
         struct received
@@ -414,7 +411,7 @@ namespace oxen::quic
         ///
         dgram::rotating_buffer recv_buffer;
 
-        std::optional<dgram::prepared> pending_datagram(bool prefer_small) override;
+        std::optional<dgram::prepared> pending(bool prefer_small);
         void confirm_datagram_sent();
 
         std::optional<std::vector<std::byte>> to_buffer(std::span<const std::byte> data, uint16_t dgid);
@@ -467,17 +464,11 @@ namespace oxen::quic
         void send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive) override;
 
         bool is_closing_impl() const override;
-        bool sent_fin() const override;
-        void set_fin(bool) override;
         size_t unsent_impl() const override;
         bool has_unsent_impl() const override;
-        void wrote(size_t) override;
-        std::vector<ngtcp2_vec> pending() override;
 
       public:
         bool is_stream() const override { return false; }
-        std::shared_ptr<Stream> get_stream() override;
-        int64_t stream_id() const override { return DATAGRAM_PSEUDO_STREAM_ID; }
     };
 
 }  // namespace oxen::quic

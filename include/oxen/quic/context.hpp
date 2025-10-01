@@ -35,8 +35,6 @@ namespace oxen::quic
         Splitting policy{Splitting::NONE};
 
         std::optional<opt::outbound_alpns> out_alpns;
-
-        user_config() = default;
     };
 
     struct IOContext
@@ -47,6 +45,7 @@ namespace oxen::quic
         stream_data_callback stream_data_cb;
         stream_open_callback stream_open_cb;
         stream_close_callback stream_close_cb;
+        opt::stream_fin_callback stream_fin_cb;
         stream_constructor_callback stream_construct_cb;
         dgram_data_callback dgram_data_cb;
         connection_established_callback conn_established_cb;
@@ -76,6 +75,7 @@ namespace oxen::quic
         void handle_ioctx_opt(stream_data_callback func);
         void handle_ioctx_opt(stream_open_callback func);
         void handle_ioctx_opt(stream_close_callback func);
+        void handle_ioctx_opt(opt::stream_fin_callback cb);
         void handle_ioctx_opt(stream_constructor_callback func);
         // Overrides the datagram callback specified at the endpoint level, if given.
         void handle_ioctx_opt(dgram_data_callback func);

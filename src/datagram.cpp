@@ -19,25 +19,10 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
 
-    std::shared_ptr<Stream> Datagrams::get_stream()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return nullptr;
-    }
-
     bool Datagrams::is_closing_impl() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return false;
-    }
-    bool Datagrams::sent_fin() const
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return false;
-    }
-    void Datagrams::set_fin(bool)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
     size_t Datagrams::unsent_impl() const
     {
@@ -48,16 +33,6 @@ namespace oxen::quic
     {
         return not is_empty_impl();
     }
-    void Datagrams::wrote(size_t)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-    }
-    std::vector<ngtcp2_vec> Datagrams::pending()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return {};
-    }
-
     void Datagrams::early_data_begin()
     {
         _send_buffer.early_data_begin();
@@ -108,7 +83,7 @@ namespace oxen::quic
         });
     }
 
-    std::optional<dgram::prepared> Datagrams::pending_datagram(bool prefer_small)
+    std::optional<dgram::prepared> Datagrams::pending(bool prefer_small)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return _send_buffer.fetch(_conn->get_max_datagram_piece(), prefer_small);
