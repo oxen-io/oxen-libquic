@@ -206,15 +206,11 @@ namespace oxen::quic
         // Replaces the existing stream FIN callback (if any) with the given one.
         void set_fin_callback(std::function<void(Stream&)> cb);
 
-        stream_data_callback data_callback;
-        stream_close_callback close_callback;
-        std::function<void(Stream&)> fin_callback;
-
       protected:
         virtual void receive(std::span<const std::byte> data)
         {
-            if (data_callback)
-                data_callback(*this, data);
+            if (_data_callback)
+                _data_callback(*this, data);
         }
 
         virtual void closed(uint64_t app_code);
@@ -278,6 +274,10 @@ namespace oxen::quic
         int64_t _stream_id;
 
         size_t _paused_offset{0};
+
+        stream_data_callback _data_callback;
+        stream_close_callback _close_callback;
+        std::function<void(Stream&)> _fin_callback;
 
         std::optional<std::pair<size_t, size_t>> _watermarking;  // {alarm threshold, all-clear threshold}
         bool _watermark_alarm{false};

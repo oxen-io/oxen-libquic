@@ -1173,7 +1173,7 @@ namespace oxen::quic::test
             s.set_data_callback([&](Stream& s, std::span<const std::byte> data) {
                 received[s.stream_id()] += std::string_view{reinterpret_cast<const char*>(data.data()), data.size()};
             });
-            s.set_fin_cb([&](Stream&) { c1_fin.set_value(); });
+            s.set_fin_callback([&](Stream&) { c1_fin.set_value(); });
             got_cstream.set_value(s.stream_id());
             return 0;
         });
@@ -1188,7 +1188,7 @@ namespace oxen::quic::test
         CHECK(sstream_id == 0);
 
         auto s_str = s_conn_fut.get()->open_stream();
-        s_str->set_fin_cb([&](Stream&) { s1_fin.set_value(); });
+        s_str->set_fin_callback([&](Stream&) { s1_fin.set_value(); });
         s_str->send("z");
 
         require_future(fut_cstream);

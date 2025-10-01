@@ -21,11 +21,11 @@ namespace oxen::quic
 {
     void Stream::handle_opt(stream_data_callback data_cb)
     {
-        data_callback = std::move(data_cb);
+        _data_callback = std::move(data_cb);
     }
     void Stream::handle_opt(stream_close_callback close_cb)
     {
-        close_callback = std::move(close_cb);
+        _close_callback = std::move(close_cb);
     }
     void Stream::handle_opt(opt::stream_notify_t)
     {
@@ -35,7 +35,7 @@ namespace oxen::quic
     void Stream::handle_opt(opt::stream_fin_callback fcb)
     {
         log::trace(log_cat, "{} fin callback", fcb.cb ? "Setting" : "Not setting (callback is nullptr)");
-        fin_callback = std::move(fcb.cb);
+        _fin_callback = std::move(fcb.cb);
     }
     Stream::Stream(Connection& conn, Endpoint& ep, base_ctor) : IOChannel{conn, ep}, reference_id{conn.reference_id()}
     {
@@ -43,11 +43,11 @@ namespace oxen::quic
     }
     void Stream::set_default_callbacks()
     {
-        if (!data_callback)
-            data_callback = _conn->get_default_data_callback();
+        if (!_data_callback)
+            _data_callback = _conn->get_default_data_callback();
 
-        if (!close_callback)
-            close_callback = [](Stream&, uint64_t error_code) {
+        if (!_close_callback)
+            _close_callback = [](Stream&, uint64_t error_code) {
                 log::debug(log_cat, "Default stream close callback called ({})", quic_strerror(error_code));
             };
 
@@ -169,8 +169,8 @@ namespace oxen::quic
     void Stream::on_fin()
     {
         _received_fin = true;
-        if (fin_callback)
-            fin_callback(*this);
+        if (_fin_callback)
+            _fin_callback(*this);
     }
 
     void Stream::send_fin()
@@ -202,7 +202,7 @@ namespace oxen::quic
                     ngtcp2_conn_shutdown_stream(*_conn, 0, _stream_id, app_err_code);
                 }
             }
-            data_callback = nullptr;
+            _data_callback = nullptr;
 
             if (!_conn)
             {
@@ -216,24 +216,24 @@ namespace oxen::quic
 
     void Stream::set_data_callback(stream_data_callback cb)
     {
-        loop.call_get([&] { data_callback = std::move(cb); });
+        loop.call_get([&] { _data_callback = std::move(cb); });
     }
     void Stream::set_close_callback(stream_close_callback cb)
     {
-        loop.call_get([&] { close_callback = std::move(cb); });
+        loop.call_get([&] { _close_callback = std::move(cb); });
     }
     void Stream::set_fin_callback(std::function<void(Stream&)> cb)
     {
-        loop.call_get([&] { fin_callback = std::move(cb); });
+        loop.call_get([&] { _fin_callback = std::move(cb); });
     }
 
     void Stream::closed(uint64_t app_code)
     {
-        if (close_callback)
+        if (_close_callback)
         {
             try
             {
-                close_callback(*this, app_code);
+                _close_callback(*this, app_code);
             }
             catch (const std::exception& e)
             {
