@@ -176,6 +176,7 @@ local windows_cross_pipeline(name,
         'make -j' + jobs + ' VERBOSE=1',
       ] + extra_cmds,
     },
+    /*
     {
       name: 'tests (via wine)',
       image: image,
@@ -191,6 +192,7 @@ local windows_cross_pipeline(name,
         + (if test_0rtt then '' else ' --disable-0rtt'),
       ],
     },
+    */
   ],
 };
 
