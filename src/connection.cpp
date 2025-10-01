@@ -1734,8 +1734,8 @@ namespace oxen::quic
         settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;
         settings.cc_algo = NGTCP2_CC_ALGO_BBR;
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
-        settings.max_window = 24_Mi;
-        settings.max_stream_window = 16_Mi;
+        settings.max_window = 100_Mi;
+        settings.max_stream_window = 50_Mi;
         settings.handshake_timeout = handshake_timeout <= 0s ? UINT64_MAX : static_cast<uint64_t>(handshake_timeout.count());
 
         ngtcp2_transport_params_default(&params);
@@ -1747,13 +1747,13 @@ namespace oxen::quic
         }
 
         // Connection flow level control window
-        params.initial_max_data = 15_Mi;
+        params.initial_max_data = 50_Mi;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
         // Max send buffer for streams (local = streams we initiate, remote = streams initiated to us)
-        params.initial_max_stream_data_bidi_local = 6_Mi;
-        params.initial_max_stream_data_bidi_remote = 6_Mi;
-        params.initial_max_stream_data_uni = 6_Mi;
+        params.initial_max_stream_data_bidi_local = 25_Mi;
+        params.initial_max_stream_data_bidi_remote = 25_Mi;
+        params.initial_max_stream_data_uni = 25_Mi;
         params.max_idle_timeout = std::chrono::nanoseconds{context->config.idle_timeout}.count();
         params.active_connection_id_limit = MAX_ACTIVE_CIDS;
 
@@ -1834,7 +1834,10 @@ namespace oxen::quic
 
         if (context->config.datagram_support)
             dgrams = _loop.make_shared<Datagrams>(
-                    *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
+                    *this,
+                    _endpoint,
+                    context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb,
+                    context->config.dgram_queue_limit);
         pseudo_stream = _loop.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 

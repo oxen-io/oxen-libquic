@@ -286,6 +286,8 @@ namespace oxen::quic
             size_t last_i = std::numeric_limits<size_t>::max();
             SendStatus last_sent = SendStatus::Unsent;
 
+            size_t unsent_bytes{0};
+
             std::deque<storage> buf{};
         };
     }  // namespace dgram
@@ -333,7 +335,11 @@ namespace oxen::quic
         friend struct dgram::rotating_buffer;
         friend class TestHelper;
 
-        Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb = nullptr);
+        Datagrams(
+                Connection& c,
+                Endpoint& e,
+                dgram_data_callback data_cb = nullptr,
+                size_t dgram_queue_limit = std::numeric_limits<size_t>::max());
 
         Datagrams(const Datagrams&) = delete;
         Datagrams(Datagrams&&) = delete;
@@ -341,6 +347,9 @@ namespace oxen::quic
         Datagrams& operator=(Datagrams&&) = delete;
 
         dgram_data_callback dgram_data_cb;
+
+        // Maximum datagram size queued per connection.  Will need tuning.
+        size_t dgram_queue_limit = std::numeric_limits<size_t>::max();
 
         /// Datagram Numbering:
         /// Each datagram ID is comprised of a 16 bit quantity consisting of a 14 bit counter, and

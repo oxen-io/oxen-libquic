@@ -33,6 +33,9 @@ int main(int argc, char* argv[])
             ->capture_default_str()
             ->expected(0.0, 1.0);
 
+    bool verbose_speed = false;
+    cli.add_flag("--verbose-speed", verbose_speed, "Prints current speed on a connection every 100ms.");
+
     try
     {
         cli.parse(argc, argv);
@@ -63,6 +66,9 @@ int main(int argc, char* argv[])
     {
         uint64_t expected;
         uint64_t received = 0;
+        uint64_t received_before_current_window = 0;
+        std::chrono::time_point<std::chrono::steady_clock> start_time = std::chrono::steady_clock::now();
+        std::chrono::time_point<std::chrono::steady_clock> last_print = std::chrono::steady_clock::now();
     };
 
     std::map<ConnectionID, std::map<int64_t, stream_info>> csd;
@@ -94,7 +100,24 @@ int main(int argc, char* argv[])
         auto& [ignore, info] = *it;
 
         bool need_more = info.received < info.expected;
+
         info.received += data.size();
+
+        if (verbose_speed)
+        {
+            auto now = std::chrono::steady_clock::now();
+            if (now - info.last_print > 100ms)
+            {
+                auto elapsed = std::chrono::duration<double>{now - info.last_print}.count();
+                info.last_print = now;
+                auto recv = info.received - info.received_before_current_window;
+                info.received_before_current_window = info.received;
+                log::critical(SPEEDTEST, "Speed last ~100ms: {:.3f}MB/s", recv / 1'000'000.0 / elapsed);
+                auto elapsed_overall = std::chrono::duration<double>{now - info.start_time}.count();
+                log::critical(SPEEDTEST, "Overall speed: {:.3f}MB/s\n", info.received / 1'000'000.0 / elapsed_overall);
+            }
+        }
+
         if (info.received > info.expected)
         {
             log::error(
@@ -120,6 +143,10 @@ int main(int argc, char* argv[])
     {
         uint64_t n_expected = 0;
         uint64_t n_received = 0;
+        uint64_t received = 0;
+        uint64_t received_before_current_window = 0;
+        std::chrono::time_point<std::chrono::steady_clock> start_time = std::chrono::steady_clock::now();
+        std::chrono::time_point<std::chrono::steady_clock> last_print = std::chrono::steady_clock::now();
         size_t last_dgram_size = 0;
         bool ping = false;
     };
@@ -190,6 +217,22 @@ int main(int argc, char* argv[])
         const bool done = dg.data[0] == std::byte{0};
 
         auto& info = dgram_data;
+
+        info.received += size;
+        if (verbose_speed)
+        {
+            auto now = std::chrono::steady_clock::now();
+            if (now - info.last_print > 100ms)
+            {
+                auto elapsed = std::chrono::duration<double>{now - info.last_print}.count();
+                info.last_print = now;
+                auto recv = info.received - info.received_before_current_window;
+                info.received_before_current_window = info.received;
+                log::critical(SPEEDTEST, "Speed last ~100ms: {:.3f}MB/s", recv / 1'000'000.0 / elapsed);
+                auto elapsed_overall = std::chrono::duration<double>{now - info.start_time}.count();
+                log::critical(SPEEDTEST, "Overall speed: {:.3f}MB/s\n", info.received / 1'000'000.0 / elapsed_overall);
+            }
+        }
 
         if (verify_datagrams)
         {
