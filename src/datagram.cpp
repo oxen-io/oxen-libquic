@@ -5,6 +5,7 @@
 #include "internal.hpp"
 
 #include <numeric>
+#include <ranges>
 
 namespace oxen::quic
 {
@@ -71,7 +72,7 @@ namespace oxen::quic
 
             if (unsent_impl() > dgram_queue_limit)
             {
-                log::trace(log_cat, "Dropping datagram, queue over limit.");
+                log::info(log_cat, "Dropping datagram, queue over limit.");
                 return;
             }
 
@@ -240,8 +241,8 @@ namespace oxen::quic
                 // Early data accepted, so now we can discard all the sent packets (which will be
                 // everything up, but not including, `early_data_head`).
                 [[maybe_unused]] size_t old_unsent = unsent_bytes;
-                for (auto pkt_itr = buf.begin(); pkt_itr < buf.begin() + *early_data_head; pkt_itr++)
-                    unsent_bytes -= pkt_itr->size();
+                for (auto& pkt : buf | std::views::take(*early_data_head))
+                    unsent_bytes -= pkt.size();
                 assert(unsent_bytes <= old_unsent);  // in case I'm dumb and the loop above is one too many
                 buf.erase(buf.begin(), buf.begin() + *early_data_head);
             }
