@@ -256,13 +256,17 @@ namespace oxen::quic
 
         // Returns ngtcp2 vector of user buffer pointers of unsent data.  Returned buffers cover at
         // least `bytes` of unsent data (if available).  The second value of the pair will be true
-        // if there is more stream data queued beyond the returned user buffers, or if the user
+        // if there is more stream data queued beyond the returned user buffers, false if the user
         // buffers cover to the end of currently queued data.  (If there is no `more` *and*
         // _send_fin is set then we know it is time to give the FIN flag to ngtcp2).  This is
         // primary used by connection.cpp to obtain the next chunk of data from this stream.
         std::pair<std::vector<ngtcp2_vec>, bool> pending(size_t bytes);
 
+        size_t _unsent_size{0};
         size_t _unacked_size{0};
+        size_t _current_buffer_index{0};
+        size_t _current_buffer_offset{0};
+        size_t _total_buffer_size{0};
         bool _is_closing{false};
         bool _send_fin{false};
         bool _sent_fin{false};
@@ -291,15 +295,7 @@ namespace oxen::quic
         void check_watermark();
         void acknowledge(size_t bytes);
 
-        size_t size() const
-        {
-            size_t sum{0};
-            if (user_buffers.empty())
-                return sum;
-            for (const auto& [data, store] : user_buffers)
-                sum += data.size();
-            return sum;
-        }
+        size_t size() const { return _total_buffer_size; }
 
         size_t unacked() const { return _unacked_size; }
 

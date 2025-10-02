@@ -280,6 +280,8 @@ namespace oxen::quic
         assert(loop.inside());
         assert(_conn);
 
+        _unsent_size += buffer.size();
+        _total_buffer_size += buffer.size();
         user_buffers.emplace_back(buffer, std::move(keep_alive));
         if (_watermarking)
             check_watermark();
@@ -301,8 +303,11 @@ namespace oxen::quic
         // Drop all fully-acked buffers that are no longer needed
         while (bytes && bytes >= user_buffers.front().first.size())
         {
+            _total_buffer_size -= user_buffers.front().first.size();
             bytes -= user_buffers.front().first.size();
             user_buffers.pop_front();
+            assert(_current_buffer_index > 0);
+            _current_buffer_index -= 1;
             log::trace(log_cat, "bytes: {}", bytes);
         }
 
@@ -311,6 +316,11 @@ namespace oxen::quic
         {
             auto& front = user_buffers.front().first;
             front = front.subspan(bytes);
+            if (_current_buffer_index == 0)
+            {
+                assert(_current_buffer_offset >= bytes);
+                _current_buffer_offset -= bytes;
+            }
         }
 
 #ifndef NDEBUG
@@ -323,10 +333,23 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::trace(log_cat, "Increasing _unacked_size by {}B", bytes);
         _unacked_size += bytes;
+        _unsent_size -= bytes;
         if (_notify)
             _notify = false;
         if (_watermarking)
             check_watermark();
+        while (_current_buffer_index < user_buffers.size() && bytes > 0)
+        {
+            size_t remaining = user_buffers[_current_buffer_index].first.size() - _current_buffer_offset;
+            if (bytes < remaining)
+            {
+                _current_buffer_offset += bytes;
+                return;
+            }
+            bytes -= remaining;
+            _current_buffer_index += 1;
+            _current_buffer_offset = 0;
+        }
     }
 
     static auto get_buffer_it(std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>& bufs, size_t offset)
@@ -348,6 +371,9 @@ namespace oxen::quic
         assert(loop.inside());
         log::trace(log_cat, "Stream (ID:{}) reverting after early data rejected...", _stream_id);
         _unacked_size = 0;
+        _current_buffer_index = 0;
+        _current_buffer_offset = 0;
+        _unsent_size = _total_buffer_size;
         if (_had_notify)
             _notify = true;
         log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
@@ -374,20 +400,17 @@ namespace oxen::quic
             return ret;
         }
 
-        auto [it, offset] = get_buffer_it(user_buffers, _unacked_size);
-        auto& temp = nbufs.emplace_back();
-        temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
-        temp.len = it->first.size() - offset;
-        size_t total = temp.len;
-        for (++it; it != user_buffers.end() && total < bytes; ++it)
+        size_t total = 0;
+        size_t i = 0;
+        for (i = _current_buffer_index; i < user_buffers.size() && total < bytes; i++)
         {
             auto& temp = nbufs.emplace_back();
-            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
-            temp.len = it->first.size();
+            size_t offset = (i == _current_buffer_index) ? _current_buffer_offset : 0;
+            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(user_buffers[i].first.data() + offset));
+            temp.len = user_buffers[i].first.size() - offset;
             total += temp.len;
         }
-
-        more = it != user_buffers.end();
+        more = i != user_buffers.size();
         return ret;
     }
 
@@ -441,7 +464,7 @@ namespace oxen::quic
     size_t Stream::unsent_impl() const
     {
         log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-        return size() - unacked();
+        return _unsent_size;
     }
 
     void Stream::set_ready(bool ready)
