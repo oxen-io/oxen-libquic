@@ -1488,11 +1488,8 @@ namespace oxen::quic
     int Connection::stream_ack(int64_t id, size_t size)
     {
         if (auto it = _streams.find(id); it != _streams.end())
-        {
             it->second->acknowledge(size);
-            return 0;
-        }
-        return NGTCP2_ERR_CALLBACK_FAILURE;
+        return 0;
     }
 
     int Connection::stream_receive(int64_t id, std::span<const std::byte> data, bool fin)
