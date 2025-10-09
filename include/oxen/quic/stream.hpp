@@ -250,6 +250,11 @@ namespace oxen::quic
         bool is_empty_impl() const override { return user_buffers.empty(); }
         size_t unsent_impl() const override;
 
+        /// Called on ACKs to confirm that the first `bytes` of queued stream data has been acked by
+        /// the other side.  The base Stream class uses this to tracking and free pending buffers
+        /// once no longer needed.  If overriding, be sure to call the base class method!
+        virtual void wrote(size_t bytes);
+
       private:
         // Called if 0-RTT early data was rejected; marks all sent data as unsent
         void revert_stream();
@@ -283,8 +288,6 @@ namespace oxen::quic
         bool _watermark_alarm{false};
         std::function<void(Stream&)> _watermark_on_alarm;
         std::function<void(Stream&)> _watermark_on_clear;
-
-        void wrote(size_t bytes);
 
         void append_buffer(std::span<const std::byte> buffer, std::shared_ptr<void> keep_alive);
 
