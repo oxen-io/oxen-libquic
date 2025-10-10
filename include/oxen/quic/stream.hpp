@@ -94,8 +94,8 @@ namespace oxen::quic
         ~Stream() override;
 
         bool is_stream() const override { return true; }
-        // Returns the stream ID of this stream, or -1 if an ID has not been assigned yet (i.e. for
-        // a pending stream).
+        // Returns the stream ID of this stream, or a negative value if an ID has not been assigned
+        // yet (i.e. for a pending stream).
         int64_t stream_id() const { return _stream_id; }
 
         const ConnectionID reference_id;
@@ -282,7 +282,7 @@ namespace oxen::quic
         bool _paused{false};
         bool _notify{false};
         bool _had_notify{false};
-        int64_t _stream_id{-1};
+        int64_t _stream_id{-2};
 
         size_t _paused_offset{0};
 
