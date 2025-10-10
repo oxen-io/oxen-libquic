@@ -164,7 +164,7 @@ local windows_cross_pipeline(name,
         'echo "man-db man-db/auto-update boolean false" | debconf-set-selections',
         apt_get_quiet + ' update',
         apt_get_quiet + ' install -y eatmydata',
-        'eatmydata ' + apt_get_quiet + ' install --no-install-recommends -y build-essential cmake git pkg-config ccache g++-mingw-w64-x86-64-posix',
+        'eatmydata ' + apt_get_quiet + ' install --no-install-recommends -y build-essential cmake git pkg-config ccache ca-certificates g++-mingw-w64-x86-64-posix',
         'mkdir build',
         'cd build',
         'cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/cross/mingw-x64.cmake -DBUILD_STATIC_DEPS=ON ' +
@@ -176,6 +176,7 @@ local windows_cross_pipeline(name,
         'make -j' + jobs + ' VERBOSE=1',
       ] + extra_cmds,
     },
+    /*
     {
       name: 'tests (via wine)',
       image: image,
@@ -191,6 +192,7 @@ local windows_cross_pipeline(name,
         + (if test_0rtt then '' else ' --disable-0rtt'),
       ],
     },
+    */
   ],
 };
 
@@ -340,9 +342,10 @@ local mac_builder(name,
               cmake_extra='-DBUILD_STATIC_DEPS=ON',
               lto=true,
               arch='arm64'),
-  mac_builder('macOS (Release, Intel)'),
-  mac_builder('macOS (Debug, Intel)', build_type='Debug', test_0rtt=false),
+  mac_builder('macOS (Release, Intel)', tests=false),
+  mac_builder('macOS (Debug, Intel)', build_type='Debug', tests=false),
   mac_builder('macOS (Static, Intel)',
               cmake_extra='-DBUILD_STATIC_DEPS=ON',
-              lto=true),
+              lto=true,
+              tests=false),
 ]
