@@ -41,6 +41,7 @@ namespace oxen::quic
         _packet_splitting = dc.split_packets;
         _policy = dc.mode;
         _rbufsize = dc.bufsize;
+        _dgram_queue_limit = dc.dgram_queue_limit;
 
         log::trace(
                 log_cat,
@@ -211,6 +212,7 @@ namespace oxen::quic
     void Endpoint::_assign_context_globals(IOContext& ctx) const
     {
         ctx.config.datagram_support = _datagrams;
+        ctx.config.dgram_queue_limit = _dgram_queue_limit;
         ctx.config.split_packet = _packet_splitting;
         ctx.config.policy = _policy;
     }

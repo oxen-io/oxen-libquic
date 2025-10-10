@@ -133,6 +133,15 @@ namespace oxen::quic
             Splitting mode{Splitting::NONE};
             // Note: this is the size of the entire buffer, divided amongst 4 rows
             int bufsize{4096};
+            size_t dgram_queue_limit{std::numeric_limits<size_t>::max()};
+
+            enable_datagrams& queue_limit(size_t limit)
+            {
+                if (limit == 0)
+                    limit = std::numeric_limits<size_t>::max();
+                dgram_queue_limit = limit;
+                return *this;
+            }
 
             enable_datagrams() = default;
             explicit enable_datagrams(bool e) = delete;
