@@ -1765,7 +1765,10 @@ namespace oxen::quic
         params.initial_max_data = 15_Mi;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
-        // Max send buffer for streams (local = streams we initiate, remote = streams initiated to us)
+        // Max amount of data the remote is initially allowed to send on a stream (local = streams
+        // we initiate, remote = streams initiated to us).  Normally, i.e. when the stream is not
+        // paused, we immediately extend the stream window by however many bytes we receive as we
+        // receive stream data.
         params.initial_max_stream_data_bidi_local = 6_Mi;
         params.initial_max_stream_data_bidi_remote = 6_Mi;
         params.initial_max_stream_data_uni = 6_Mi;
