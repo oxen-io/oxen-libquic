@@ -19,19 +19,35 @@
 
 namespace oxen::quic
 {
-    Stream::Stream(Connection& conn, Endpoint& _ep, stream_data_callback data_cb, stream_close_callback close_cb) :
-            IOChannel{conn, _ep},
-            reference_id{conn.reference_id()},
-            data_callback{data_cb},
-            close_callback{std::move(close_cb)}
+    void Stream::handle_opt(stream_data_callback data_cb)
+    {
+        _data_callback = std::move(data_cb);
+    }
+    void Stream::handle_opt(stream_close_callback close_cb)
+    {
+        _close_callback = std::move(close_cb);
+    }
+    void Stream::handle_opt(opt::stream_notify_t)
+    {
+        _notify = true;
+        _had_notify = true;
+    }
+    void Stream::handle_opt(opt::stream_fin_callback fcb)
+    {
+        log::trace(log_cat, "{} fin callback", fcb.cb ? "Setting" : "Not setting (callback is nullptr)");
+        _fin_callback = std::move(fcb.cb);
+    }
+    Stream::Stream(Connection& conn, Endpoint& ep, base_ctor) : IOChannel{conn, ep}, reference_id{conn.reference_id()}
     {
         log::trace(log_cat, "Creating Stream object...");
+    }
+    void Stream::set_default_callbacks()
+    {
+        if (!_data_callback)
+            _data_callback = _conn->get_default_data_callback();
 
-        if (!data_callback)
-            data_callback = conn.get_default_data_callback();
-
-        if (!close_callback)
-            close_callback = [](Stream&, uint64_t error_code) {
+        if (!_close_callback)
+            _close_callback = [](Stream&, uint64_t error_code) {
                 log::debug(log_cat, "Default stream close callback called ({})", quic_strerror(error_code));
             };
 
@@ -51,9 +67,9 @@ namespace oxen::quic
                     "Invalid enable_watermarks() call: alarm watermark ({}) must be > clear watermark ({})"_format(
                             alarm, clear)};
         loop.call_get([&] {
-            if (_is_closing || _is_shutdown || _sent_fin)
+            if (_is_closing || _send_fin)
             {
-                log::warning(log_cat, "Failed to set watermarks; stream is not active!");
+                log::debug(log_cat, "Failed to set watermarks; stream is not active!");
                 return;
             }
 
@@ -127,9 +143,13 @@ namespace oxen::quic
         return loop.call_get([this]() { return _paused; });
     }
 
-    bool Stream::available() const
+    bool Stream::writable() const
     {
-        return loop.call_get([this] { return !(_is_closing || _is_shutdown || _sent_fin); });
+        return loop.call_get([this] { return !(_is_closing || _send_fin || _sent_fin); });
+    }
+    bool Stream::readable() const
+    {
+        return loop.call_get([this] { return !(_is_closing || _received_fin); });
     }
 
     bool Stream::is_ready() const
@@ -146,9 +166,19 @@ namespace oxen::quic
         });
     }
 
-    std::shared_ptr<Stream> Stream::get_stream()
+    void Stream::on_fin()
     {
-        return shared_from_this();
+        _received_fin = true;
+        if (_fin_callback)
+            _fin_callback(*this);
+    }
+
+    void Stream::send_fin()
+    {
+        loop.call([this] {
+            _send_fin = true;
+            _conn->packet_io_ready();
+        });
     }
 
     void Stream::close(uint64_t app_err_code)
@@ -161,25 +191,22 @@ namespace oxen::quic
         loop.call([this, app_err_code]() {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-            if (_is_shutdown)
-                log::trace(log_cat, "Stream is already shutting down");
-            else if (_is_closing)
+            if (_is_closing)
                 log::trace(log_cat, "Stream is already closing");
             else
             {
-                _is_closing = _is_shutdown = true;
+                _send_fin = _is_closing = true;
                 if (_conn)
                 {
                     log::info(log_cat, "Closing stream (ID: {}) with: {}", _stream_id, quic_strerror(app_err_code));
                     ngtcp2_conn_shutdown_stream(*_conn, 0, _stream_id, app_err_code);
                 }
             }
-            if (_is_shutdown)
-                data_callback = nullptr;
+            _data_callback = nullptr;
 
             if (!_conn)
             {
-                log::warning(log_cat, "Stream close ignored: the stream's connection is gone");
+                log::debug(log_cat, "Stream close ignored: the stream's connection is gone");
                 return;
             }
 
@@ -187,13 +214,26 @@ namespace oxen::quic
         });
     }
 
+    void Stream::set_data_callback(stream_data_callback cb)
+    {
+        loop.call_get([&] { _data_callback = std::move(cb); });
+    }
+    void Stream::set_close_callback(stream_close_callback cb)
+    {
+        loop.call_get([&] { _close_callback = std::move(cb); });
+    }
+    void Stream::set_fin_callback(std::function<void(Stream&)> cb)
+    {
+        loop.call_get([&] { _fin_callback = std::move(cb); });
+    }
+
     void Stream::closed(uint64_t app_code)
     {
-        if (close_callback)
+        if (_close_callback)
         {
             try
             {
-                close_callback(*this, app_code);
+                _close_callback(*this, app_code);
             }
             catch (const std::exception& e)
             {
@@ -202,14 +242,12 @@ namespace oxen::quic
         }
 
         _conn = nullptr;
-        _is_closing = _is_shutdown = true;
+        _send_fin = _is_closing = true;
     }
 
     void Stream::check_watermark()
     {
-        log::trace(log_cat, "{} called, watermarking {}abled", __PRETTY_FUNCTION__, _watermarking ? "en" : "dis");
-        if (!_watermarking)
-            return;
+        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
         const auto& [alarm_thresh, clear_thresh] = *_watermarking;
         const size_t threshold = _unacked_size + (_watermark_alarm ? clear_thresh + 1 : alarm_thresh);
@@ -242,8 +280,11 @@ namespace oxen::quic
         assert(loop.inside());
         assert(_conn);
 
+        _unsent_size += buffer.size();
+        _total_buffer_size += buffer.size();
         user_buffers.emplace_back(buffer, std::move(keep_alive));
-        check_watermark();
+        if (_watermarking)
+            check_watermark();
 
         if (_ready)
             _conn->packet_io_ready();
@@ -260,10 +301,13 @@ namespace oxen::quic
         _unacked_size -= bytes;
 
         // Drop all fully-acked buffers that are no longer needed
-        while (bytes >= user_buffers.front().first.size() && bytes)
+        while (bytes && bytes >= user_buffers.front().first.size())
         {
+            _total_buffer_size -= user_buffers.front().first.size();
             bytes -= user_buffers.front().first.size();
             user_buffers.pop_front();
+            assert(_current_buffer_index > 0);
+            _current_buffer_index -= 1;
             log::trace(log_cat, "bytes: {}", bytes);
         }
 
@@ -272,6 +316,11 @@ namespace oxen::quic
         {
             auto& front = user_buffers.front().first;
             front = front.subspan(bytes);
+            if (_current_buffer_index == 0)
+            {
+                assert(_current_buffer_offset >= bytes);
+                _current_buffer_offset -= bytes;
+            }
         }
 
 #ifndef NDEBUG
@@ -284,7 +333,23 @@ namespace oxen::quic
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         log::trace(log_cat, "Increasing _unacked_size by {}B", bytes);
         _unacked_size += bytes;
-        check_watermark();
+        _unsent_size -= bytes;
+        if (_notify)
+            _notify = false;
+        if (_watermarking)
+            check_watermark();
+        while (_current_buffer_index < user_buffers.size() && bytes > 0)
+        {
+            size_t remaining = user_buffers[_current_buffer_index].first.size() - _current_buffer_offset;
+            if (bytes < remaining)
+            {
+                _current_buffer_offset += bytes;
+                return;
+            }
+            bytes -= remaining;
+            _current_buffer_index += 1;
+            _current_buffer_offset = 0;
+        }
     }
 
     static auto get_buffer_it(std::deque<std::pair<std::span<const std::byte>, std::shared_ptr<void>>>& bufs, size_t offset)
@@ -306,33 +371,47 @@ namespace oxen::quic
         assert(loop.inside());
         log::trace(log_cat, "Stream (ID:{}) reverting after early data rejected...", _stream_id);
         _unacked_size = 0;
+        _current_buffer_index = 0;
+        _current_buffer_offset = 0;
+        _unsent_size = _total_buffer_size;
+        if (_had_notify)
+            _notify = true;
         log::debug(log_cat, "Stream (ID:{}) has {}B in buffer, 0B unacked...", _stream_id, size());
     }
 
-    std::vector<ngtcp2_vec> Stream::pending()
+    std::pair<std::vector<ngtcp2_vec>, bool> Stream::pending(size_t bytes)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
 
-        std::vector<ngtcp2_vec> nbufs{};
+        std::pair<std::vector<ngtcp2_vec>, bool> ret;
+        auto& [nbufs, more] = ret;
 
         log::trace(log_cat, "unsent: {}", unsent());
 
         if (user_buffers.empty() || unsent() == 0)
-            return nbufs;
-
-        auto [it, offset] = get_buffer_it(user_buffers, _unacked_size);
-        nbufs.reserve(std::distance(it, user_buffers.end()));
-        auto& temp = nbufs.emplace_back();
-        temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data() + offset));
-        temp.len = it->first.size() - offset;
-        while (++it != user_buffers.end())
         {
-            auto& temp = nbufs.emplace_back();
-            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(it->first.data()));
-            temp.len = it->first.size();
+            if (_notify)
+            {
+                // If this is still set it means the stream is configured to notify the other end,
+                // and we haven't done so yet, so return an empty buffer.
+                nbufs.emplace_back(nullptr, 0);
+            }
+            more = false;
+            return ret;
         }
 
-        return nbufs;
+        size_t total = 0;
+        size_t i = 0;
+        for (i = _current_buffer_index; i < user_buffers.size() && total < bytes; i++)
+        {
+            auto& temp = nbufs.emplace_back();
+            size_t offset = (i == _current_buffer_index) ? _current_buffer_offset : 0;
+            temp.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(user_buffers[i].first.data() + offset));
+            temp.len = user_buffers[i].first.size() - offset;
+            total += temp.len;
+        }
+        more = i != user_buffers.size();
+        return ret;
     }
 
     void Stream::send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive)
@@ -367,9 +446,9 @@ namespace oxen::quic
             }
             // else send() was already inside the event loop and thus `this` is still valid
 
-            if (_is_closing || _is_shutdown || _sent_fin)
+            if (_is_closing || _send_fin || _sent_fin)
             {
-                log::debug(log_cat, "Stream {} is closing/shutting down, dropping send data", _stream_id);
+                log::debug(log_cat, "Stream {} is already finalized, dropping send data", _stream_id);
                 return;
             }
             else if (!_conn || _conn->is_closing() || _conn->is_draining())
@@ -385,7 +464,7 @@ namespace oxen::quic
     size_t Stream::unsent_impl() const
     {
         log::trace(log_cat, "size={}, unacked={}", size(), unacked());
-        return size() - unacked();
+        return _unsent_size;
     }
 
     void Stream::set_ready(bool ready)
@@ -409,12 +488,6 @@ namespace oxen::quic
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val)
     {
         log::trace(log_cat, "{}:{} -- {}{}", file, lineno, message, val);
-    }
-
-    std::optional<dgram::prepared> Stream::pending_datagram(bool)
-    {
-        log::warning(log_cat, "{} called, but this is a stream object!", __PRETTY_FUNCTION__);
-        return std::nullopt;
     }
 
 }  // namespace oxen::quic

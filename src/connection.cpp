@@ -3,6 +3,7 @@
 #include "context.hpp"
 #include "datagram.hpp"
 #include "endpoint.hpp"
+#include "gnutls_crypto.hpp"
 #include "internal.hpp"
 #include "iochannel.hpp"
 #include "result.hpp"
@@ -76,11 +77,10 @@ namespace oxen::quic
         }
 
         static int on_recv_datagram(
-                ngtcp2_conn* /* conn */, uint32_t flags, const uint8_t* data, size_t datalen, void* user_data)
+                ngtcp2_conn* /* conn */, uint32_t /*flags*/, const uint8_t* data, size_t datalen, void* user_data)
         {
             log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-            return static_cast<Connection*>(user_data)->recv_datagram(
-                    {reinterpret_cast<const std::byte*>(data), datalen}, flags & NGTCP2_STREAM_DATA_FLAG_FIN);
+            return static_cast<Connection*>(user_data)->recv_datagram({reinterpret_cast<const std::byte*>(data), datalen});
         }
 
         static int on_recv_token(ngtcp2_conn* /* conn */, const uint8_t* token, size_t tokenlen, void* user_data)
@@ -155,7 +155,7 @@ namespace oxen::quic
             if (rv == 0)
             {
                 // We store the client initial DCID as that will be used by 0-RTT packets that
-                // arrive before the handshake completes.  However, since we didn't get the safely
+                // arrive before the handshake completes.  However, since we didn't get to safely
                 // choose this, we only set if it not already used (so that a possible collision
                 // between the temporary dcid and some scid we generated properly yields to the
                 // latter).
@@ -183,10 +183,7 @@ namespace oxen::quic
             {
                 rv = conn->server_handshake_completed();
 
-                if (conn->conn_established_cb)
-                    conn->conn_established_cb(*conn);
-                else
-                    conn->endpoint().connection_established(*conn);
+                conn->check_established();
             }
             else
                 rv = conn->client_handshake_completed();
@@ -202,10 +199,9 @@ namespace oxen::quic
             assert(conn->is_outbound());
             log::trace(log_cat, "HANDSHAKE CONFIRMED on CLIENT connection");
 
-            if (conn->conn_established_cb)
-                conn->conn_established_cb(*conn);
-            else
-                conn->endpoint().connection_established(*conn);
+            conn->client_handshake_confirmed();
+
+            conn->check_established();
 
             return 0;
         }
@@ -492,8 +488,23 @@ namespace oxen::quic
         return 0;
     }
 
+    void Connection::check_established()
+    {
+        if (establish_hook_called)
+            return;
+        establish_hook_called = true;
+        auto key = get_session()->remote_key();
+        remote_pubkey.assign(key.begin(), key.end());  // Can be empty if client key not required
+        if (conn_established_cb)
+            conn_established_cb(*this);
+        else
+            endpoint().connection_established(*this);
+    }
+
     int Connection::client_handshake_completed()
     {
+        handshaked = true;
+
         if (tls_creds->outbound_0rtt())
         {
             const bool accepted = tls_session->get_early_data_accepted();
@@ -518,9 +529,16 @@ namespace oxen::quic
 
         return 0;
     }
+    void Connection::client_handshake_confirmed()
+    {
+        handshake_confirmed = true;
+    }
 
     int Connection::server_handshake_completed()
     {
+        handshaked = true;
+        handshake_confirmed = true;
+
         if (tls_creds->inbound_0rtt())
         {
             log::debug(log_cat, "Server handshake completed and we support 0-RTT, sending TLS tickets");
@@ -566,17 +584,6 @@ namespace oxen::quic
         log::debug(log_cat, "Server successfully submitted regular token on handshake completion...");
 
         return 0;
-    }
-
-    void Connection::set_validated()
-    {
-        _is_validated = true;
-
-        if (is_inbound())
-        {
-            auto key = get_session()->remote_key();
-            remote_pubkey.assign(key.begin(), key.end());
-        }
     }
 
     void Connection::set_remote_addr(const ngtcp2_addr& new_remote)
@@ -779,31 +786,26 @@ namespace oxen::quic
         return io_result::ngtcp2(rv);
     }
 
-    // note: this does not need to return anything, it is never called except in on_stream_available
-    // First, we check the list of pending streams on deck to see if they're ready for broadcast. If
-    // so, we move them to the streams map, where they will get picked up by flush_packets and dump
-    // their buffers. If none are ready, we keep chugging along and make another stream as usual. Though
-    // if none of the pending streams are ready, the new stream really shouldn't be ready, but here we are
+    // Called when new streams can be opened to check if we have any previously queued pending
+    // streams waiting to open.
     void Connection::check_pending_streams(uint64_t available)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        uint64_t popped = 0;
 
-        while (!pending_streams.empty() && popped < available)
+        while (available && !pending_streams.empty())
         {
             auto& str = pending_streams.front();
 
-            if (int rv = ngtcp2_conn_open_bidi_stream(*this, &str->_stream_id, str.get()); rv == 0)
-            {
-                auto _id = str->_stream_id;
-                log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", _id);
-                str->set_ready();
-                popped += 1;
-                _streams[_id] = std::move(str);
-                pending_streams.pop_front();
-            }
-            else
+            int rv = ngtcp2_conn_open_bidi_stream(*this, &str->_stream_id, str.get());
+            if (rv != 0)
                 return;
+
+            auto id = str->_stream_id;
+            log::debug(log_cat, "Stream [ID:{}] ready for broadcast, moving out of pending streams", id);
+            str->set_ready();
+            available--;
+            _streams[id] = std::move(str);
+            pending_streams.pop_front();
         }
     }
 
@@ -817,7 +819,8 @@ namespace oxen::quic
         if (!stream && default_stream)
             stream = default_stream(*this, _endpoint);
         if (!stream)
-            stream = _loop.make_shared<Stream>(*this, _endpoint, context->stream_data_cb, context->stream_close_cb);
+            stream = _loop.make_shared<Stream>(
+                    *this, _endpoint, context->stream_data_cb, context->stream_close_cb, context->stream_fin_cb);
 
         return stream;
     }
@@ -893,14 +896,11 @@ namespace oxen::quic
                 pending_streams.push_back(std::move(stream));
                 return pending_streams.back();
             }
-            else
-            {
-                log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
-                stream->set_ready();
-                auto& strm = _streams[stream->_stream_id];
-                strm = std::move(stream);
-                return strm;
-            }
+
+            log::debug(log_cat, "Stream {} successfully created; ready to broadcast", stream->_stream_id);
+            stream->set_ready();
+            _streams[stream->_stream_id] = stream;
+            return stream;
         });
     }
 
@@ -1050,7 +1050,8 @@ namespace oxen::quic
             // Start from a random stream so that we aren't favouring early streams by potentially
             // giving them more opportunities to send packets.
             auto mid = std::next(
-                    _streams.begin(), std::uniform_int_distribution<size_t>{0, _streams.size() - 1}(stream_start_rng));
+                    _streams.begin(),
+                    std::uniform_int_distribution<int>{0, static_cast<int>(_streams.size()) - 1}(stream_start_rng));
 
             for (auto it = mid; it != _streams.end(); ++it)
             {
@@ -1102,27 +1103,33 @@ namespace oxen::quic
             ngtcp2_ssize nwrite = 0;
             ngtcp2_ssize ndatalen;
             uint32_t flags = 0;
-            int64_t stream_id = -10;
+            int64_t stream_id;
 
             auto* source = channels.front();
             channels.pop_front();  // Pop it off; if this stream should be checked again, append just
                                    // before streams_end_it.
 
+            const bool is_stream = source->is_stream();
+
             // this block will execute all "real" streams plus the "pseudo stream" of ID -1 to finish
             // off any packets that need to be sent
-            if (source->is_stream())
+            if (is_stream)
             {
-                std::vector<ngtcp2_vec> bufs = source->pending();
+                auto* s = static_cast<Stream*>(source);
+                auto [bufs, more] = s->pending(MAX_PMTUD_UDP_PAYLOAD);
 
-                stream_id = source->stream_id();
+                stream_id = s->stream_id();
 
+                flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
+
+                bool sending_fin = false;
                 if (stream_id != -1)
                 {
-                    if (source->is_closing() && !source->sent_fin() && source->unsent() == 0)
+                    if (s->_send_fin && !more)
                     {
                         log::trace(log_cat, "Sending FIN");
                         flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
-                        source->set_fin(true);
+                        sending_fin = true;
                     }
                     else if (bufs.empty())
                     {
@@ -1138,11 +1145,23 @@ namespace oxen::quic
                         buf_pos,
                         MAX_PMTUD_UDP_PAYLOAD,
                         &ndatalen,
-                        flags |= NGTCP2_WRITE_STREAM_FLAG_MORE,
+                        flags,
                         stream_id,
                         bufs.data(),
                         bufs.size(),
                         ts);
+
+                if (sending_fin && ndatalen >= 0)
+                {
+                    // If we're trying to send the FIN bit and ngtcp2 accepted data from us then
+                    // whether we *actually* send the FIN bit depends on whether ngtcp2 actually
+                    // consumed all the data we offered:
+                    size_t total = 0;
+                    for (auto& b : bufs)
+                        total += b.len;
+                    if (static_cast<size_t>(ndatalen) == total)
+                        s->_sent_fin = true;
+                }
 
                 log::trace(log_cat, "add_stream_data for stream {} returned [{},{}]", stream_id, nwrite, ndatalen);
             }
@@ -1156,9 +1175,10 @@ namespace oxen::quic
 
                 datagram_waiting = true;  // This will remain true only if we have datagrams pending
                                           // but accept none of them into the packet.
+                flags = NGTCP2_WRITE_DATAGRAM_FLAG_MORE;
                 for (;;)
                 {
-                    auto dgram = dgrams->pending_datagram(partially_filled);
+                    auto dgram = dgrams->pending(partially_filled);
                     if (!dgram)
                     {
                         datagram_waiting = false;
@@ -1173,7 +1193,7 @@ namespace oxen::quic
                             buf_pos,
                             MAX_PMTUD_UDP_PAYLOAD,
                             &accepted,
-                            flags |= NGTCP2_WRITE_DATAGRAM_FLAG_MORE,
+                            flags,
                             dgram->id,
                             dgram->data(),
                             dgram->size(),
@@ -1197,7 +1217,7 @@ namespace oxen::quic
             // congested
             if (nwrite == 0)
             {
-                bool congested = source->is_stream() && stream_id != -1;
+                bool congested = is_stream && stream_id != -1;
                 log::trace(
                         log_cat,
                         "Done writing: {}",
@@ -1226,12 +1246,12 @@ namespace oxen::quic
                 {
                     partially_filled = true;
 
-                    if (source->is_stream())
+                    if (is_stream)
                     {
                         log::trace(log_cat, "Consumed {} bytes from stream {} and have space left", ndatalen, stream_id);
                         assert(ndatalen >= 0);
                         if (stream_id != -1)
-                            source->wrote(ndatalen);
+                            static_cast<Stream*>(source)->wrote(ndatalen);
                     }
                     else
                     {
@@ -1249,10 +1269,10 @@ namespace oxen::quic
 
             partially_filled = false;
 
-            if (stream_id > -1 && ndatalen > 0)
+            if (is_stream && stream_id != -1 && ndatalen >= 0)
             {
                 log::trace(log_cat, "consumed {} bytes from stream {}", ndatalen, stream_id);
-                source->wrote(ndatalen);
+                static_cast<Stream*>(source)->wrote(ndatalen);
             }
 
             // success
@@ -1344,11 +1364,17 @@ namespace oxen::quic
 
     int Connection::stream_opened(int64_t id)
     {
+        if (!establish_hook_called)
+        {
+            log::debug(log_cat, "Early stream opened before handshake completed; firing established cb");
+            check_established();
+        }
+
         log::trace(log_cat, "New stream ID:{}", id);
 
         if (auto itr = _stream_queue.find(id); itr != _stream_queue.end())
         {
-            log::debug(log_cat, "Taking ready stream from on deck and assigning stream ID {}!", id);
+            log::debug(log_cat, "Using queued stream object with stream ID {}", id);
 
             auto& s = itr->second;
             s->set_ready();
@@ -1358,6 +1384,8 @@ namespace oxen::quic
             assert(ins);
             return 0;
         }
+        else if (id == next_incoming_stream_id)
+            next_incoming_stream_id += 4;
 
         auto stream = construct_stream(nullptr, id);
 
@@ -1383,7 +1411,7 @@ namespace oxen::quic
     void Connection::stream_execute_close(Stream& stream, uint64_t app_code)
     {
         const bool was_closing = stream._is_closing;
-        stream._is_closing = stream._is_shutdown = true;
+        stream._is_closing = true;
 
         stream.disable_watermarks();
 
@@ -1460,11 +1488,8 @@ namespace oxen::quic
     int Connection::stream_ack(int64_t id, size_t size)
     {
         if (auto it = _streams.find(id); it != _streams.end())
-        {
             it->second->acknowledge(size);
-            return 0;
-        }
-        return NGTCP2_ERR_CALLBACK_FAILURE;
+        return 0;
     }
 
     int Connection::stream_receive(int64_t id, std::span<const std::byte> data, bool fin)
@@ -1474,9 +1499,14 @@ namespace oxen::quic
         if (data.size() == 0)
         {
             log::debug(
-                    log_cat,
-                    "Stream (ID: {}) received empty fin frame, bypassing user-supplied data callback",
-                    str->_stream_id);
+                    log_cat, "Stream (ID: {}) received empty frame, bypassing user-supplied data callback", str->_stream_id);
+
+            if (fin)
+            {
+                log::info(log_cat, "Stream ID: {} sent FIN bit (in empty stream frame)", str->_stream_id);
+                str->on_fin();
+            }
+
             return 0;
         }
 
@@ -1524,8 +1554,8 @@ namespace oxen::quic
 
         if (fin)
         {
-            log::info(log_cat, "Stream {} closed by remote", str->_stream_id);
-            // no clean up, close_cb called after this
+            log::info(log_cat, "Stream {} sent FIN bit", str->_stream_id);
+            str->on_fin();
         }
         else
         {
@@ -1546,9 +1576,15 @@ namespace oxen::quic
         return 0;
     }
 
-    int Connection::recv_datagram(std::span<const std::byte> data, bool fin)
+    int Connection::recv_datagram(std::span<const std::byte> data)
     {
         log::trace(log_cat, "Connection (CID: {}) received datagram: {}", _source_cid, buffer_printer{data});
+
+        if (!establish_hook_called)
+        {
+            log::debug(log_cat, "Early datagram received before handshake completed; firing established cb");
+            check_established();
+        }
 
         assert(dgrams);  // This callback shouldn't have been set up if we don't have datagrams
 
@@ -1618,18 +1654,13 @@ namespace oxen::quic
             }
         }
 
-        if (fin)
-        {
-            log::debug(log_cat, "Connection (CID: {}) received FIN from remote", _source_cid);
-            // TODO: no clean up, as close cb is called after? Or just for streams
-        }
-
         return 0;
     }
 
     std::string_view Connection::selected_alpn() const
     {
-        return _loop.call_get([this]() { return get_session()->selected_alpn(); });
+        return _loop.call_get(
+                [this]() { return (handshaked or establish_hook_called) ? get_session()->selected_alpn() : ""sv; });
     }
 
     uint64_t Connection::get_streams_available_impl() const
@@ -1716,7 +1747,7 @@ namespace oxen::quic
         settings.log_printf = log_printer;
 #endif
         settings.max_tx_udp_payload_size = MAX_PMTUD_UDP_PAYLOAD;
-        settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
+        settings.cc_algo = NGTCP2_CC_ALGO_BBR;
         settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
         settings.max_window = 24_Mi;
         settings.max_stream_window = 16_Mi;
@@ -1734,7 +1765,10 @@ namespace oxen::quic
         params.initial_max_data = 15_Mi;
         // Max concurrent streams supported on one connection
         params.initial_max_streams_uni = 0;
-        // Max send buffer for streams (local = streams we initiate, remote = streams initiated to us)
+        // Max amount of data the remote is initially allowed to send on a stream (local = streams
+        // we initiate, remote = streams initiated to us).  Normally, i.e. when the stream is not
+        // paused, we immediately extend the stream window by however many bytes we receive as we
+        // receive stream data.
         params.initial_max_stream_data_bidi_local = 6_Mi;
         params.initial_max_stream_data_bidi_remote = 6_Mi;
         params.initial_max_stream_data_uni = 6_Mi;
@@ -1794,6 +1828,16 @@ namespace oxen::quic
             _packet_splitting{context->config.split_packet},
             tls_creds{context->tls_creds}
     {
+        if (is_outbound())
+        {
+            if (!tls_creds)
+                tls_creds = GNUTLSCreds::make_unauthenticated();
+        }
+        else
+        {
+            assert(tls_creds && tls_creds->has_credentials());
+        }
+
         // If a connection_{established/closed}_callback was passed to IOContext via `Endpoint::{listen,connect}(...)`...
         //  - If this is an outbound, steal the callback to be used once. Outbound connections
         //    generate a new IOContext for each call to `::connect(...)`
@@ -1808,7 +1852,10 @@ namespace oxen::quic
 
         if (context->config.datagram_support)
             dgrams = _loop.make_shared<Datagrams>(
-                    *this, _endpoint, context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb);
+                    *this,
+                    _endpoint,
+                    context->dgram_data_cb ? context->dgram_data_cb : ep.dgram_recv_cb,
+                    context->config.dgram_queue_limit);
         pseudo_stream = _loop.make_shared<Stream>(*this, _endpoint);
         pseudo_stream->_stream_id = -1;
 
@@ -1864,8 +1911,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_client_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,
@@ -1909,8 +1956,8 @@ namespace oxen::quic
 
             conn_new_rv = ngtcp2_conn_server_new(
                     &connptr,
-                    &_dest_cid,
-                    &_source_cid,
+                    _dest_cid.ngtcp2(),
+                    _source_cid.ngtcp2(),
                     path,
                     NGTCP2_PROTO_VER_V1,
                     &callbacks,
