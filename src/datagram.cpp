@@ -5,39 +5,27 @@
 #include "internal.hpp"
 
 #include <numeric>
+#include <ranges>
 
 namespace oxen::quic
 {
 
-    Datagrams::Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb) :
+    Datagrams::Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb, size_t dgram_queue_limit_) :
             IOChannel{c, e},
             dgram_data_cb{std::move(data_cb)},
             rbufsize{endpoint.datagram_bufsize()},
             recv_buffer{*this},
             _packet_splitting(_conn->packet_splitting_enabled())
     {
+        if (dgram_queue_limit_)
+            dgram_queue_limit = dgram_queue_limit_;
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-    }
-
-    std::shared_ptr<Stream> Datagrams::get_stream()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return nullptr;
     }
 
     bool Datagrams::is_closing_impl() const
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return false;
-    }
-    bool Datagrams::sent_fin() const
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return false;
-    }
-    void Datagrams::set_fin(bool)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
     }
     size_t Datagrams::unsent_impl() const
     {
@@ -48,16 +36,6 @@ namespace oxen::quic
     {
         return not is_empty_impl();
     }
-    void Datagrams::wrote(size_t)
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-    }
-    std::vector<ngtcp2_vec> Datagrams::pending()
-    {
-        log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
-        return {};
-    }
-
     void Datagrams::early_data_begin()
     {
         _send_buffer.early_data_begin();
@@ -88,7 +66,13 @@ namespace oxen::quic
         loop.call([this, data, keep_alive = std::move(keep_alive)]() mutable {
             if (!_conn)
             {
-                log::warning(log_cat, "Unable to send datagram: connection has gone away");
+                log::debug(log_cat, "Unable to send datagram: connection has gone away");
+                return;
+            }
+
+            if (unsent_impl() > dgram_queue_limit)
+            {
+                log::info(log_cat, "Dropping datagram, queue over limit.");
                 return;
             }
 
@@ -108,7 +92,7 @@ namespace oxen::quic
         });
     }
 
-    std::optional<dgram::prepared> Datagrams::pending_datagram(bool prefer_small)
+    std::optional<dgram::prepared> Datagrams::pending(bool prefer_small)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
         return _send_buffer.fetch(_conn->get_max_datagram_piece(), prefer_small);
@@ -256,6 +240,10 @@ namespace oxen::quic
             {
                 // Early data accepted, so now we can discard all the sent packets (which will be
                 // everything up, but not including, `early_data_head`).
+                [[maybe_unused]] size_t old_unsent = unsent_bytes;
+                for (auto& pkt : buf | std::views::take(*early_data_head))
+                    unsent_bytes -= pkt.size();
+                assert(unsent_bytes <= old_unsent);  // in case I'm dumb and the loop above is one too many
                 buf.erase(buf.begin(), buf.begin() + *early_data_head);
             }
             early_data_head.reset();
@@ -263,6 +251,7 @@ namespace oxen::quic
 
         void queue::emplace(std::span<const std::byte> payload, uint16_t base_dgid, std::shared_ptr<void> keepalive)
         {
+            unsent_bytes += payload.size();
             buf.emplace_back(payload, base_dgid, std::move(keepalive));
         }
 
@@ -426,7 +415,10 @@ namespace oxen::quic
                 if (early_data_head)
                     ++*early_data_head;
                 else
+                {
+                    unsent_bytes -= buf.front().size();
                     buf.pop_front();
+                }
             }
 
             last_i = std::numeric_limits<size_t>::max();
@@ -434,10 +426,7 @@ namespace oxen::quic
 
         size_t queue::pending_bytes() const
         {
-            size_t bytes = 0;
-            for (auto it = buf.begin() + early_data_head.value_or(0); it != buf.end(); ++it)
-                bytes += it->unsent_size();
-            return bytes;
+            return unsent_bytes;
         }
 
         storage::storage(std::span<const std::byte> payload, uint16_t base_dgid, std::shared_ptr<void> keepalive) :

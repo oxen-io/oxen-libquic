@@ -187,8 +187,8 @@ namespace oxen::quic
         {}
     };
 
-#define _require_future2(f, timeout) REQUIRE(f.wait_for(timeout) == std::future_status::ready)
-#define _require_future1(f) _require_future2(f, 1s)
+#define _require_future2(f, timeout) REQUIRE((f).wait_for(timeout) == std::future_status::ready)
+#define _require_future1(f) _require_future2((f), 1s)
 #define GET_REQUIRE_FUTURE_MACRO(_1, _2, NAME, ...) NAME
 #define require_future(...) GET_REQUIRE_FUTURE_MACRO(__VA_ARGS__, _require_future2, _require_future1)(__VA_ARGS__)
 

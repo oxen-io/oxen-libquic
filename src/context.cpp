@@ -1,6 +1,9 @@
 #include "context.hpp"
 
 #include "internal.hpp"
+#include "stream.hpp"
+
+#include <fmt/ranges.h>
 
 #include <stdexcept>
 
@@ -8,8 +11,10 @@ namespace oxen::quic
 {
     void IOContext::_init()
     {
-        if (tls_creds == nullptr)
-            throw std::runtime_error{"Session IOContext requires some form of TLS credentials to operate"};
+        if (dir == Direction::INBOUND && (!tls_creds || !tls_creds->has_credentials()))
+            throw std::logic_error{"listen() requires full TLS credentials"};
+        // For outbound we allow no creds; connect will create a default, non-credential object if
+        // we give it a outbound null creds.
 
         log::debug(log_cat, "{} IO context created successfully", (dir == Direction::OUTBOUND) ? "Outbound"s : "Inbound"s);
     }
@@ -43,6 +48,12 @@ namespace oxen::quic
         log::trace(log_cat, "User passed connection handshake_timeout config value: {}", config.handshake_timeout->count());
     }
 
+    void IOContext::handle_ioctx_opt(opt::outbound_alpns alpns)
+    {
+        config.out_alpns.emplace(std::move(alpns));
+        log::trace(log_cat, "User passed connection outbound ALPN override: {}", fmt::join(config.out_alpns->alpns, ","));
+    }
+
     void IOContext::handle_ioctx_opt(stream_data_callback func)
     {
         log::trace(log_cat, "IO context stored stream close callback");
@@ -59,6 +70,12 @@ namespace oxen::quic
     {
         log::trace(log_cat, "IO context stored stream open callback");
         stream_close_cb = std::move(func);
+    }
+
+    void IOContext::handle_ioctx_opt(opt::stream_fin_callback cb)
+    {
+        log::trace(log_cat, "IO context stored stream fin callback, {}", !!cb.cb);
+        stream_fin_cb = std::move(cb);
     }
 
     void IOContext::handle_ioctx_opt(stream_constructor_callback func)

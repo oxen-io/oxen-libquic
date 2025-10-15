@@ -41,6 +41,26 @@ namespace oxen::quic
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message);
     void _chunk_sender_trace(const char* file, int lineno, std::string_view message, size_t val);
 
+    namespace opt
+    {
+        // Passing `opt::stream_notify` to the stream constructor makes the stream send an empty
+        // stream frame if there is no initial data, to notify the other end that the stream has
+        // opened.  Without this the remote only learns about the stream when the first data arrives
+        // through that stream.  If you intend the stream to be fully bidirection before the
+        // initiator sends anything, you want this option.
+        struct stream_notify_t
+        {};
+        constexpr stream_notify_t stream_notify{};
+
+        // opt::stream_fin allows passing a callback that will be called when the remote has
+        // send a FIN bit (which indicates that it will send no more data).  This callback will be
+        // called after all stream data has been processed.
+        struct stream_fin_callback
+        {
+            std::function<void(Stream&)> cb;
+        };
+    }  // namespace opt
+
     class Stream : public IOChannel, public std::enable_shared_from_this<Stream>
     {
         friend class TestHelper;
@@ -49,16 +69,34 @@ namespace oxen::quic
         friend class Loop;
 
       protected:
-        Stream(Connection& conn,
-               Endpoint& ep,
-               stream_data_callback data_cb = nullptr,
-               stream_close_callback close_cb = nullptr);
+        template <typename... Opts>
+        Stream(Connection& conn, Endpoint& ep, Opts&&... opts) : Stream{conn, ep, base_ctor{}}
+        {
+            (handle_opt(std::forward<Opts>(opts)), ...);
+            set_default_callbacks();
+        }
+
+        struct base_ctor
+        {};
+        // Internal base delegating constructor, used internally and usable by subclasses: this does
+        // *not* assign default data and close callbacks, and should be accompanied by a call to
+        // `set_default_callbacks()` if they are wanted.
+        Stream(Connection& conn, Endpoint& ep, base_ctor);
+
+        void handle_opt(stream_data_callback data_cb);
+        void handle_opt(stream_close_callback close_cb);
+        void handle_opt(opt::stream_notify_t);
+        void handle_opt(opt::stream_fin_callback fin_cb);
+
+        void set_default_callbacks();
 
       public:
         ~Stream() override;
 
         bool is_stream() const override { return true; }
-        int64_t stream_id() const override { return _stream_id; }
+        // Returns the stream ID of this stream, or a negative value if an ID has not been assigned
+        // yet (i.e. for a pending stream).
+        int64_t stream_id() const { return _stream_id; }
 
         const ConnectionID reference_id;
 
@@ -137,8 +175,14 @@ namespace oxen::quic
          */
         void resume();
 
-        // Returns true if the stream is usable, i.e. not closing or shutdown.
-        bool available() const;
+        // Returns true if the stream is writeable, i.e. not closing, shutdown and FIN not sent or
+        // scheduled.
+        bool writable() const;
+
+        // Returns true if the stream is potentially readable, i.e. not closed and the other side
+        // has not sent a FIN yet.  A false return value means no more data will arrive on this
+        // stream.
+        bool readable() const;
 
         // Returns true if the stream is ready, that is, has an assigned stream ID and can send data
         // to the other side.  Note that, when a connection is established using 0-RTT, new streams
@@ -149,21 +193,26 @@ namespace oxen::quic
         // available streams.
         bool is_ready() const;
 
-        std::shared_ptr<Stream> get_stream() override;
+        // Queues a FIN bit to be sent on the stream, and stop accepting any new stream data (i.e.
+        // calling send() after this has been called on a stream simply drops the data).  If there
+        // is currently queued data then the FIN bit is sent with the final stream data; if there is
+        // no queued data then this causes an empty stream frame with a FIN bit to be sent.
+        void send_fin();
 
         void close(uint64_t app_err_code = 0);
 
-        void set_stream_data_cb(stream_data_callback cb) { data_callback = std::move(cb); }
-        void set_stream_close_cb(stream_close_callback cb) { close_callback = std::move(cb); }
-
-        stream_data_callback data_callback;
-        stream_close_callback close_callback;
+        // Replaces the existing stream data callback (if any) with the given one.
+        void set_data_callback(stream_data_callback cb);
+        // Replaces the existing stream close callback (if any) with the given one.
+        void set_close_callback(stream_close_callback cb);
+        // Replaces the existing stream FIN callback (if any) with the given one.
+        void set_fin_callback(std::function<void(Stream&)> cb);
 
       protected:
         virtual void receive(std::span<const std::byte> data)
         {
-            if (data_callback)
-                data_callback(*this, data);
+            if (_data_callback)
+                _data_callback(*this, data);
         }
 
         virtual void closed(uint64_t app_code);
@@ -184,6 +233,11 @@ namespace oxen::quic
         // only be momentary.  See above.
         virtual void on_unready() {}
 
+        // Called when a stream FIN is received from the other end, indicating that the other end
+        // will send no more data.  Calls the fin_callback, if set.  If overriding, be sure to call
+        // the base class method to properly set the _received_fin bit.
+        virtual void on_fin();
+
         /// Called periodically to check if anything needs to be timed out.  The default does
         /// nothing, but subclasses can override to not do nothing if it's not the case that nothing
         /// ain't not good enough isn't false.
@@ -193,51 +247,60 @@ namespace oxen::quic
 
         stream_buffer user_buffers;
 
-        bool sent_fin() const override { return _sent_fin; }
-        void set_fin(bool v) override { _sent_fin = v; }
-
         bool has_unsent_impl() const override { return not is_empty_impl(); }
         bool is_closing_impl() const override { return _is_closing; }
         bool is_empty_impl() const override { return user_buffers.empty(); }
         size_t unsent_impl() const override;
 
+        /// Called on ACKs to confirm that the first `bytes` of queued stream data has been acked by
+        /// the other side.  The base Stream class uses this to tracking and free pending buffers
+        /// once no longer needed.  If overriding, be sure to call the base class method!
+        virtual void wrote(size_t bytes);
+
       private:
         // Called if 0-RTT early data was rejected; marks all sent data as unsent
         void revert_stream();
 
-        std::vector<ngtcp2_vec> pending() override;
+        // Returns ngtcp2 vector of user buffer pointers of unsent data.  Returned buffers cover at
+        // least `bytes` of unsent data (if available).  The second value of the pair will be true
+        // if there is more stream data queued beyond the returned user buffers, false if the user
+        // buffers cover to the end of currently queued data.  (If there is no `more` *and*
+        // _send_fin is set then we know it is time to give the FIN flag to ngtcp2).  This is
+        // primary used by connection.cpp to obtain the next chunk of data from this stream.
+        std::pair<std::vector<ngtcp2_vec>, bool> pending(size_t bytes);
 
+        size_t _unsent_size{0};
         size_t _unacked_size{0};
+        size_t _current_buffer_index{0};
+        size_t _current_buffer_offset{0};
+        size_t _total_buffer_size{0};
         bool _is_closing{false};
-        bool _is_shutdown{false};
+        bool _send_fin{false};
         bool _sent_fin{false};
+        bool _received_fin{false};
         bool _ready{false};
         bool _paused{false};
-        int64_t _stream_id;
+        bool _notify{false};
+        bool _had_notify{false};
+        int64_t _stream_id{-2};
 
         size_t _paused_offset{0};
+
+        stream_data_callback _data_callback;
+        stream_close_callback _close_callback;
+        std::function<void(Stream&)> _fin_callback;
 
         std::optional<std::pair<size_t, size_t>> _watermarking;  // {alarm threshold, all-clear threshold}
         bool _watermark_alarm{false};
         std::function<void(Stream&)> _watermark_on_alarm;
         std::function<void(Stream&)> _watermark_on_clear;
 
-        void wrote(size_t bytes) override;
-
         void append_buffer(std::span<const std::byte> buffer, std::shared_ptr<void> keep_alive);
 
         void check_watermark();
         void acknowledge(size_t bytes);
 
-        size_t size() const
-        {
-            size_t sum{0};
-            if (user_buffers.empty())
-                return sum;
-            for (const auto& [data, store] : user_buffers)
-                sum += data.size();
-            return sum;
-        }
+        size_t size() const { return _total_buffer_size; }
 
         size_t unacked() const { return _unacked_size; }
 
@@ -340,8 +403,6 @@ namespace oxen::quic
                 str.send(bsv, std::move(next));
             }
         };
-
-        std::optional<dgram::prepared> pending_datagram(bool) override;
 
       public:
         /// Sends data in chunks: `next_chunk` is some callable (e.g. lambda) that will be called

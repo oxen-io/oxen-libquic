@@ -17,20 +17,20 @@ namespace oxen::quic::test
         std::future<void> server_future = server_promise.get_future(), client_future = client_promise.get_future(),
                           stream_future = stream_promise.get_future();
 
-        stream_open_callback server_io_open_cb = [&](IOChannel& s) {
+        stream_open_callback server_io_open_cb = [&](Stream& s) {
             log::debug(test_cat, "Calling server stream open callback... stream opened...");
-            server_stream = s.get_stream();
+            server_stream = s.shared_from_this();
             stream_promise.set_value();
             return 0;
         };
 
-        stream_data_callback server_io_data_cb = [&](IOChannel&, std::span<const std::byte>) {
+        stream_data_callback server_io_data_cb = [&](Stream&, std::span<const std::byte>) {
             log::debug(test_cat, "Calling server stream data callback... data received... incrementing counter...");
             data_check += 1;
             server_promise.set_value();
         };
 
-        stream_data_callback client_io_data_cb = [&](IOChannel&, std::span<const std::byte>) {
+        stream_data_callback client_io_data_cb = [&](Stream&, std::span<const std::byte>) {
             log::debug(test_cat, "Calling client stream data callback... data received... incrementing counter...");
             data_check += 1;
             client_promise.set_value();
@@ -84,7 +84,7 @@ namespace oxen::quic::test
 
         stream_open_callback server_io_open_cb = [&](Stream& s) {
             log::debug(test_cat, "Calling server stream open callback... stream opened...");
-            server_extracted_stream = s.get_stream();
+            server_extracted_stream = s.shared_from_this();
             try
             {
                 server_promises.at(si).set_value();
@@ -99,7 +99,7 @@ namespace oxen::quic::test
 
         stream_open_callback client_io_open_cb = [&](Stream& s) {
             log::debug(test_cat, "Calling client stream open callback... stream opened...");
-            client_extracted_stream = s.get_stream();
+            client_extracted_stream = s.shared_from_this();
             try
             {
                 client_promises.at(ci).set_value();
