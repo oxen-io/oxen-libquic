@@ -3,6 +3,7 @@
 #include "address.hpp"
 #include "connection.hpp"
 #include "connection_ids.hpp"
+#include "context.hpp"
 #include "crypto.hpp"
 #include "datagram.hpp"
 #include "loop.hpp"
@@ -19,6 +20,7 @@
 #include <exception>
 #include <functional>
 #include <future>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -35,8 +37,6 @@ struct event_base;
 
 namespace oxen::quic
 {
-    struct IOContext;
-
     class Endpoint : public std::enable_shared_from_this<Endpoint>
     {
       public:
@@ -54,7 +54,9 @@ namespace oxen::quic
         template <typename... Opt>
         void listen(Opt&&... opts)
         {
-            check_for_tls_creds<Opt...>();
+            static_assert(
+                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
+                    "listen() requires exactly one std::shared_ptr<TLSCreds> argument");
 
             loop.call_get([&opts..., this]() {
                 if (inbound_ctx)
@@ -70,7 +72,9 @@ namespace oxen::quic
         template <typename... Opt>
         std::shared_ptr<Connection> connect(RemoteAddress remote, Opt&&... opts)
         {
-            check_for_tls_creds<Opt...>();
+            static_assert(
+                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) <= 1,
+                    "connect() requires at most one std::shared_ptr<TLSCreds> argument");
 
             if (not _manual_routing and !remote.is_addressable())
                 throw std::invalid_argument("Address must be addressable to connect");
@@ -80,9 +84,9 @@ namespace oxen::quic
 
             return loop.call_get([this, &opts..., remote = std::move(remote)]() mutable {
                 // initialize client context and client tls context simultaneously
-                outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
-                _set_context_globals(outbound_ctx);
-                return _connect(std::move(remote));
+                auto outbound_ctx = std::make_shared<IOContext>(Direction::OUTBOUND, std::forward<Opt>(opts)...);
+                _assign_context_globals(*outbound_ctx);
+                return _connect(std::move(remote), std::move(outbound_ctx));
             });
         }
 
@@ -176,6 +180,7 @@ namespace oxen::quic
         bool _packet_splitting{false};
         Splitting _policy{Splitting::NONE};
         int _rbufsize{4096};
+        size_t _dgram_queue_limit{std::numeric_limits<size_t>::max()};
 
         opt::manual_routing _manual_routing;
         bool _disable_mtu_discovery{false};
@@ -185,7 +190,6 @@ namespace oxen::quic
 
         std::vector<unsigned char> _static_secret;
 
-        std::shared_ptr<IOContext> outbound_ctx;
         std::shared_ptr<IOContext> inbound_ctx;
 
         std::vector<std::string> outbound_alpns;
@@ -199,7 +203,7 @@ namespace oxen::quic
         // Does the non-templated bit of `listen()`
         void _listen();
 
-        std::shared_ptr<Connection> _connect(RemoteAddress remote);
+        std::shared_ptr<Connection> _connect(RemoteAddress remote, std::shared_ptr<IOContext> ctx);
 
         void handle_ep_opt(opt::enable_datagrams dc);
         void handle_ep_opt(opt::outbound_alpns alpns);
@@ -268,13 +272,13 @@ namespace oxen::quic
 
         void dissociate_reset(const uint8_t* token, Connection& conn);
 
-        void associate_cid(quic_cid qcid, Connection& conn, bool weakly = false);
+        void associate_cid(const quic_cid& qcid, Connection& conn, bool weakly = false);
 
         void associate_cid(const ngtcp2_cid* cid, Connection& conn);
 
         void dissociate_cid(const ngtcp2_cid* cid, Connection& conn);
 
-        void dissociate_cid(quic_cid qcid, Connection& conn);
+        void dissociate_cid(const quic_cid& qcid, Connection& conn);
 
         const std::vector<unsigned char>& static_secret() const { return _static_secret; }
 
@@ -293,7 +297,7 @@ namespace oxen::quic
 
         void send_stateless_connection_close(const Packet& pkt, ngtcp2_pkt_hd* hdr, io_error ec = io_error{0});
 
-        void _set_context_globals(std::shared_ptr<IOContext>& ctx);
+        void _assign_context_globals(IOContext& ctx) const;
 
         void _close_conns(std::optional<Direction> d);
 
@@ -354,7 +358,7 @@ namespace oxen::quic
         void send_or_queue_packet(
                 const Path& p, std::vector<std::byte> buf, uint8_t ecn, std::function<void(io_result)> callback = nullptr);
 
-        void send_stateless_reset(const Packet& pkt, quic_cid& cid);
+        void send_stateless_reset(const Packet& pkt, const quic_cid& cid);
 
         void send_version_negotiation(const ngtcp2_version_cid& vid, Path p);
 
@@ -371,14 +375,6 @@ namespace oxen::quic
         //     else.
         std::pair<Connection*, bool> accept_initial_connection(const Packet& pkt);
         Connection* check_stateless_reset(const Packet& pkt);
-
-        template <typename... Opt>
-        static constexpr void check_for_tls_creds()
-        {
-            static_assert(
-                    (0 + ... + std::is_convertible_v<std::remove_cvref_t<Opt>, std::shared_ptr<TLSCreds>>) == 1,
-                    "Endpoint listen/connect require exactly one std::shared_ptr<TLSCreds> argument");
-        }
     };
 
 }  // namespace oxen::quic

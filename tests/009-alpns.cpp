@@ -140,6 +140,19 @@ namespace oxen::quic::test
             REQUIRE(client_established.wait());
             REQUIRE(conn->selected_alpn() == "special-alpn");
         }
+
+        SECTION("Per-connection outgoing ALPN override")
+        {
+            auto server_endpoint = test_net.endpoint(server_local, opt::inbound_alpns{"alpn1", "alpn2", "alpn3"}, timeout);
+            REQUIRE_NOTHROW(server_endpoint->listen(server_tls));
+
+            RemoteAddress client_remote{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
+
+            auto client_endpoint = test_net.endpoint(client_local, client_established, opt::outbound_alpn("alpn2"), timeout);
+            auto conn = client_endpoint->connect(client_remote, client_tls, opt::outbound_alpn("alpn1"));
+            REQUIRE(client_established.wait());
+            REQUIRE(conn->selected_alpn() == "alpn1");
+        }
     }
 
 }  // namespace oxen::quic::test
