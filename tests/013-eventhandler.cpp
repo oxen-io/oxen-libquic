@@ -21,13 +21,7 @@ namespace oxen::quic::test
 
         std::shared_ptr<Ticker> handler;
 
-        stream_data_callback server_data_cb = [&](Stream&, std::span<const std::byte>) {
-            recv_counter += 1;
-            if (recv_counter == NUM_ITERATIONS)
-            {
-                handler->stop();
-            }
-        };
+        stream_data_callback server_data_cb = [&recv_counter](Stream&, std::span<const std::byte>) { recv_counter++; };
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
@@ -55,22 +49,69 @@ namespace oxen::quic::test
 
         handler->start();
 
-        REQUIRE(handler->is_running());
-        test_net.loop()->call_later(DELAY, [&]() { prom_a.set_value(); });
+        test_net.loop()->call_later(DELAY, [&prom_a] { prom_a.set_value(); });
 
         require_future(fut_a, 5s);
         REQUIRE(recv_counter == send_counter);
-        REQUIRE_FALSE(handler->is_running());
 
         recv_counter = 0;
         send_counter = 0;
 
         REQUIRE(handler->start());
 
-        test_net.loop()->call_later(DELAY, [&]() { prom_b.set_value(); });
+        test_net.loop()->call_later(DELAY, [&prom_b] { prom_b.set_value(); });
 
         require_future(fut_b, 5s);
         REQUIRE(recv_counter == send_counter);
-        REQUIRE_FALSE(handler->is_running());
     }
+
+    TEST_CASE("013 - Wakeable event handler", "[013][wakeable]")
+    {
+        Loop loop;
+
+        std::promise<void> prom;
+        std::atomic<int> i = 0;
+
+        auto w = loop.make_wakeable([&i, &prom] {
+            ++i;
+            prom.set_value();
+        });
+
+        w->wake();
+        auto fut = prom.get_future();
+
+        require_future(fut, 1s);
+        REQUIRE(i == 1);
+
+        std::promise<void> prom2, prom5;
+        w = loop.make_wakeable([&i, &prom2, &prom5] {
+            auto v = ++i;
+            if (v == 2)
+                prom2.set_value();
+            else if (v == 5)
+                prom5.set_value();
+        });
+
+        loop.call_get([&w] {
+            for (int i = 0; i < 100; i++)
+                w->wake();
+        });
+
+        auto fut2 = prom2.get_future();
+        require_future(fut2, 1s);
+        REQUIRE(i == 2);
+
+        loop.call_get([&w] {
+            for (int i = 0; i < 100; i++)
+                w->wake();
+        });
+        std::this_thread::sleep_for(25ms);
+        w->wake();
+        std::this_thread::sleep_for(25ms);
+        w->wake();
+        auto fut5 = prom5.get_future();
+        require_future(fut5, 1s);
+        REQUIRE(i == 5);
+    }
+
 }  //  namespace oxen::quic::test

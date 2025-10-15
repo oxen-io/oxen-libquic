@@ -49,17 +49,12 @@ namespace oxen::quic
         if (auto ptr = return_sender.lock())
             ptr->respond(req_id, body, error);
         else
-            log::warning(log_cat, "BTRequestStream unable to send response: stream has gone away");
+            log::debug(log_cat, "Dropping response: stream has gone away");
     }
 
-    void BTRequestStream::handle_bp_opt(std::function<void(Stream&, uint64_t)> close_cb)
+    void BTRequestStream::handle_opt(std::function<void(message m)> request_handler)
     {
-        log::debug(log_cat, "Bparser set user-provided close callback!");
-        close_callback = std::move(close_cb);
-    }
-    void BTRequestStream::handle_bp_opt(std::function<void(message m)> request_handler)
-    {
-        log::debug(log_cat, "Bparser set generic request handler");
+        log::debug(log_cat, "BTRequestStream set generic request handler");
         generic_handler = std::move(request_handler);
     }
     void BTRequestStream::respond(int64_t rid, std::span<const std::byte> body, bool error)
@@ -100,7 +95,7 @@ namespace oxen::quic
 
     void BTRequestStream::receive(std::span<const std::byte> data)
     {
-        log::trace(log_cat, "bparser recv data callback called!");
+        log::trace(log_cat, "btreqstream recv data callback called!");
 
         if (is_closing())
             return;
@@ -112,13 +107,13 @@ namespace oxen::quic
         catch (const std::exception& e)
         {
             log::error(log_cat, "Exception caught: {}", e.what());
-            close(BPARSER_ERROR_EXCEPTION);
+            close(BTREQ_ERROR_EXCEPTION);
         }
     }
 
     void BTRequestStream::closed(uint64_t app_code)
     {
-        log::debug(log_cat, "bparser closed with {}", quic_strerror(app_code));
+        log::debug(log_cat, "btreqstream closed with {}", quic_strerror(app_code));
 
         // First time out any pending requests, even if they haven't hit the timer, because we're
         // being closed and so they can never be answered.
@@ -135,7 +130,7 @@ namespace oxen::quic
 
     void BTRequestStream::register_generic_handler(std::function<void(message)> request_handler)
     {
-        log::debug(log_cat, "Bparser set generic request handler");
+        log::debug(log_cat, "BTRequestStream set generic request handler");
         loop.call([this, func = std::move(request_handler)]() mutable { generic_handler = std::move(func); });
     }
 
@@ -208,6 +203,51 @@ namespace oxen::quic
         }
     }
 
+    std::optional<size_t> prefix_accumulator(std::string& partial, std::span<const std::byte>& req)
+    {
+        std::optional<size_t> s;
+        auto it = req.begin();
+        for (; it != req.end(); ++it)
+        {
+            if (*it >= std::byte{'0'} && *it <= std::byte{'9'})
+            {
+                partial += static_cast<char>(*it);
+                if (partial.size() > MAX_REQ_LEN_ENCODED)
+                    throw std::invalid_argument{"invalid encoded data length"};
+            }
+            else if (*it == std::byte{':'})
+            {
+                if (partial.size() > 1 && partial.front() == '0')
+                    throw std::invalid_argument{"bt-encoded string size cannot begin with 0"};
+                [[maybe_unused]] auto [ptr, ec] =
+                        std::from_chars(partial.data(), partial.data() + partial.size(), s.emplace());
+                // These should be guaranteed by the parsing above
+                assert(ec == std::errc{});
+                assert(ptr == partial.data() + partial.size());
+                partial.clear();
+                ++it;
+                break;
+            }
+            else
+                throw std::invalid_argument{"invalid input: expected bt-encoded data block"};
+        }
+
+        req = {it, req.end()};
+        return s;
+    }
+
+    bool data_accumulator(std::vector<std::byte>& buf, std::span<const std::byte>& req, size_t size)
+    {
+        assert(buf.size() < size);
+        auto old_size = buf.size();
+        auto new_size = std::min(old_size + req.size(), size);
+        buf.resize(new_size);
+        std::memcpy(buf.data() + old_size, req.data(), new_size - old_size);
+        req = req.subspan(new_size - old_size);
+
+        return buf.size() == size;
+    }
+
     void BTRequestStream::process_incoming(std::span<const std::byte> req)
     {
         log::trace(log_cat, "{} called", __PRETTY_FUNCTION__);
@@ -216,80 +256,33 @@ namespace oxen::quic
         {
             if (current_len == 0)
             {
-                std::string_view sreq{reinterpret_cast<const char*>(req.data()), req.size()};
-                size_t consumed;
-                size_t prev_len = size_buf.size();
-                if (prev_len)
+                if (auto s = prefix_accumulator(size_buf, req))
                 {
-                    // We have some leftover digits in size_buf, so copy some more from the incoming
-                    // data to make size_buf up to MAX_REQ_LEN_ENCODED long:
-                    if (prev_len < MAX_REQ_LEN_ENCODED)
-                        size_buf += sreq.substr(0, MAX_REQ_LEN_ENCODED - prev_len);
-
-                    // Now see if we can parse a `N:` value out of it.
-                    consumed = parse_length(size_buf);
-                    // 0 means the : wasn't found *but* that the input value is still less than the
-                    // max, so we've already appended it and can just wait for more data to append.
-                    // (This case is rare; it would mean we only got a very small number of stream
-                    // bytes).
-                    if (consumed == 0)
-                        return;
-
-                    // Otherwise we successfully parsed the size, have updated current_len, and
-                    // don't need the size buffer anymore:
-                    size_buf.clear();
-                }
-                else
-                {
-                    // With no initial buffer we can just parse off the beginning of the input
-                    // value, to save copying it to buf in most cases.
-                    consumed = parse_length(sreq.substr(0, MAX_REQ_LEN_ENCODED));
-                    if (consumed == 0)
+                    current_len = *s;
+                    if (current_len == 0)
                     {
-                        // The input didn't contain a number, but wasn't long enough to definitively
-                        // be a number, so we copy what we have and then wait for more stream data
-                        // to arrive with the rest of the number.
-                        size_buf.resize(req.size());
-                        std::memcpy(size_buf.data(), req.data(), req.size());
+                        log::debug(log_cat, "Ignoring 0-length btstream body");
                         return;
                     }
+                    if (current_len > MAX_REQ_LEN)
+                        throw std::invalid_argument{"Request exceeds maximum size!"};
                 }
-                // If we get here, then we consumed `consumed` in total and parsed it into
-                // current_len, but that includes a possible `prev_len` characters we already had.
-                // So remove whatever arrived in this current call from the from of req; the
-                // remainder is the beginning of the incoming `current_len` request data bytes.
-                assert(consumed > prev_len);
-                req = req.subspan(consumed - prev_len);
+                else
+                    return;
+
+                assert(current_len > 0);  // We shouldn't get out of the above without knowing this
+                buf.reserve(current_len);
             }
 
-            assert(current_len > 0);  // We shouldn't get out of the above without knowing this
-
-            if (auto r_size = req.size() + buf.size(); r_size >= current_len)
+            if (data_accumulator(buf, req, current_len))
             {
-                // We have enough data for a complete request, so copy whatever we need to
-                // complete the current request into buf and process it, leaving behind the
-                // potential start of the next request:
-                if (buf.size() < current_len)
-                {
-                    size_t need = current_len - buf.size();
-                    buf.insert(buf.end(), req.begin(), req.begin() + need);
-                    req = req.subspan(need);
-                }
-
                 handle_input(message{*this, std::move(buf)});
                 buf.clear();
 
                 // Back to the top to try processing another request that might have arrived in
                 // the same stream buffer
                 current_len = 0;
-                continue;
             }
-
-            // Otherwise we don't have enough data on hand for a complete request, so move what we
-            // got to the buffer to be processed when the next incoming chunk of data arrives.
-            buf.reserve(current_len);
-            buf.insert(buf.end(), req.begin(), req.end());
-            return;
         }
     }
 
@@ -339,47 +332,6 @@ namespace oxen::quic
             return nullptr;
         }
         return sent_reqs.emplace_back(std::move(req)).get();
-    }
-
-    /** Returns:
-            0: length was incomplete
-            >0: number of characters (including colon) parsed from front of req
-
-        Error:
-            throws on invalid value
-    */
-    size_t BTRequestStream::parse_length(std::string_view req)
-    {
-        auto pos = req.find_first_of(':');
-
-        // request is incomplete with no readable request length
-        if (pos == std::string_view::npos)
-        {
-            if (req.size() >= MAX_REQ_LEN_ENCODED)
-                // we didn't find a valid length, but do have enough consumed for the maximum valid
-                // length, so something is clearly wrong with this input.
-                throw std::invalid_argument{"Invalid incoming request; invalid encoding or request too large"};
-
-            return 0;
-        }
-
-        auto [ptr, ec] = std::from_chars(req.data(), req.data() + pos, current_len);
-
-        const char* bad = nullptr;
-        if (ec != std::errc() || ptr != req.data() + pos)
-            bad = "Invalid incoming request encoding!";
-        else if (current_len == 0)
-            bad = "Invalid empty bt request!";
-        else if (current_len > MAX_REQ_LEN)
-            bad = "Request exceeds maximum size!";
-
-        if (bad)
-        {
-            close(BPARSER_ERROR_EXCEPTION);
-            throw std::invalid_argument{bad};
-        }
-
-        return pos + 1;
     }
 
     size_t BTRequestStream::num_pending() const

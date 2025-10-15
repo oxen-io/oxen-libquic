@@ -55,8 +55,6 @@ namespace oxen::quic
         IOChannel& operator=(IOChannel&&) = delete;
 
         virtual bool is_stream() const = 0;
-        virtual std::shared_ptr<Stream> get_stream() = 0;
-        virtual int64_t stream_id() const = 0;
 
         // Returns this channel's connection object.  Will return a nullptr if the Connection no
         // longer exists.
@@ -104,12 +102,6 @@ namespace oxen::quic
         // This is the (single) send implementation that implementing classes must provide; other
         // calls to send are converted into calls to this.
         virtual void send_impl(std::span<const std::byte>, std::shared_ptr<void> keep_alive) = 0;
-
-        virtual std::vector<ngtcp2_vec> pending() = 0;
-        virtual std::optional<dgram::prepared> pending_datagram(bool) = 0;
-        virtual bool sent_fin() const = 0;
-        virtual void set_fin(bool) = 0;
-        virtual void wrote(size_t) = 0;
 
         // Does the actual implementation: these methods may only be called internally, from code
         // already inside the event loop thread.  (The public non-_impl versions of these methods
