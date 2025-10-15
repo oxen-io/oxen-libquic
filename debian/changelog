@@ -1,4 +1,4 @@
-oxen-libquic (1.6.0-1~ubuntu2510) plucky; urgency=medium
+oxen-libquic (1.6.0-1~ubuntu2510) questing; urgency=medium
 
   [ Jason Rhinelander ]
   * Make ngtcp2_cid internal to quic_cid
