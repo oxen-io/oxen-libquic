@@ -140,11 +140,22 @@ namespace oxen::quic::test
             CHECK((ipv4(10, 255, 255, 255) / 8).contains(ipv4(10, 123, 123, 123)));
             CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(11, 0, 0, 0)));
             CHECK_FALSE((ipv4(10, 0, 0, 0) / 8).contains(ipv4(9, 255, 255, 255)));
+            CHECK((ipv4(10, 0, 0, 0) % 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 0, 0, 0) % 8).contains(ipv4(10, 255, 255, 255)));
+            CHECK((ipv4(10, 123, 45, 67) % 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK((ipv4(10, 255, 255, 255) % 8).contains(ipv4(10, 0, 0, 0)));
+            CHECK((ipv4(10, 255, 255, 255) % 8).contains(ipv4(10, 123, 123, 123)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) % 8).contains(ipv4(11, 0, 0, 0)));
+            CHECK_FALSE((ipv4(10, 0, 0, 0) % 8).contains(ipv4(9, 255, 255, 255)));
 
             CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
             CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) / 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0xffff, 0xffff, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
+            CHECK((ipv6(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 0) % 32).contains(ipv6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)));
 
             auto v4_str = "10.0.0.1"s;
 
@@ -385,18 +396,60 @@ namespace oxen::quic::test
             CHECK(true);
         }
 
-        SECTION("No TLS creds in connect/listen")
+        SECTION("Wrong number of TLS creds to connect/listen")
         {
-            // If uncommented, any of these lines should not compile! connect() and listen()
-            // each require exactly one TLSCreds shared pointer to be provided.
+            // If uncommented, any of these lines should not compile! listen() requires exactly one
+            // TLSCreds shared pointer argument, and connect() requires at most one.
 
-            // server_endpoint->connect(client_remote);                          // no tls
-            // server_endpoint->connect(client_tls, client_remote, client_tls);  // multiple tls
+            // server_endpoint->connect(client_remote, server_tls, server_tls);  // multiple tls
             // server_endpoint->listen(client_remote);                           // no tls
             // server_endpoint->listen(server_tls, client_remote, server_tls);   // multiple tls
 
             CHECK(true);
         }
+    }
+
+    TEST_CASE("001 - Handshaking: No client pubkey", "[001][client][unauthenticated][pubkeys]")
+    {
+        auto server_established = callback_waiter{[](Connection&) {}};
+        auto client_established = callback_waiter{[](Connection&) {}};
+
+        Loop loop;
+
+        auto server_tls = GNUTLSCreds::make_from_ed_keys(defaults::SERVER_SEED, defaults::SERVER_PUBKEY);
+
+        Address server_local{};
+        Address client_local{};
+
+        auto server_endpoint = Endpoint::endpoint(loop, server_local, server_established);
+        server_endpoint->listen(server_tls);
+
+        auto client_endpoint = Endpoint::endpoint(loop, client_local);
+
+        RemoteAddress server_raddr{defaults::SERVER_PUBKEY, LOCALHOST, server_endpoint->local().port()};
+
+        std::shared_ptr<Connection> conn;
+        SECTION("Explicit unauthenticated TLS")
+        {
+            conn = client_endpoint->connect(server_raddr, GNUTLSCreds::make_unauthenticated(), client_established);
+        }
+        SECTION("Omitted TLS argument for unauthenticated default")
+        {
+            conn = client_endpoint->connect(server_raddr, client_established);
+        }
+
+        CHECK(client_established.wait());
+        CHECK(server_established.wait());
+        CHECK(conn->is_handshaked());
+        CHECK(conn->is_handshake_confirmed());
+        CHECK(oxenc::to_hex(view(conn->remote_key())) == oxenc::to_hex(defaults::SERVER_PUBKEY));
+
+        auto server_conns = server_endpoint->get_all_conns(Direction::INBOUND);
+        REQUIRE(server_conns.size() == 1);
+        auto& sconn = server_conns.front();
+        CHECK(sconn->is_handshaked());
+        CHECK(sconn->is_handshake_confirmed());
+        CHECK(sconn->remote_key().empty());
     }
 
     TEST_CASE("001 - Handshaking: Pubkey successes", "[001][client][correct][pubkeys]")
@@ -425,11 +478,11 @@ namespace oxen::quic::test
             // This will return false until the connection has had time to establish and validate. Depending
             // on the architecture running the test, the connection may be already established and validated
             // by the time this line es executed
-            CHECK_NOFAIL(client_ci->is_validated());
+            CHECK_NOFAIL(client_ci->is_handshaked());
 
             CHECK(client_established.wait());
             CHECK(server_established.wait());
-            CHECK(client_ci->is_validated());
+            CHECK(client_ci->is_handshaked());
         }
 
         SECTION("Immediate network shutdown after calling connect")
@@ -449,7 +502,7 @@ namespace oxen::quic::test
 
         auto [client_tls, server_tls] = defaults::tls_creds_from_ed_keys();
 
-        server_tls->set_key_verify_callback(
+        server_tls->require_client_keys(
                 [](std::span<const unsigned char> key, std::string_view) { return view(key) == defaults::CLIENT_PUBKEY; });
 
         Address server_local{};
@@ -469,10 +522,21 @@ namespace oxen::quic::test
         auto server_cis = server_endpoint->get_all_conns(Direction::INBOUND);
         REQUIRE(!server_cis.empty());
         auto& server_ci = server_cis.front();
-        CHECK(client_ci->is_validated());
-        CHECK(server_ci->is_validated());
+        CHECK(client_ci->is_handshaked());
+        CHECK(server_ci->is_handshaked());
 
         CHECK(view(server_ci->remote_key()) == defaults::CLIENT_PUBKEY);
+    }
+
+    TEST_CASE("001 - Handshaking: Server creds required", "[001][server][creds]")
+    {
+        auto creds = GNUTLSCreds::make_unauthenticated();
+
+        Loop loop;
+        Address server_local{};
+        auto server_endpoint = Endpoint::endpoint(loop, server_local);
+
+        CHECK_THROWS_AS(server_endpoint->listen(creds), std::logic_error);
     }
 
     TEST_CASE("001 - Handshaking: Types - IPv6", "[001][ipv6]")
@@ -524,7 +588,7 @@ namespace oxen::quic::test
 
         CHECK(client_established.wait());
         CHECK(server_established.wait());
-        CHECK(client_ci->is_validated());
+        CHECK(client_ci->is_handshaked());
     }
 
     TEST_CASE("001 - multi-listen failure", "[001][dumb][listen][protection]")
@@ -659,12 +723,12 @@ namespace oxen::quic::test
             return defer_to_incoming;
         };
 
-        server_tls->set_key_verify_callback([&](std::span<const unsigned char> key, std::string_view) {
+        server_tls->require_client_keys([&](std::span<const unsigned char> key, std::string_view) {
             std::lock_guard lock{ci_mutex};
             return defer_hook(view(key), S_PUBKEY, C_PUBKEY, server_ci);
         });
 
-        client_tls->set_key_verify_callback([&](std::span<const unsigned char> key, std::string_view) {
+        client_tls->require_client_keys([&](std::span<const unsigned char> key, std::string_view) {
             std::lock_guard lock{ci_mutex};
             return defer_hook(view(key), C_PUBKEY, S_PUBKEY, client_ci);
         });
@@ -819,7 +883,7 @@ namespace oxen::quic::test
         // need anything else from the server), so the handshake established timeout just doesn't
         // fire on the client and, no matter how long we block the server, the only timeout that
         // will happen is the idle timeout.
-        server_tls->set_key_verify_callback([](const ustring_view&, const ustring_view&) {
+        server_tls->require_client_keys([](const ustring_view&, const ustring_view&) {
             // This stalls the entire network object; this is a really terrible thing to do outside
             // of test code, but will let us simulate a slow handshake.
             log::critical(test_cat, "key verify sleeping...");

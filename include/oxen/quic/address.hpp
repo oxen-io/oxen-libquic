@@ -62,7 +62,7 @@ namespace oxen::quic
       protected:
         void _copy_internals(const Address& obj)
         {
-            std::memmove(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
+            std::memcpy(&_sock_addr, &obj._sock_addr, sizeof(_sock_addr));
             _addr.addrlen = obj._addr.addrlen;
             dual_stack = obj.dual_stack;
         }
@@ -106,7 +106,8 @@ namespace oxen::quic
         Address(const Address& obj) { _copy_internals(obj); }
         Address& operator=(const Address& obj)
         {
-            _copy_internals(obj);
+            if (&obj != this)
+                _copy_internals(obj);
             return *this;
         }
 

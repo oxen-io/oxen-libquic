@@ -54,13 +54,13 @@ namespace oxen::quic::test
         Address client_local{};
 
         auto server_bp_cb = callback_waiter{[&](message msg) {
-            log::debug(test_cat, "Server bparser received: {}", msg.body());
+            log::debug(test_cat, "Server BTRequestStream received: {}", msg.body());
             CHECK(bt_decode(msg.body()));
             msg.respond(msg.body());
         }};
 
         auto client_bp_cb = callback_waiter{[&](message msg) {
-            log::debug(test_cat, "Client bparser received: {}", msg.body());
+            log::debug(test_cat, "Client BTRequestStream received: {}", msg.body());
             CHECK(bt_decode(msg.body()));
         }};
 
