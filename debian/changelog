@@ -1,3 +1,53 @@
+oxen-libquic (1.6.0-1~ubuntu2204) jammy; urgency=medium
+
+  [ Jason Rhinelander ]
+  * Make ngtcp2_cid internal to quic_cid
+  * Downgrade BTRequestStream warning to debug
+  * Allow outbound ALPN to be set per connection
+  * "bparser" -> BTRequestStream
+  * Add no-data stream notification
+  * Fix invalid deque access
+  * drone: debian 12->13, 11->12
+  * bump version
+  * Static build package updates and fixes
+  * Fix broken ipv{4,6}_net::contains
+  * Change congestion control to BBR
+  * Downgrade some log warnings
+  * Coalesce speedtests + small improvements
+  * Use sys_seconds instead of full_timepoint for 0rtt callbacks
+  * Make 0rtt initial data configurable and reduce its default
+  * Add wakeable event; remove weird/unused rescheduling ticker
+  * enable_outbound_0rtt: 0 or 2 arguments, not 1
+  * fix typos
+  * No-credential connections and 0-RTT fixes
+  * Don't try to get ALPN before conn is handshaked
+  * improve comment wording
+  * Don't fire close callback on failed incoming connections
+  * Check for no certs before raw pubkey mode
+  * Fix queue_incoming_stream when called after a stream is created
+  * Fire conn established earlier for 0-RTT connection
+  * Replace misleading memmove with memcpy
+  * Fix opt::stream_notify not working with rejected 0RTT early data
+  * Explicit stream FIN sending and callback + related fixes
+  * Rewrite and expose size + data accumulation
+  * De-public data/close/fin callbacks
+  * CI fixes for windows and intel macos
+  * Disable wine tests
+  * Fix late stream ack causing premature connection close
+  * Make Stream::wrote virtual
+  * Initialize stream ID to -1; improve max stream data comment
+  * Don't use -1 to avoid the -1 pseudo_stream streamid value
+
+  [ Thomas Winget ]
+  * free gnutls priority struct on GNUTLSCreds destructor
+  * More effecient use of stream buffers
+  * add queued datagram bytes limit
+  * correct default datagram queue limit to match everywhere else
+  * cache pending datagram bytes
+  * minor cleanup
+
+ -- Jason Rhinelander <jason@session.foundation>  Wed, 15 Oct 2025 18:26:59 -0300
+
 oxen-libquic (1.5.0-1~ubuntu2204) jammy; urgency=medium
 
   * drop jammy armhf deb
