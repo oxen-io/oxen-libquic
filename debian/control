@@ -19,7 +19,7 @@ Homepage: https://github.com/oxen-io/oxen-libquic
 Package: liboxen-quic-dev
 Section: libdevel
 Architecture: any
-Depends: liboxen-quic1.5 (= ${binary:Version}), ${misc:Depends},
+Depends: liboxen-quic1.6 (= ${binary:Version}), ${misc:Depends},
     libgnutls28-dev (>= 3.7.2),
     libevent-dev,
     liboxenc-dev (>= 1.4.0),
@@ -33,7 +33,7 @@ Description: C++ library for multi-stream QUIC implementations (headers)
  This package contains the library headers and other development files needed
  to build software using libquic.
 
-Package: liboxen-quic1.5
+Package: liboxen-quic1.6
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: C++ library for multi-stream QUIC implementations
