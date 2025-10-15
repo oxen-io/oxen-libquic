@@ -106,6 +106,10 @@ namespace oxen::quic
         TLSSession* get_session() const { return tls_session.get(); }
         TLSCreds* get_creds() const { return tls_creds.get(); }
 
+        // Returns the remote pubkey, if known (and empty otherwise).  For a client this is known
+        // from construction; for a server, this is known only after handshake completes, but even
+        // then might not be known if a client pubkey is not required for incoming connections (see
+        // GNUTLSCreds).
         std::span<const unsigned char> remote_key() const;
 
         Direction direction() const { return dir; }
@@ -140,8 +144,7 @@ namespace oxen::quic
         /// such as from an increase in available stream ids resulting from the closure of an
         /// existing stream.  Note that this constructor bypasses the stream constructor callback
         /// for the applicable stream id.
-        template <std::derived_from<Stream> StreamT, typename... Args, typename EndpointDeferred = Endpoint>
-            requires std::derived_from<StreamT, Stream>
+        template <std::derived_from<Stream> StreamT = Stream, typename... Args, typename EndpointDeferred = Endpoint>
         std::shared_ptr<StreamT> open_stream(Args&&... args)
         {
             return std::static_pointer_cast<StreamT>(open_stream_impl([&](Connection& c, EndpointDeferred& e) {
@@ -298,17 +301,23 @@ namespace oxen::quic
         bool is_inbound() const { return not is_outbound(); }
         std::string direction_str() { return is_inbound() ? "SERVER"s : "CLIENT"s; }
 
+        // Returns true if handshaking has finished on this connection.
+        bool is_handshaked() const { return handshaked; }
+        // Returns true if handshaking is finished on this connection and confirmed on the server.
+        // (For incoming connections, this will always be the same as is_handshaked()).
+        bool is_handshake_confirmed() const { return handshake_confirmed; }
+
         Endpoint& endpoint() { return _endpoint; }
         const Endpoint& endpoint() const { return _endpoint; }
 
+        // Returns the connection's negotiated ALPN.  Only available after the connection is
+        // established (typically once handshaked, but can be earlier for an incoming 0-RTT
+        // connection).  Before that this will return an empty string.
         std::string_view selected_alpn() const;
 
         size_t get_max_datagram_piece() const;
 
         std::optional<size_t> max_datagram_size_changed();
-
-        // True if the connection has been accepted and the remote pubkey successfully verified.
-        bool is_validated() const { return _is_validated; }
 
         const ConnectionID& reference_id() const { return _ref_id; }
 
@@ -319,12 +328,7 @@ namespace oxen::quic
       private:
         void packet_io_ready();
         void halt_events();
-        void set_closing() { closing = true; }
-        void set_draining() { draining = true; }
         stream_data_callback get_default_data_callback() const;
-
-        // This mutator is called from the gnutls code after cert verification (if it is successful)
-        void set_validated();
 
         connection_established_callback conn_established_cb;
         connection_closed_callback conn_closed_cb;
@@ -340,6 +344,7 @@ namespace oxen::quic
         const std::unordered_set<hashed_reset_token>& associated_reset_tokens() const { return _associated_resets; }
 
         int client_handshake_completed();
+        void client_handshake_confirmed();
 
         int server_handshake_completed();
 
@@ -403,8 +408,6 @@ namespace oxen::quic
         mutable std::atomic<bool> _max_dgram_size_changed{true};
 
         std::atomic<bool> _close_quietly{false};
-        std::atomic<bool> _is_validated{false};
-
         std::vector<unsigned char> remote_pubkey{};
 
         void revert_early_channels();
@@ -440,6 +443,15 @@ namespace oxen::quic
 
         bool draining = false;
         bool closing = false;
+        bool handshaked = false;
+        bool handshake_confirmed = false;
+
+        // There are multiple points at which we can call the conn_established_cb: in a normal 1-RTT
+        // connection, it happens after handshake completes, but with 0-RTT it can happen when early
+        // stream or datagram data is received *before* handshake completes.  check_established() is
+        // called from the various locations, and invokes the callback the first time it is called.
+        void check_established();
+        bool establish_hook_called = false;
 
         // Invokes the stream_construct_cb, if present; if not present, or if it returns nullptr,
         // then the given `make_stream` gets invoked to create a default stream.
@@ -495,7 +507,7 @@ namespace oxen::quic
         void stream_closed(int64_t id, uint64_t app_code);
         void close_all_streams();
         void check_pending_streams(uint64_t available);
-        int recv_datagram(std::span<const std::byte> data, bool fin);
+        int recv_datagram(std::span<const std::byte> data);
         int ack_datagram(uint64_t dgram_id);
         int recv_token(const uint8_t* token, size_t tokenlen);
 

@@ -21,8 +21,8 @@ namespace oxen::quic
                 return "Error - datagram exception"s;
             case STREAM_ERROR_EXCEPTION:
                 return "Error - stream exception"s;
-            case BPARSER_ERROR_EXCEPTION:
-                return "Error - bt request stream exception"s;
+            case BTREQ_ERROR_EXCEPTION:
+                return "Error - BTRequestStream exception"s;
             case STREAM_ERROR_CONNECTION_CLOSED:
                 return "Error - stream connection closed"s;
             case CONN_WRITE_CLOSE_FAIL:

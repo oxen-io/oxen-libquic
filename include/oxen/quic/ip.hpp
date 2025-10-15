@@ -228,7 +228,7 @@ namespace oxen::quic
                 return b;
             }
 
-            constexpr bool contains(const ipv4& other) const { return other.to_base(mask) == ip; }
+            constexpr bool contains(const ipv4& other) const { return other.to_base(mask) == ip.to_base(mask); }
 
             std::string to_string() const;
             constexpr static bool to_string_formattable = true;
@@ -262,7 +262,7 @@ namespace oxen::quic
                 return b;
             }
 
-            constexpr bool contains(const ipv6& other) const { return other.to_base(mask) == ip; }
+            constexpr bool contains(const ipv6& other) const { return other.to_base(mask) == ip.to_base(mask); }
 
             std::string to_string() const;
             constexpr static bool to_string_formattable = true;
