@@ -31,7 +31,7 @@ namespace oxen::quic
     inline constexpr uint64_t STREAM_ERROR_EXCEPTION = ERROR_BASE + 100;
 
     // Application error if a bt request stream handle throws an exception
-    inline constexpr uint64_t BPARSER_ERROR_EXCEPTION = ERROR_BASE + 105;
+    inline constexpr uint64_t BTREQ_ERROR_EXCEPTION = ERROR_BASE + 105;
 
     // Application error code we close with if the datagram data handle throws
     inline constexpr uint64_t DATAGRAM_ERROR_EXCEPTION = ERROR_BASE + 200;
