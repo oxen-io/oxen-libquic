@@ -81,6 +81,10 @@ namespace oxen::quic
         // Returns true if client-side 0-RTT is enabled
         virtual bool outbound_0rtt() const = 0;
 
+        // Returns true if this credential has actual credentials set.  Unauthenticating credential
+        // objects are only usable for outbound connections.
+        virtual bool has_credentials() const = 0;
+
         virtual ~TLSCreds() = default;
     };
 
@@ -90,8 +94,8 @@ namespace oxen::quic
         ngtcp2_crypto_conn_ref conn_ref;
         virtual void* get_session() = 0;
         virtual bool get_early_data_accepted() const = 0;
-        virtual std::string_view selected_alpn() const = 0;
-        virtual std::span<const unsigned char> remote_key() const = 0;
+        virtual std::string_view selected_alpn() = 0;
+        virtual std::span<const unsigned char> remote_key() = 0;
 
         // If this session loaded 0-rtt data, this will return the encoded transport data to be
         // loaded into the ngtcp2 connection to enable 0-RTT.  Note that the value is transferred to

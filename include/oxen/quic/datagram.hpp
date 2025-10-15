@@ -22,9 +22,6 @@ namespace oxen::quic
     class Endpoint;
     class Datagrams;
 
-    // The pseudo "stream id" we use to indicate the datagram channel:
-    inline constexpr int64_t DATAGRAM_PSEUDO_STREAM_ID = std::numeric_limits<int64_t>::min();
-
     namespace dgram
     {
         struct received
@@ -286,6 +283,8 @@ namespace oxen::quic
             size_t last_i = std::numeric_limits<size_t>::max();
             SendStatus last_sent = SendStatus::Unsent;
 
+            size_t unsent_bytes{0};
+
             std::deque<storage> buf{};
         };
     }  // namespace dgram
@@ -333,7 +332,11 @@ namespace oxen::quic
         friend struct dgram::rotating_buffer;
         friend class TestHelper;
 
-        Datagrams(Connection& c, Endpoint& e, dgram_data_callback data_cb = nullptr);
+        Datagrams(
+                Connection& c,
+                Endpoint& e,
+                dgram_data_callback data_cb = nullptr,
+                size_t dgram_queue_limit = std::numeric_limits<size_t>::max());
 
         Datagrams(const Datagrams&) = delete;
         Datagrams(Datagrams&&) = delete;
@@ -341,6 +344,9 @@ namespace oxen::quic
         Datagrams& operator=(Datagrams&&) = delete;
 
         dgram_data_callback dgram_data_cb;
+
+        // Maximum datagram size queued per connection.  Will need tuning.
+        size_t dgram_queue_limit = std::numeric_limits<size_t>::max();
 
         /// Datagram Numbering:
         /// Each datagram ID is comprised of a 16 bit quantity consisting of a 14 bit counter, and
@@ -414,7 +420,7 @@ namespace oxen::quic
         ///
         dgram::rotating_buffer recv_buffer;
 
-        std::optional<dgram::prepared> pending_datagram(bool prefer_small) override;
+        std::optional<dgram::prepared> pending(bool prefer_small);
         void confirm_datagram_sent();
 
         std::optional<std::vector<std::byte>> to_buffer(std::span<const std::byte> data, uint16_t dgid);
@@ -467,17 +473,11 @@ namespace oxen::quic
         void send_impl(std::span<const std::byte> data, std::shared_ptr<void> keep_alive) override;
 
         bool is_closing_impl() const override;
-        bool sent_fin() const override;
-        void set_fin(bool) override;
         size_t unsent_impl() const override;
         bool has_unsent_impl() const override;
-        void wrote(size_t) override;
-        std::vector<ngtcp2_vec> pending() override;
 
       public:
         bool is_stream() const override { return false; }
-        std::shared_ptr<Stream> get_stream() override;
-        int64_t stream_id() const override { return DATAGRAM_PSEUDO_STREAM_ID; }
     };
 
 }  // namespace oxen::quic
