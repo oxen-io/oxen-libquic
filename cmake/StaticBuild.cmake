@@ -7,11 +7,11 @@ include_guard(GLOBAL)
 
 set(LOCAL_MIRROR "" CACHE STRING "local mirror path/URL for lib downloads")
 
-set(NGTCP2_VERSION 1.13.0 CACHE STRING "ngtcp2 version")
+set(NGTCP2_VERSION 1.15.0 CACHE STRING "ngtcp2 version")
 set(NGTCP2_MIRROR ${LOCAL_MIRROR} https://github.com/ngtcp2/ngtcp2/releases/download/v${NGTCP2_VERSION}
     CACHE STRING "ngtcp2 mirror(s)")
 set(NGTCP2_SOURCE ngtcp2-${NGTCP2_VERSION}.tar.xz)
-set(NGTCP2_HASH SHA512=e284cb791c56cc342114febe777cd63ad8c00d6d5b0130c474a3dc9f5d4f932926131e4d10a01309de08c364511b8250477c0e88d252f67c231964abf74d82be
+set(NGTCP2_HASH SHA512=8d621f49561f80242ec1737ac9706adf7525c17e268f84dbb05c21fd9346921d458d8e64eebad50e4c04d4059aecb5c00245f7fde41781a31fe7da9634b1b222
     CACHE STRING "ngtcp2 source hash")
 
 set(GNUTLS_VERSION 3.8.10 CACHE STRING "gnutls version")
@@ -22,11 +22,11 @@ set(GNUTLS_SOURCE gnutls-${GNUTLS_VERSION}.tar.xz)
 set(GNUTLS_HASH SHA512=d453bd4527af95cb3905ce8753ceafd969e3f442ad1d148544a233ebf13285b999930553a805a0511293cc25390bb6a040260df5544a7c55019640f920ad3d92
     CACHE STRING "gnutls source hash")
 
-set(LIBICONV_VERSION 1.17 CACHE STRING "libiconv version")
+set(LIBICONV_VERSION 1.18 CACHE STRING "libiconv version")
 set(LIBICONV_MIRROR ${LOCAL_MIRROR} https://ftp.gnu.org/gnu/libiconv
     CACHE STRING "libiconv mirror(s)")
 set(LIBICONV_SOURCE libiconv-${LIBICONV_VERSION}.tar.gz)
-set(LIBICONV_HASH SHA512=18a09de2d026da4f2d8b858517b0f26d853b21179cf4fa9a41070b2d140030ad9525637dc4f34fc7f27abca8acdc84c6751dfb1d426e78bf92af4040603ced86
+set(LIBICONV_HASH SHA512=a55eb3b7b785a78ab8918db8af541c9e11deb5ff4f89d54483287711ed797d87848ce0eafffa7ce26d9a7adb4b5a9891cb484f94bd4f51d3ce97a6a47b4c719a
     CACHE STRING "libiconv source hash")
 
 set(LIBUNISTRING_VERSION 1.3 CACHE STRING "libunistring version")
@@ -332,7 +332,12 @@ build_external(libidn2
     BUILD_BYPRODUCTS ${DEPS_DESTDIR}/lib/libidn2.a ${DEPS_DESTDIR}/include/idn2.h)
 add_static_target(libidn2::libidn2 libidn2_external libidn2.a libunistring::libunistring)
 
+set(gnutls_patch_commands PATCH_COMMAND patch -p0 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/gnutls-android-timezone-t.patch)
 build_external(gmp
+    # These two patches are applied to gmplib upstream (and come via the Debian package):
+    PATCH_COMMAND
+        patch -p1 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/gmplib-fix-acinclude-m4-for-gcc-15.patch &&
+        patch -p1 -i ${CMAKE_CURRENT_LIST_DIR}/../utils/build_scripts/gmplib-trust-vsprintf-return.patch
     CONFIGURE_COMMAND ./configure ${build_host} --disable-shared --prefix=${DEPS_DESTDIR} --with-pic
         "CC=${deps_cc}" "CXX=${deps_cxx}" "CFLAGS=${deps_CFLAGS}${apple_cflags_arch}" "CXXFLAGS=${deps_CXXFLAGS}${apple_cxxflags_arch}"
         "LDFLAGS=-L${DEPS_DESTDIR}/lib${apple_ldflags_arch}" ${cross_rc} CC_FOR_BUILD=cc CPP_FOR_BUILD=cpp

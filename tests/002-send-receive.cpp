@@ -234,7 +234,7 @@ namespace oxen::quic::test
         }
     }
 
-    TEST_CASE("002 - BParser Testing", "[002][bparser]")
+    TEST_CASE("002 - BTRequestStream Testing", "[002][btreq]")
     {
         Network test_net{};
 
@@ -247,7 +247,7 @@ namespace oxen::quic::test
         {
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
-                    log::info(test_cat, "Server bparser received: {}", msg.body());
+                    log::info(test_cat, "Server BTRequestStream received: {}", msg.body());
             }};
 
             stream_constructor_callback server_constructor = [&](Connection& c, Endpoint& e, std::optional<int64_t>) {
@@ -276,7 +276,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Server bparser received: {}", msg.body());
+                    log::info(test_cat, "Server BTRequestStream received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -284,7 +284,7 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Client bparser received: {}", msg.body());
+                    log::info(test_cat, "Client BTRequestStream received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -320,7 +320,7 @@ namespace oxen::quic::test
             auto server_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Server bparser received: {}", msg.body());
+                    log::info(test_cat, "Server BTRequestStream received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -328,7 +328,7 @@ namespace oxen::quic::test
             auto client_bp_cb = callback_waiter{[&](message msg) {
                 if (msg)
                 {
-                    log::info(test_cat, "Client bparser received: {}", msg.body());
+                    log::info(test_cat, "Client BTRequestStream received: {}", msg.body());
                     msg.respond("test_response"s);
                 }
             }};
@@ -426,7 +426,7 @@ namespace oxen::quic::test
         }
     }
 
-    TEST_CASE("002 - BParser multi-request testing", "[002][bparser][multi]")
+    TEST_CASE("002 - BTRequestStream multi-request testing", "[002][btreq][multi]")
     {
         Network test_net{};
 
@@ -448,7 +448,7 @@ namespace oxen::quic::test
         auto server_handler = [&](message msg) {
             if (msg)
             {
-                log::info(test_cat, "Server bparser received: {}", msg.body());
+                log::info(test_cat, "Server BTRequestStream received: {}", msg.body());
                 if (msg.body() == req_msg)
                     msg.respond(res_msg);
                 else
@@ -461,7 +461,7 @@ namespace oxen::quic::test
             {
                 std::lock_guard lock{mut};
                 responses++;
-                log::debug(test_cat, "Client bparser received response {}: {}", responses, msg.body());
+                log::debug(test_cat, "Client BTRequestStream received response {}: {}", responses, msg.body());
                 if (msg.body() == res_msg)
                     good_responses++;
                 if (responses == num_requests)
@@ -500,7 +500,7 @@ namespace oxen::quic::test
         CHECK(responses == good_responses);
     }
 
-    TEST_CASE("002 - BParser huge requests", "[002][bparser][huge]")
+    TEST_CASE("002 - BTRequestStream huge requests", "[002][btreq][huge]")
     {
         Network test_net{};
 
@@ -539,7 +539,7 @@ namespace oxen::quic::test
                 if (msg)
                 {
                     ++responses;
-                    log::debug(test_cat, "Client bparser received response {}: {}", responses.load(), msg.body());
+                    log::debug(test_cat, "Client BTRequestStream received response {}: {}", responses.load(), msg.body());
                     if (msg.body() == res_msg)
                         ++good_responses;
                     if (responses == num_requests)
@@ -587,7 +587,7 @@ namespace oxen::quic::test
 
             auto client_reply_handler = [&](message msg) mutable {
                 if (msg)
-                    log::debug(test_cat, "Client bparser received response: {}", msg.body());
+                    log::debug(test_cat, "Client BTRequestStream received response: {}", msg.body());
                 else
                     log::debug(test_cat, "got back a failed message response");
             };
@@ -622,17 +622,17 @@ namespace oxen::quic::test
 
                 std::atomic<uint64_t> close_err = -1;
                 auto stream_close_cb = callback_waiter{[&](Stream&, uint64_t error_code) { close_err = error_code; }};
-                auto str = conn_interface->open_stream<Stream>(nullptr, stream_close_cb);
+                auto str = conn_interface->open_stream<Stream>(stream_close_cb);
 
                 str->send(std::move(payload));
 
                 REQUIRE(stream_close_cb.wait());
-                CHECK(close_err.load() == BPARSER_ERROR_EXCEPTION);
+                CHECK(close_err.load() == BTREQ_ERROR_EXCEPTION);
             }
         }
     }
 
-    TEST_CASE("002 - BParser generic request handler", "[002][bparser][generic]")
+    TEST_CASE("002 - BTRequestStream generic request handler", "[002][btreq][generic]")
     {
         Network test_net{};
 
@@ -702,7 +702,7 @@ namespace oxen::quic::test
         CHECK(errors == std::unordered_multiset{{"Invalid endpoint 'nuh uh'"s, "Invalid endpoint 'ep2'"s}});
     }
 
-    TEST_CASE("002 - BParser connection close triggers timeout callback", "[002][bparser][close]")
+    TEST_CASE("002 - BTRequestStream connection close triggers timeout callback", "[002][btreq][close]")
     {
         Network test_net{};
 
