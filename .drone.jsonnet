@@ -45,5 +45,6 @@ local deb_pipeline(image, buildarch='amd64', debarch='amd64', jobs=6) = {
 
 [
   deb_pipeline(distro_docker),
-  deb_pipeline(distro_docker + '/arm64v8', buildarch='arm64', debarch='arm64', jobs=4),
+  // Only 2 jobs because the header-only spdlog and fmt ramps up compiler memory usage:
+  deb_pipeline(distro_docker + '/arm64v8', buildarch='arm64', debarch='arm64', jobs=2),
 ]
