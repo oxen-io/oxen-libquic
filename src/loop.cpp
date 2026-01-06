@@ -26,10 +26,10 @@ namespace oxen::quic
                     log::info(ev_cat, "{}", msg);
                     break;
                 case _EVENT_LOG_DEBUG:
+                default:
                     log::debug(ev_cat, "{}", msg);
                     break;
             }
-            std::abort();
         });
     }
 
